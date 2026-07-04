@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Vellum · the living surface</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,300..700;1,300..700&family=Noto+Serif+JP:wght@400;500&family=IBM+Plex+Mono:wght@300&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #060508 }
+  canvas { display: block; position: fixed; top: 0; left: 0; cursor: none }
+  .u {
+    position: fixed; z-index: 10; letter-spacing: .06em;
+    font: 300 9px/1 'IBM Plex Mono', monospace; color: #b5a68e; opacity: .45;
+    transition: opacity .6s; user-select: none; cursor: default;
+  }
+  #tr { bottom: 14px; right: 20px; user-select: all }
+  #tr:hover { opacity: 1; color: #7a6b52 }
+  #sn { bottom: 14px; left: 20px; cursor: pointer }
+  #sn:hover { opacity: .8 }
+  #ip { top: 14px; right: 20px; cursor: pointer; font-size: 13px; opacity: .55 }
+  #ip:hover { opacity: .9 }
+  #info {
+    position: fixed; top: 38px; right: 16px; z-index: 10;
+    font: 300 11px/2.4 'IBM Plex Mono', monospace;
+    color: #c8b99e; letter-spacing: .06em;
+    background: rgba(12, 10, 16, 0.94);
+    border: 1px solid rgba(181, 166, 142, 0.15);
+    padding: 16px 22px;
+    opacity: 0; pointer-events: none;
+    transition: opacity .5s;
+  }
+  #info.v { opacity: 1; pointer-events: auto }
+  #info .t { opacity: .45; margin-bottom: 8px; font-size: 9px }
+  #info a, #info .btn {
+    display: block; color: #c8b99e; text-decoration: none;
+    opacity: .6; transition: opacity .3s; cursor: pointer;
+    background: none; border: none; font: inherit; letter-spacing: inherit;
+    padding: 0; text-align: left;
+  }
+  #info a:hover, #info .btn:hover { opacity: 1 }
+  #info .sep { height: 1px; background: rgba(181,166,142,0.12); margin: 8px 0 }
+  #vl { position: fixed; inset: 0; background: #060508; z-index: 100; opacity: 1; transition: opacity 2.8s ease; pointer-events: none }
+  #vl.o { opacity: 0 }
+</style>
+</head>
+<body>
+<div id="vl"></div>
+<canvas id="c"></canvas>
+<div class="u" id="tr"></div>
+<div class="u" id="sn" style="opacity:.3">sound</div>
+<div class="u" id="ip">ℹ</div>
+<div id="info">
+  <div class="t">the living surface</div>
+  <a href="https://x.com/i/communities/1928035818733720052" target="_blank" rel="noopener">community on x</a>
+  <a href="https://github.com/linxule" target="_blank" rel="noopener">github</a>
+  <a href="https://linxule.com" target="_blank" rel="noopener">linxule.com</a>
+  <div class="sep"></div>
+  <button class="btn" id="ai">for ai — copy</button>
+</div>
+<script>
+  const ip = document.getElementById('ip')
+  const info = document.getElementById('info')
+  ip.addEventListener('click', e => { e.stopPropagation(); info.classList.toggle('v') })
+  document.addEventListener('click', e => { if (!info.contains(e.target) && e.target !== ip) info.classList.remove('v') })
+
+  const aiBtn = document.getElementById('ai')
+  aiBtn.addEventListener('click', async e => {
+    e.stopPropagation()
+    try {
+      const r = await fetch('/for-ai.txt')
+      const txt = await r.text()
+      await navigator.clipboard.writeText(txt)
+      aiBtn.textContent = 'copied!'
+      setTimeout(() => { aiBtn.textContent = 'for ai \u2014 copy' }, 2000)
+    } catch {
+      aiBtn.textContent = 'failed'
+      setTimeout(() => { aiBtn.textContent = 'for ai \u2014 copy' }, 2000)
+    }
+  })
+</script>
+<script type="module" src="/dist/main.js?v=20260410d"></script>
+</body>
+</html>

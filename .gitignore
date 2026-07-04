@@ -1,0 +1,15 @@
+node_modules/
+dist/
+bun.lock
+.wrangler/
+.claude/
+worker/public/dist/
+wrangler.jsonc
+
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
+
+# Self-hosted Strudel (overrides root lib/ ignore)
+!worker/public/lib/

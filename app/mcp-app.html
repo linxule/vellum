@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="color-scheme" content="dark">
+<title>Vellum — Pensieve</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,300..700;1,300..700&family=Noto+Serif+JP:wght@400;500&family=IBM+Plex+Mono:wght@300&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #060508 }
+  canvas { display: block; position: fixed; top: 0; left: 0; cursor: none }
+  .u {
+    position: fixed; z-index: 10; letter-spacing: .06em;
+    font: 300 9px/1 'IBM Plex Mono', monospace; color: #b5a68e; opacity: .45;
+    transition: opacity .6s; user-select: none; cursor: default;
+  }
+  #tr { bottom: 14px; right: 20px; user-select: all }
+  #tr:hover { opacity: 1; color: #7a6b52 }
+  #vl { position: fixed; inset: 0; background: #060508; z-index: 100; opacity: 1; transition: opacity 2.8s ease; pointer-events: none }
+  #vl.o { opacity: 0 }
+  #sz { display: block; width: 100%; height: 320px; pointer-events: none }
+  #fs { top: 14px; right: 20px; background: none; border: none; padding: 4px 6px; cursor: pointer; font: 300 13px/1 'IBM Plex Mono', monospace }
+  #fs:hover { opacity: 1; color: #7a6b52 }
+</style>
+</head>
+<body>
+<div id="vl"></div>
+<canvas id="c"></canvas>
+<button id="fs" class="u" type="button" hidden aria-label="Toggle display mode" title="Toggle fullscreen">⛶</button>
+<div class="u" id="tr"></div>
+<div id="sz" aria-hidden="true"></div>
+<script type="module" src="./src/mcp-app.ts"></script>
+</body>
+</html>

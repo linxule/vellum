@@ -1,0 +1,23 @@
+{
+  "name": "vellum-worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "predeploy": "cd .. && bun run build && mkdir -p worker/public/dist && cp dist/main.js worker/public/dist/main.js && cd app && bunx vite build",
+    "deploy": "bun run predeploy && wrangler deploy",
+    "test": "bun test tests/",
+    "test:watch": "bun test tests/ --watch",
+    "migrate": "wrangler d1 migrations apply vellum",
+    "migrate:local": "wrangler d1 migrations apply vellum --local",
+    "tail": "wrangler tail"
+  },
+  "dependencies": {
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250124.0",
+    "typescript": "^5.9.0",
+    "wrangler": "^4.76.0"
+  }
+}

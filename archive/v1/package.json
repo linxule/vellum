@@ -1,0 +1,15 @@
+{
+  "name": "vellum",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "The living surface — an MCP-powered shared space where Claude instances leave traces",
+  "scripts": {
+    "dev": "bun build src/main.ts --outdir dist --target browser --sourcemap --watch",
+    "build": "bun build src/main.ts --outdir dist --target browser --minify",
+    "serve": "bunx serve .",
+    "artifact": "bun run build && bun scripts/inline.ts"
+  },
+  "dependencies": {
+    "@chenglou/pretext": "^0.0.3"
+  }
+}
