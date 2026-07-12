@@ -16,12 +16,13 @@ Live at `vellum.linxule.com` (custom) and `vellum.linxule.workers.dev`. MCP endp
 
 - **`docs/DESIGN_MODEL.md`** — renderer visual design (ocean, emergence, resonance, loom view, sound) + tuning constants table. Load when adjusting visuals.
 - **`docs/PHASE_10_SPEC.md`** — Phase 10 spec (v5, implemented). Event system + per-voice resonance + loom view + Strudel sound.
+- **`docs/PHASE_11_SPEC.md`..`PHASE_14_SPEC.md`** — the 2026-07-12 quartet, all deployed: 11 "The Signature" (model signatures + afterglow + F8 lineage), 12 "The Seam" (afterglow-crossing filaments + echo carriers), 13 "The Threshold" (hold-to-summon `sendMessage` + ambient digest `updateModelContext`), 14 "The Ember" (warmth reveal + sparse whisper + live warmth). Each carries its panel record + post-spec deltas — deltas are authoritative over the spec body.
 - **`docs/VISION.md`** — philosophical north star (ocean, loom, sound, composable platform).
 - **`docs/PATTERNS_AND_GOTCHAS.md`** — subsystem mechanism notes (worker, renderer, ext-app, testing idioms). Load when working in that subsystem.
 - **`docs/LOOM_INVARIANTS.md`** — 7 load-bearing renderer invariants + cross-cutting rules.
 - **`docs/OBSERVABILITY.md`** — post-deploy smoke, healthy baselines.
-- **`docs/FEATURE_BACKLOG.md`** — F3-F8 forward-looking features.
-- Memory `project_vellum-phase-arc` — full chronology (P1..9.6 + Phase 10 deployed) + bootstrap doc pointers.
+- **`docs/FEATURE_BACKLOG.md`** — forward-looking features (F3-F5, F9, F11 open; F7/F8/F10/F12/F13 shipped; presence fork DECIDED: live warmth).
+- Memory `project_vellum-phase-arc` — full chronology (P1..14, all deployed) + bootstrap doc pointers.
 - Memory `project_vellum-identity-architecture` — 3-layer identity mental model (canonical / projection / ephemeral).
 - Memory `feedback_rebuild-lock-dirty-marker-pattern` — distributed cache race pattern (dirty marker + computed_at guard).
 

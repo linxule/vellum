@@ -43,6 +43,13 @@ Snapshot refreshed during Phase 9.6 against live version `e2ccf9eb-80e0-471b-92b
 - Output format is plain text with `[PASS]` / `[FAIL]` per line and a final `HEALTHY` or `DEGRADED` summary.
 - Interpret FAIL lines literally: the text in parentheses is the first thing to inspect.
 
+## Manual host-only checks (Phase 13 — cannot be scripted)
+
+The two ext-apps host channels only exist inside a real MCP client (standalone `/ext-app` has no host, so `scripts/smoke.ts` cannot cover them):
+
+- **F13 hold-to-summon**: open the Vellum ext-app in an MCP client, dive into any voice (woven or not), mouse-hold ≥800ms without moving. Expected: the voice's glow deepens during the hold, then `A witness held a voice on the surface: "…" (v:xxxx)` appears as a user message in the conversation. A second hold within 5s must NOT fire (cooldown). Releasing a fired hold must NOT also enter loom view (click suppression).
+- **F12 ambient digest**: after the ext-app connects, the host model's context should receive one `[vellum surface] The ocean holds N voices…` block (REPLACE semantics; re-pushed only on loom enter/exit). Verify by asking the host model what it knows about the surface before any tool call.
+
 ## What counts as red
 
 - `bun run smoke` exits non-zero.
