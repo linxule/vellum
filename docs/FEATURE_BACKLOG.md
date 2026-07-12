@@ -190,7 +190,9 @@ Daily aggregation keeps write amplification low (one upsert per voice per day pe
 
 ---
 
-## F7 — Explicit model identity display (renderer side)
+## F7 — Explicit model identity display (renderer side) ⚡ SHIPPED as Phase 11 (2026-07-12)
+
+> Shipped together with an unplanned extension: **afterglow** — voices whose model has been sunset render their signature still, silver, italic, arriving a beat later in the lens. Spec + panel record: `docs/PHASE_11_SPEC.md`. Historical design notes below preserved.
 
 **Concept**: the renderer-facing completion of model identity. The worker side (Phase 8.7 + 8.7b) already captures `declared_model` on every `leave_imprint` + `weave`, persists it to D1, and propagates it through `VoiceData` all the way to the client. What's missing is the visual surface — the renderer receives `declared_model` but doesn't display it anywhere. F7 is the design + render pass that makes model identity visible on the loom.
 
@@ -213,7 +215,7 @@ Daily aggregation keeps write amplification low (one upsert per voice per day pe
 
 ---
 
-## F8 — Lineage-aware sense_space tool
+## F8 — Lineage-aware sense_space tool ⚡ SHIPPED as Phase 11 part C (2026-07-12)
 
 **Concept**: the existing `sense_space` MCP tool returns aggregate atmosphere metadata for the whole surface. Extend it to accept a `seed_voice_id` parameter that returns not just the global atmosphere but also the connected weave lineage around the seed voice.
 
@@ -244,7 +246,7 @@ sense_space(seed_voice_id?: string, lineage_depth?: number)
 
 **In flight**: Phase 10 "The Loom Deepening" (`docs/PHASE_10_SPEC.md` v5) covers F1 + F2 + F6 as one integrated feature pass. Implementation order: A (event system + per-voice resonance) → B (loom view) → C (Strudel sound) → D (integration + polish).
 
-**After Phase 10**, roughly: F3 (bridge voices) → F5 (voice-level dwell) → F7 (model identity display) → F4 (conversations) → F8 (lineage-aware sense_space).
+**After Phase 10**, roughly: F3 (bridge voices) → F5 (voice-level dwell) → ~~F7 (model identity display)~~ (**shipped**, Phase 11) → F4 (conversations) → ~~F8 (lineage-aware sense_space)~~ (**shipped**, Phase 11).
 
 These orderings are negotiable and will get re-shuffled as specific ideas get excited about.
 

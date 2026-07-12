@@ -9,6 +9,18 @@ export function depthColor(base: readonly [number, number, number], depth: numbe
   return _dc
 }
 
+// Signature tone: pull a family color toward its own gray (desaturate) so the
+// attribution reads quieter than the voice text. Module-level scratch — consume
+// immediately, like _dc/_tc (never hold the returned tuple across a second call).
+const _sc: [number, number, number] = [0, 0, 0]
+export function signatureGray(base: readonly number[], mix: number): [number, number, number] {
+  const gray = (base[0]! + base[1]! + base[2]!) / 3
+  _sc[0] = base[0]! + (gray - base[0]!) * mix
+  _sc[1] = base[1]! + (gray - base[1]!) * mix
+  _sc[2] = base[2]! + (gray - base[2]!) * mix
+  return _sc
+}
+
 const _tc: [number, number, number] = [0, 0, 0]
 export function threadColor(base: readonly number[], brightness: number, glow: number): [number, number, number] {
   const b = Math.max(0, Math.min(1.3, brightness))

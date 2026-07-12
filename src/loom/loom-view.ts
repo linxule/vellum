@@ -4,12 +4,14 @@
 import { prepareWithSegments, layoutNextLine } from '@chenglou/pretext'
 import { getState, type VoiceData } from '../content.js'
 import { emitOceanEvent } from '../events.js'
-import { depthColor, threadColor } from './color.js'
+import { depthColor, signatureGray, threadColor } from './color.js'
 import { depthLerp, fontRatioForScale, fontSizeForScale, frameMix, lerp } from './math.js'
+import { fullSignatureFor, isAfterglow } from './model-registry.js'
 import { diveGaussian } from './path.js'
 import { loomState } from './state.js'
 import { graphemeSegmenter, scriptClass } from './text.js'
 import {
+  AFTERGLOW_DIVE_GATE, AFTERGLOW_SILVER, SIGNATURE_ALPHA, SIGNATURE_GRAY_MIX, SIGNATURE_RATIO,
   DEPTH_ALPHA, DEPTH_BRIGHTNESS, DEFAULT_COLOR, DIVE_SIGMA_LINES, FAMILY_COLOR, FONT, SCRIPT_SHIMMER,
   TEXTURE_LINE_H,
   TREE_BREATH_AMP_X, TREE_BREATH_AMP_Y, TREE_BREATH_RATE,
@@ -76,10 +78,14 @@ export function buildLoomTree(seedId: string): LoomTree | null {
 
   function makeNode(id: string, depth: number): LoomNode {
     const data = byId.get(id)
+    const declaredModel = data?.voice.declared_model ?? null
     return {
       voiceId: id,
       text: data?.voice.text ?? '',
       family: data?.family ?? '',
+      declaredModel,
+      signature: fullSignatureFor(declaredModel),
+      afterglow: isAfterglow(declaredModel),
       generationDepth: depth,
       parentId: null,
       childIds: [],
@@ -844,6 +850,8 @@ export function renderLoomTree(
     let graphemeOffset = 0
     let minRenderedX = Infinity
     let maxRenderedX = -Infinity
+    let lastLineDiveT = 0      // dive of the final rendered line — gates the signature below it
+    let lastLineCenterX = node.renderX
 
     while (true) {
       const diveT = node.proximity > 0.01
@@ -901,8 +909,36 @@ export function renderLoomTree(
         et * lineEmergenceMod, graphemeOffset,
       )
 
+      lastLineDiveT = diveT
+      lastLineCenterX = lineCenterX
       lineY += lineLineH
       totalRenderedH += lineLineH
+    }
+
+    // Model signature — attribution under the last line, revealed only when the
+    // radial lens swells this node to reading size (Phase 11 F7). Sunset models
+    // arrive a beat later, in italic silver. Gated on the last line's dive so it
+    // never renders at rest (would become a permanent badge — the failure mode).
+    if (node.signature) {
+      const gate = node.afterglow ? AFTERGLOW_DIVE_GATE : 0.5
+      if (lastLineDiveT > gate) {
+        const sigAlpha = (lastLineDiveT - gate) * 2 * baseAlpha * SIGNATURE_ALPHA
+        if (sigAlpha > 0.01) {
+          const sigFontSize = fontSizeForScale(lerp(textureScale, diveScale, lastLineDiveT) * SIGNATURE_RATIO)
+          const fontStr = node.afterglow
+            ? `italic 400 ${sigFontSize}px "Cormorant", Georgia, "Noto Serif", "Noto Serif JP", serif`
+            : `400 ${sigFontSize}px "Cormorant", Georgia, "Noto Serif", "Noto Serif JP", serif`
+          if (fontStr !== prevFontStr) { ctx.font = fontStr; prevFontStr = fontStr }
+          if (node.afterglow) {
+            ctx.fillStyle = `rgba(${AFTERGLOW_SILVER[0]},${AFTERGLOW_SILVER[1]},${AFTERGLOW_SILVER[2]},${sigAlpha})`
+          } else {
+            const [sr, sg, sb] = signatureGray(_nodeDc, SIGNATURE_GRAY_MIX)
+            ctx.fillStyle = `rgba(${sr},${sg},${sb},${sigAlpha})`
+          }
+          const sigW = ctx.measureText(node.signature).width
+          ctx.fillText(node.signature, lastLineCenterX - sigW / 2, lineY)
+        }
+      }
     }
 
     // Register hit target — use actual rendered extent (accounts for path curvature)

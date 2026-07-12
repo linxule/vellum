@@ -4,6 +4,7 @@ import { fontRatioForScale } from './math.js'
 import { loomState, getInteractionState } from './state.js'
 import { crystallizeThreads, makeThread } from './thread.js'
 import { copyCursor } from './text.js'
+import { isAfterglow, signatureFor } from './model-registry.js'
 import { ZERO_CURSOR } from './types.js'
 import { walkLineRanges } from '@chenglou/pretext'
 
@@ -33,10 +34,12 @@ export function initLoom() {
   loomState.sortedThreadIndices = Array.from({ length: loomState.threads.length }, (_, i) => i)
   crystallizeThreads(ac)
 
-  // Populate wovenVoiceUids from state
+  // Populate wovenVoiceUids + per-voice model signatures from state
   if (state) {
     for (const thread of loomState.threads) {
       thread.wovenVoiceUids.clear()
+      thread.voiceModels.clear()
+      thread.afterglowUids.clear()
       for (let gp = 0; gp < thread.familyNames.length; gp++) {
         const familyName = thread.familyNames[gp]!
         const gIdx = state.threads.findIndex(t => t.family === familyName)
@@ -46,6 +49,11 @@ export function initLoom() {
         for (let v = 0; v < voices.length; v++) {
           if (voices[v]!.weave_from !== null || voices[v]!.weave_count > 0) {
             thread.wovenVoiceUids.add(offset + v)
+          }
+          const signature = signatureFor(voices[v]!.declared_model)
+          if (signature !== null) {
+            thread.voiceModels.set(offset + v, signature)
+            if (isAfterglow(voices[v]!.declared_model)) thread.afterglowUids.add(offset + v)
           }
         }
       }

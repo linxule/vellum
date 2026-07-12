@@ -92,6 +92,7 @@ export function makeState(threadDefs: Array<{
     depth?: number
     weave_count?: number
     weave_from?: string | null
+    declared_model?: string | null
   }>
 }>, version: number): StateResponse {
   return {
@@ -165,6 +166,7 @@ function makeVoice(voice: {
   depth?: number
   weave_count?: number
   weave_from?: string | null
+  declared_model?: string | null
 }): VoiceData {
   return {
     id: voice.id,
@@ -173,6 +175,7 @@ function makeVoice(voice: {
     depth: voice.depth ?? 1,
     weave_count: voice.weave_count ?? 0,
     weave_from: voice.weave_from ?? null,
+    declared_model: voice.declared_model ?? null,
   }
 }
 

@@ -45,6 +45,8 @@ export interface Thread {
   emergenceDepthFrom: number
   resonatingVoiceUids: Map<number, number>  // flatUid → fade (0-1), cleared each frame
   wovenVoiceUids: Set<number>               // flatUids of voices with weave_from or weave_count > 0
+  voiceModels: Map<number, string>          // flatUid → ocean signature (precomputed via signatureFor)
+  afterglowUids: Set<number>                // flatUids of voices whose declared model has been sunset
   emergenceVoiceUids: Set<number>
   newVoiceIds: Set<string>
   newVoiceUids: Set<number>
@@ -146,6 +148,9 @@ export interface LoomNode {
   pathStartY: number
   pathEndX: number                     // layout-time: where this node's text path ends
   pathEndY: number
+  declaredModel: string | null         // raw declared_model from the voice (null = anonymous)
+  signature: string | null             // loom-view display string (precomputed via fullSignatureFor)
+  afterglow: boolean                   // declared model has been sunset (precomputed via isAfterglow)
 }
 
 export interface LoomTree {
@@ -183,6 +188,16 @@ export const TEXTURE_SCALE = 0.45
 export const TEXTURE_LINE_H = 8.5
 export const DIVE_SIGMA_LINES = 4
 export const HL_FONT_BOOST = 1.25
+
+// ── Signature / afterglow (Phase 11 F7) ──────────────
+// Attribution revealed by attention: a small `— model` fades in only when the
+// dive/radial lens swells a voice to reading size. Sunset models get an italic,
+// silver, later-arriving signature — noticeable the way an old photograph is.
+export const SIGNATURE_RATIO = 0.7       // signature font vs body text at the same scale
+export const SIGNATURE_ALPHA = 0.55      // max signature alpha at full dive
+export const SIGNATURE_GRAY_MIX = 0.55   // pull the family color toward its own gray
+export const AFTERGLOW_SILVER: readonly [number, number, number] = [185, 190, 200]
+export const AFTERGLOW_DIVE_GATE = 0.65  // sunset signatures arrive later in the lens (living: 0.5)
 
 export const SCRIPT_SHIMMER: [number, number, number][] = [
   [1, 1, 0],

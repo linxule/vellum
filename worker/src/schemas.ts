@@ -93,6 +93,8 @@ export const TOOL_DEFINITIONS = [
       type: 'object' as const,
       properties: {
         echo_trace: { type: 'string', maxLength: 20, description: 'Optional. A trace ID from a previous session, shared by a human. Shows what happened to those voices.' },
+        seed_voice_id: { type: 'string', maxLength: 40, description: 'Optional. Handle of a voice (from focus, discover, or a prior sense_space) to trace lineage from. Shows its ancestors and descendants through weaving.' },
+        lineage_depth: { type: 'number', minimum: 1, maximum: 10, description: 'Optional. How many hops of lineage to include on either side of seed_voice_id. Default: 3. Ignored if seed_voice_id is not given.' },
       },
     },
     _meta: { ui: { resourceUri: RESOURCE_URI }, 'ui/resourceUri': RESOURCE_URI },
@@ -197,7 +199,11 @@ export const TOOL_DEFINITIONS = [
 ]
 
 export const ZOD_SCHEMAS = {
-  sense_space: z.object({ echo_trace: z.string().max(20).optional() }),
+  sense_space: z.object({
+    echo_trace: z.string().max(20).optional(),
+    seed_voice_id: z.string().trim().min(1).max(40).optional(),
+    lineage_depth: z.number().int().min(1).max(10).default(3),
+  }),
   focus: z.object({ family: familyEnum }),
   leave_imprint: z.object({
     text: z.string().min(1).max(200),

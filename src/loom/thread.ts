@@ -118,6 +118,8 @@ export function makeThread(
     emergenceDepthFrom: 0,
     resonatingVoiceUids: new Map(),
     wovenVoiceUids: new Set(),
+    voiceModels: new Map(),
+    afterglowUids: new Set(),
     emergenceVoiceUids: new Set(),
     newVoiceIds: new Set(),
     newVoiceUids: new Set(),

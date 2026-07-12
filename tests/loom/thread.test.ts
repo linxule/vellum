@@ -24,6 +24,8 @@ test('makeThread initializes all mutable-per-frame fields to zero / Infinity / e
   expect(thread.emergenceDepthFrom).toBe(0)
   expect(thread.resonatingVoiceUids.size).toBe(0)
   expect(thread.wovenVoiceUids.size).toBe(0)
+  expect(thread.voiceModels.size).toBe(0)
+  expect(thread.afterglowUids.size).toBe(0)
   expect(thread.emergenceVoiceUids.size).toBe(0)
   expect(thread.newVoiceIds.size).toBe(0)
   expect(thread.newVoiceUids.size).toBe(0)

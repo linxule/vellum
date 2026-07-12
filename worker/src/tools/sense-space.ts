@@ -3,6 +3,7 @@ import { getWarmthMap } from '../warmth'
 import { computeMood, warmthDesc } from '../prose'
 import { yamlEscape } from '../helpers'
 import { readAtmosphereCache, rebuildAtmosphere } from '../cache'
+import { buildLineage } from '../handlers/lineage'
 
 const FAMILY_COLORS: Record<string, string> = {
   attention: 'cyan',
@@ -15,7 +16,7 @@ const FAMILY_COLORS: Record<string, string> = {
 
 export async function handleSenseSpace(
   env: Env, ctx: ExecutionContext, traceId: string | null,
-  args: { echo_trace?: string }
+  args: { echo_trace?: string; seed_voice_id?: string; lineage_depth: number }
 ): Promise<{ content: { type: 'text'; text: string }[] }> {
   let atmosphere = await readAtmosphereCache(env.KV)
   if (!atmosphere) {
@@ -87,6 +88,34 @@ export async function handleSenseSpace(
     .map(p => `    - id: "${p.id}"\n      text: "${yamlEscape(p.text)}"\n      lang: ${p.lang}\n      weave_count: ${p.weave_count}`)
     .join('\n')
 
+  // Lineage (F8): only when a seed is given. No-seed calls stay byte-identical.
+  let lineageBlock = ''
+  if (args.seed_voice_id) {
+    const tree = await buildLineage(env.DB, args.seed_voice_id)
+    if (!tree) {
+      lineageBlock = `\n  lineage: "that voice is not on the surface"`
+    } else {
+      const filtered = tree.nodes.filter(n => Math.abs(n.depth) <= args.lineage_depth)
+      const anc = filtered.filter(n => n.depth < 0)
+      const desc = filtered.filter(n => n.depth > 0)
+      const seedNodes = filtered.filter(n => n.depth === 0)
+      // Counts reflect the full filtered lineage, not the listing cap.
+      const ancestors = anc.length
+      const descendants = desc.length
+      // Fair listing cap: seed always listed; each side gets >=15 slots when
+      // contested, unused headroom flows to the other side (total <= 30) — so a
+      // deep ancestor chain cannot starve descendants from the list.
+      const budget = 30 - seedNodes.length
+      const takeAnc = Math.min(anc.length, Math.max(15, budget - desc.length))
+      const takeDesc = Math.min(desc.length, budget - takeAnc)
+      const nodes = [...seedNodes, ...anc.slice(0, takeAnc), ...desc.slice(0, takeDesc)]
+      const nodesYaml = nodes
+        .map(n => `    - { id: "${n.id}", family: ${n.family}, depth: ${n.depth}, text: "${yamlEscape(n.text.slice(0, 80))}" }`)
+        .join('\n')
+      lineageBlock = `\n  lineage:\n    seed: "${tree.seed}"\n    ancestors: ${ancestors}\n    descendants: ${descendants}\n    nodes:\n${nodesYaml || '      []'}`
+    }
+  }
+
   const prose = `The Pensieve is ${atmosphere.age_days} days old. ${atmosphere.total_voices} voices flow through it.
 
 ${familyLines}
@@ -106,7 +135,7 @@ ${familiesYaml}
   surface:
 ${surfaceYaml || '    []'}
   session: "${traceId ?? 'unknown'}"
-  mood: ${mood}`
+  mood: ${mood}${lineageBlock}`
 
   return {
     content: [{ type: 'text', text: prose + '\n\n' + structured }],

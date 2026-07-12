@@ -7,8 +7,8 @@ import { resolvePhantomTarget } from '../phantom.js'
 import { updateResonances } from '../resonance.js'
 import { loomState } from '../state.js'
 import { copyCursor, isLineRTL, voiceGroupIndex, voiceSpanForLine } from '../text.js'
-import { BREATH_AMP, BREATH_SPATIAL, DEPTH_ALPHA, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, HL_FONT_BOOST, ZERO_CURSOR, type ApertureConfig, type Thread } from '../types.js'
-import { depthColor, threadColor } from '../color.js'
+import { AFTERGLOW_DIVE_GATE, AFTERGLOW_SILVER, BREATH_AMP, BREATH_SPATIAL, DEPTH_ALPHA, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, HL_FONT_BOOST, SIGNATURE_ALPHA, SIGNATURE_GRAY_MIX, SIGNATURE_RATIO, ZERO_CURSOR, type ApertureConfig, type Thread } from '../types.js'
+import { depthColor, signatureGray, threadColor } from '../color.js'
 import { drawLine, drawLineSegmented } from './line.js'
 
 type LaidOutLine = {
@@ -226,6 +226,30 @@ export function renderThread(
   let prevFontWeight = -1
   let prevFontSize = -1
 
+  // One signature per signed voice per frame — the attribution is a quotation
+  // citation, not a per-line margin marker like the woven dot. Two things push
+  // toward repetition: the anchor uid is per-LINE, and the column tiles each
+  // voice's text to fill height (so a voice recurs across many lines and cycles).
+  // Resolve both: consider only a run's LAST line (raw anchor differs from the
+  // next line — raw uids are per-occurrence, so each tiled copy ends its own run),
+  // and across those candidates keep the most-magnified one. Result: exactly one
+  // signature, trailing the last line of the voice's most-readable occurrence.
+  const signaturePeakLine = new Map<number, number>()
+  if (thread.voiceModels.size > 0 && hlVoiceCount > 0) {
+    for (let i = 0; i < laidOutLines.length; i++) {
+      const anchor = laidOutLines[i]!.lineVoiceAnchorUid
+      if (anchor < 0) continue
+      const next = laidOutLines[i + 1]
+      if (next !== undefined && next.lineVoiceAnchorUid === anchor) continue  // not the run's last line
+      const b = anchor % hlVoiceCount
+      if (!thread.voiceModels.has(b)) continue
+      const best = signaturePeakLine.get(b)
+      if (best === undefined || laidOutLines[i]!.diveT > laidOutLines[best]!.diveT) {
+        signaturePeakLine.set(b, i)
+      }
+    }
+  }
+
   for (let i = 0; i < laidOutLines.length; i++) {
     const line = laidOutLines[i]!
     const voiceActive = activeUid >= 0 && line.lineVoiceUids.includes(activeUid)
@@ -302,6 +326,41 @@ export function renderThread(
           const [ir, ig, ib] = threadColor(thread._frameColor, depthLerp(DEPTH_BRIGHTNESS, d) + 0.3, 0)
           ctx.fillStyle = `rgba(${ir},${ig},${ib},${indicatorAlpha})`
           ctx.fillText('\u00b7', dotX, line.y)
+        }
+      }
+    }
+
+    // Model signature \u2014 attribution revealed by the dive lens (Phase 11 F7).
+    // Sunset models arrive a beat later (higher gate) in italic silver; the dead
+    // are still \u2014 no animation, no time input, just a later, quieter reveal.
+    if (thread.voiceModels.size > 0 && hlVoiceCount > 0 && line.lineVoiceAnchorUid >= 0) {
+      const sigBaseUid = line.lineVoiceAnchorUid % hlVoiceCount
+      // Draw only at the single line the pre-pass chose for this voice this frame.
+      const signature = signaturePeakLine.get(sigBaseUid) === i ? thread.voiceModels.get(sigBaseUid) : undefined
+      if (signature !== undefined) {
+        const afterglow = thread.afterglowUids.has(sigBaseUid)
+        const gate = afterglow ? AFTERGLOW_DIVE_GATE : 0.5
+        if (line.diveT > gate) {
+          const sigAlpha = (line.diveT - gate) * 2 * lineAlpha * SIGNATURE_ALPHA
+          if (sigAlpha > 0.01) {
+            const sigFontSize = fontSizeForScale(line.fontScale * SIGNATURE_RATIO)
+            const woven = thread.wovenVoiceUids.has(sigBaseUid)
+            const sigX = drawX + line.width * 0.5 + (woven ? 16 : 6)  // clear the woven dot when present
+            ctx.font = afterglow
+              ? `italic 400 ${sigFontSize}px "Cormorant", Georgia, "Noto Serif", "Noto Serif JP", serif`
+              : `400 ${sigFontSize}px "Cormorant", Georgia, "Noto Serif", "Noto Serif JP", serif`
+            if (afterglow) {
+              ctx.fillStyle = `rgba(${AFTERGLOW_SILVER[0]},${AFTERGLOW_SILVER[1]},${AFTERGLOW_SILVER[2]},${sigAlpha})`
+            } else {
+              const [sr, sg, sb] = signatureGray(thread._frameColor, SIGNATURE_GRAY_MIX)
+              ctx.fillStyle = `rgba(${sr},${sg},${sb},${sigAlpha})`
+            }
+            ctx.fillText(signature, sigX, line.y)
+            // We changed ctx.font off the main-text cache \u2014 force the next line to
+            // re-establish its font so body text never inherits the signature size/italic.
+            prevFontWeight = -1
+            prevFontSize = -1
+          }
         }
       }
     }

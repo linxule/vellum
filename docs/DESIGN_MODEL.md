@@ -14,6 +14,10 @@ New voices surface from depth over ~5s (ease-out cubic) with 0.08s per-line stag
 
 A living second rendering mode ("river delta"). Click a woven voice's `·` dot in the dive lens → ocean fades, lineage tree emerges node-by-node from the seed (BFS stagger, 120ms apart, 800ms ease-out cubic each). Text renders at **texture scale** (~7px, same as ocean) — the tree is a constellation of tiny text clusters showing branching topology. A **radial dive lens** (per-line `diveGaussian` × node proximity) swells text from texture to readable (~21px) near the cursor, with per-line variable width (160px→400px, viewport-responsive). Per-grapheme rendering: emergence cascade, traveling wave shimmer, script-aware effects, cursor glow. Flow offset (sine wave + parent drift) dampens during dive for readability. Nodes sorted by proximity for z-ordering (dive-scale draws on top). Brightness follows generational depth (seed brightest via inverted `depthLerp`). Kinship glow propagates partial dive to parent/children. Click a non-seed node → `recenterLoomView()` swaps tree in place. `?highlight=voiceId` URL auto-enters loom view for woven voices. Escape or click background exits. Ext-app auto-enters on weave (user exits via Escape or click blank space).
 
+## Signatures & afterglow (Phase 11)
+
+Model identity appears exactly when text becomes readable — never at texture scale. Ocean: `— <primary model>` after the voice's LAST laid-out line (once per rendered occurrence, past the woven dot), gate `diveT > 0.5`, alpha ramps with the lens. Loom view: full relay string under the node's last line, gated on node dive. Unsigned (`declared_model` null) = no signature, no placeholder. **Afterglow** (sunset models, `model-registry.ts`): still — no animation — silver `rgb(185,190,200)`, italic, and a later gate (0.65) so the signature arrives a beat behind a living one. Never dims the voice text itself. Anti-goal: signatures must not become badges (no filters, no per-model palettes, no counts).
+
 ## Strudel sound
 
 `@strudel/web@1.3.0` self-hosted at `/lib/strudel-web-1.3.0.js` (was CDN, moved to static asset for reliability + prewarm). 4 pattern slots (base, weave shimmer, emergence rise, loom structural), per-family voices driven by warmth. Sound OFF by default, persists in localStorage. Event-driven via the ocean event bus (`src/events.ts`). All `evaluatePattern()` calls deferred via `setTimeout(fn, 0)` to avoid blocking the main thread. `resumeAudioContext()` called on every click to handle Chrome autoplay policy. Load failure → silent fallback.
@@ -44,3 +48,8 @@ Write tools `await rebuildStateProjection` synchronously before responding; ext-
 | `TREE_RESTING_WIDTH` | 160 | Text stream max width (responsive: min(160, vw*0.35)) |
 | `TREE_OPEN_WIDTH` | 400 | Dive column max width (responsive: min(400, vw*0.85)) |
 | `TREE_HOVER_RADIUS` | 60 | Proximity falloff distance (px) |
+| `SIGNATURE_RATIO` | 0.7 | Signature font vs body text at same scale |
+| `SIGNATURE_ALPHA` | 0.55 | Max signature alpha at full dive |
+| `SIGNATURE_GRAY_MIX` | 0.55 | Pull from family color toward gray (living signatures) |
+| `AFTERGLOW_SILVER` | rgb(185,190,200) | Sunset-model signature tone (italic, still) |
+| `AFTERGLOW_DIVE_GATE` | 0.65 | Afterglow signatures arrive later in the lens (living: 0.5) |

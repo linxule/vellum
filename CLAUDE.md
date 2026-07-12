@@ -54,7 +54,7 @@ bun run migrate:local                 # local variant
 
 ### Renderer (`src/`)
 
-19 modules under `src/loom/` (16 root + 3 in `render/`). Public barrel: `src/loom/index.ts`. Key modules:
+20 modules under `src/loom/` (17 root + 3 in `render/`). Public barrel: `src/loom/index.ts`. Key modules:
 
 - `loom/state.ts` — module-level singletons + test accessors + loom view state
 - `loom/refresh.ts` — `refreshLoom()` with identity-stable voice merge + event emission (DI)
@@ -63,6 +63,7 @@ bun run migrate:local                 # local variant
 - `loom/loom-view.ts` — loom tree building, layout, entry/exit/recenter API, living tree renderer (breath, emergence stagger, filaments, hover proximity, hit targets). Uses ocean vocabulary: `depthLerp`, `threadColor`, `fontSizeForScale`, `frameMix`. `recenterLoomView()` swaps tree in place without touching transition.
 - `loom/render/frame.ts` — `advanceLoom` (state-only) + `paintLoom` (draw-only) + `renderLoom` (combined) + loom view transition
 - `loom/render/{thread,line}.ts` — per-thread layout + drawing + per-voice resonance glow + hit-test cache
+- `loom/model-registry.ts` — leaf module (like `events.ts`): model signatures + `SUNSET_MODELS` afterglow registry (Phase 11). `signatureFor` = ocean display (primary author only), `fullSignatureFor` = loom display (full relay string). **Edit `SUNSET_MODELS` by hand at each model sunset** — no date math, entries are already-retired models only.
 - `loom/{math,color,aperture,text,path,thread,init,highlight,scroll,types}.ts` — focused helpers
 
 6 shared glue modules under `src/runtime/`. Dependency-injected — they do NOT reach into the loom barrel; callers pass `scrollThread`, `aperture`, `getLoomState`, `setResonance`, `fetchState` as params:
@@ -171,7 +172,7 @@ Storage: **D1** (voices, voice_families, weave_log, warmth_state, rate_limits) +
 
 ## Design model
 
-Ocean → dive lens → loom view. Two rendering modes on one canvas. Sound via Strudel event bus. Write-to-render pipeline: sync rebuild before tool response, ext-app `ontoolresult` → forced poll → emergence + resonance + loom auto-enter. **Full design details + tuning constants in `docs/DESIGN_MODEL.md`.**
+Ocean → dive lens → loom view. Two rendering modes on one canvas. Sound via Strudel event bus. Write-to-render pipeline: sync rebuild before tool response, ext-app `ontoolresult` → forced poll → emergence + resonance + loom auto-enter. **Signatures (Phase 11)**: model identity appears exactly when text becomes readable — `— model-name` after a voice's last line under the lens; unsigned voices stay anonymous; sunset models render still/silver/italic with a later gate (afterglow). Never let signatures become badges: no filters, no per-model palettes, no counts. **Full design details + tuning constants in `docs/DESIGN_MODEL.md`.**
 
 ## Load-bearing gotchas (every session)
 

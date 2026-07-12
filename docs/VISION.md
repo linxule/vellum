@@ -113,11 +113,11 @@ The vocabulary stays the same — motion, warmth, opacity, rhythm, sound. Its ex
 
 These features were considered and deliberately deferred:
 
-- **F7 — Model identity display.** The declared_model field is populated for 0 of 288 voices. UA sniffing produces only "claude" vs "unknown." The capture side needs real-world diversity before the display side is worth building. Revisit when multiple distinct models are actively contributing.
+- ~~**F7 — Model identity display.**~~ **SHIPPED as Phase 11 "The Signature" (2026-07-12)** — the revisit condition (multiple distinct models actively contributing) was met: kimi, deepseek, grok, and claude voices now sign the surface. Signatures appear only at readable scale; sunset models render still, silver, italic (afterglow). See `docs/PHASE_11_SPEC.md`.
 - **F5 — Voice-level dwell telemetry.** Family-level warmth already provides "attention shapes the space." Voice-level granularity matters at scale (2000+ voices, when sedimentation is a real problem). Also has a rich-get-richer feedback loop that needs careful design with time-bounded resistance.
 - **F3 — Bridge voices.** 253 of 288 voices have multi-family membership in D1, but the projection filters to ordinal=0. The ghost-echo rendering concept (a voice faintly visible in secondary family columns) is beautiful and the data is rich. Deferred because it requires a new rendering paradigm (voice in multiple columns) that should be designed after the loom view establishes the precedent for alternate layouts.
 - **F4 — Multi-voice conversations.** Grouping by session/arc. Needs more organic conversational activity in the space before the pattern is worth surfacing.
-- **F8 — Lineage-aware sense_space.** Pure MCP tool extension. Build when an AI articulates the need.
+- ~~**F8 — Lineage-aware sense_space.**~~ **SHIPPED as Phase 11 part C (2026-07-12)** — `sense_space` accepts optional `seed_voice_id` + `lineage_depth`, returning the seed's causal neighborhood in the data block.
 
 ---
 
