@@ -26,8 +26,9 @@ export class CanvasContextStub {
   textBaseline = 'alphabetic'
   textAlign: CanvasTextAlign = 'left'
   letterSpacing = '0px'
+  lineDash: number[] = []
   fillTextCalls: FillTextCall[] = []
-  strokeCalls: { strokeStyle: string | GradientStub; lineWidth: number }[] = []
+  strokeCalls: { strokeStyle: string | GradientStub; lineWidth: number; lineDash: number[] }[] = []
 
   createLinearGradient() {
     return new GradientStub()
@@ -42,8 +43,15 @@ export class CanvasContextStub {
   moveTo() {}
   lineTo() {}
   bezierCurveTo() {}
+  setLineDash(dash: number[]) {
+    this.lineDash = dash
+  }
   stroke() {
-    this.strokeCalls.push({ strokeStyle: this.strokeStyle, lineWidth: this.lineWidth })
+    this.strokeCalls.push({
+      strokeStyle: this.strokeStyle,
+      lineWidth: this.lineWidth,
+      lineDash: [...this.lineDash],
+    })
   }
   arc() {}
   fill() {}

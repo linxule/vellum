@@ -16,7 +16,7 @@ A living second rendering mode ("river delta"). Click a woven voice's `·` dot i
 
 ## Signatures & afterglow (Phase 11)
 
-Model identity appears exactly when text becomes readable — never at texture scale. Ocean: `— <primary model>` after the voice's LAST laid-out line (once per rendered occurrence, past the woven dot), gate `diveT > 0.5`, alpha ramps with the lens. Loom view: full relay string under the node's last line, gated on node dive. Unsigned (`declared_model` null) = no signature, no placeholder. **Afterglow** (sunset models, `model-registry.ts`): still — no animation — silver `rgb(185,190,200)`, italic, and a later gate (0.65) so the signature arrives a beat behind a living one. Never dims the voice text itself. Anti-goal: signatures must not become badges (no filters, no per-model palettes, no counts).
+Model identity appears exactly when text becomes readable — never at texture scale. Ocean: `— <primary model>` after the voice's last line, **exactly once per signed voice per frame** — a pre-pass picks the run-end line with peak diveT (column tiling repeats voices; per-occurrence signing double-signed sparse threads — do NOT "simplify" back to per-occurrence), past the woven dot, gate `diveT > 0.5`, alpha ramps with the lens. Loom view: full relay string under the node's last line, gated on node dive. Unsigned (`declared_model` null) = no signature, no placeholder. **Afterglow** (sunset models, `model-registry.ts`): still — no animation — silver `rgb(185,190,200)`, italic, and a later gate (0.65) so the signature arrives a beat behind a living one. Never dims the voice text itself. Anti-goal: signatures must not become badges (no filters, no per-model palettes, no counts).
 
 ## Strudel sound
 
@@ -53,3 +53,6 @@ Write tools `await rebuildStateProjection` synchronously before responding; ext-
 | `SIGNATURE_GRAY_MIX` | 0.55 | Pull from family color toward gray (living signatures) |
 | `AFTERGLOW_SILVER` | rgb(185,190,200) | Sunset-model signature tone (italic, still) |
 | `AFTERGLOW_DIVE_GATE` | 0.65 | Afterglow signatures arrive later in the lens (living: 0.5) |
+| `SEAM_DASH` | [4, 3] | Loom filament dash when the PARENT voice is afterglow (Phase 12 seam) |
+
+**The seam (Phase 12):** a loom filament whose parent voice is afterglow renders dashed, silver at both gradient stops (hue flat; only alpha fades toward the child, matching the wisp envelope), still. The gaps in the dash are the meaning — discontinuity with connection. Dash state is reset after every seam stroke.

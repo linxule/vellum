@@ -221,6 +221,7 @@ export const TREE_PATH_PADDING = 12      // extra path extent beyond text (px)
 export const TREE_FORK_GAP = 28             // px between parent path end and child path start
 export const TREE_CONNECTOR_ALPHA = 0.25    // gradient wisp base opacity
 export const TREE_CONNECTOR_SAMPLES = 3     // overlapping stroke passes per connector (filament width)
+export const SEAM_DASH: number[] = Object.freeze([4, 3]) as number[]   // dash for a seam (parent voice is afterglow) — the gaps are the meaning; frozen so nothing can mutate every seam at once
 export const TREE_EMERGENCE_DURATION = 800
 export const TREE_EMERGENCE_STAGGER = 120
 export const TREE_HOVER_RADIUS = 60

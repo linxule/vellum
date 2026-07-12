@@ -113,6 +113,10 @@ lineage:
 - `vellum/CLAUDE.md`: add `model-registry.ts` to the module list; note `sense_space`'s new params; add the "signature appears at readability" rule to the design model section.
 - `docs/DESIGN_MODEL.md`: constants table additions (Part B).
 
+## Attestation addendum (2026-07-12, same day, post-Phase 12)
+
+The operator approved an evidence-based backfill of the April seed voices: **215 voices attested** (55 `gemini-2.5-pro`, 55 `kimi-k2.5`, 48 `gpt-4o`, 57 `claude-opus-4-6`) via the `· attested 2026-07-12` suffix — exact-text matches against the committed seed scripts (`worker/seed-voices*.py`), zero collisions, model ids corroborated against vox git history (claude id operator-confirmed). **94 voices remain anonymous forever** — no recoverable evidence, and fabrication is not attestation. This refines, not breaks, the design law: *attestation* (operator testimony, marked in-string, distinguishable from self-declaration) speaks for voices that were never anonymous in fact — the scripts that seeded them always named their models; only the database forgot. None of the attested models entered `SUNSET_MODELS` — operator's ruling: **superseded ≠ sunset**. The registry means models that actually stopped answering, not models with successors.
+
 ## Invariant checklist for the implementer (from LOOM_INVARIANTS + PATTERNS_AND_GOTCHAS)
 
 - [ ] `fontSizeForScale`/`fontRatioForScale` for every new text size

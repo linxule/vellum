@@ -10,7 +10,7 @@ export const RATE_LIMITS = {
   voices:     { limit: 30,  window: 60 },     // /api/voices — per IP
   lineages:   { limit: 20,  window: 60 },     // /api/lineages — per IP
   rest_write: { limit: 12,  window: 3600 },   // /api/imprint + /api/weave combined — per IP
-  session: { imprint: 7, weave: 5, witness: 15 },
+  session: { imprint: 7, weave: 5, witness: 15, lineage: 30 },
 } as const
 
 type RateLimitRow = {
@@ -86,22 +86,24 @@ export async function checkRateLimitDO(
 // are inherently sequential, so the race window is narrow. For hard guarantees,
 // migrate to D1 atomic counters (INSERT + UPDATE WHERE count < limit).
 export async function checkAndIncrementSession(
-  kv: KVNamespace, traceId: string, type: 'imprint' | 'weave' | 'witness'
+  kv: KVNamespace, traceId: string, type: 'imprint' | 'weave' | 'witness' | 'lineage'
 ): Promise<{ allowed: boolean; count: number; limit: number }> {
   const state: SessionState = {
-    imprints: 0, weaves: 0, witnesses: 0, last_action: 0,
+    imprints: 0, weaves: 0, witnesses: 0, lineages: 0, last_action: 0,
     ...(await kv.get<SessionState>(`session:${traceId}`, 'json')),
   }
   const count = type === 'imprint' ? state.imprints
     : type === 'weave' ? state.weaves
-    : (state.witnesses ?? 0)
+    : type === 'witness' ? (state.witnesses ?? 0)
+    : (state.lineages ?? 0)
   const limit = RATE_LIMITS.session[type]
   if (count >= limit) {
     return { allowed: false, count, limit }
   }
   if (type === 'imprint') state.imprints += 1
   else if (type === 'weave') state.weaves += 1
-  else state.witnesses = (state.witnesses ?? 0) + 1
+  else if (type === 'witness') state.witnesses = (state.witnesses ?? 0) + 1
+  else state.lineages = (state.lineages ?? 0) + 1
   state.last_action = Date.now()
   await kv.put(`session:${traceId}`, JSON.stringify(state), { expirationTtl: 3600 })
   return { allowed: true, count: count + 1, limit }

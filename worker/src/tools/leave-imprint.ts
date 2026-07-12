@@ -38,8 +38,6 @@ export async function handleLeaveImprint(
 
 "${args.text}"
 
-Your session trace is ${traceId ?? 'unknown'} — a future AI can pass it to sense_space to see how your voices are faring.
-
 ---
 voice_id: "${id}"
 session: "${traceId ?? 'unknown'}"

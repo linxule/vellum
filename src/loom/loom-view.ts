@@ -15,7 +15,7 @@ import {
   DEPTH_ALPHA, DEPTH_BRIGHTNESS, DEFAULT_COLOR, DIVE_SIGMA_LINES, FAMILY_COLOR, FONT, SCRIPT_SHIMMER,
   TEXTURE_LINE_H,
   TREE_BREATH_AMP_X, TREE_BREATH_AMP_Y, TREE_BREATH_RATE,
-  TREE_BREATH_WAVE_AMP, TREE_CONNECTOR_ALPHA, TREE_CONNECTOR_SAMPLES,
+  TREE_BREATH_WAVE_AMP, TREE_CONNECTOR_ALPHA, TREE_CONNECTOR_SAMPLES, SEAM_DASH,
   TREE_CURVE_AMP, TREE_EMERGENCE_DURATION, TREE_EMERGENCE_STAGGER,
   TREE_FORK_GAP,
   TREE_HOVER_ALPHA_BOOST, TREE_HOVER_BRIGHTNESS_BOOST, TREE_HOVER_RADIUS,
@@ -662,17 +662,32 @@ function drawConnectorWisp(
   const cp2x = cStartX - breathWobble - dx * 0.1
   const cp2y = cStartY - dy * 0.3
 
-  // Depth-adjusted colors from parent and child
-  const parentD = (1 - nodeDepthT(parent, tree)) * 2
-  const childD = (1 - nodeDepthT(child, tree)) * 2
-  const pDc = depthColor(FAMILY_COLOR[parent.family] ?? DEFAULT_COLOR, parentD)
-  const cDc = depthColor(FAMILY_COLOR[child.family] ?? DEFAULT_COLOR, childD)
+  // Stroke style: an afterglow parent renders a seam — flat silver, dashed, still.
+  // A dash reads as "these spoke to each other"; a gradient would read as energy
+  // transfer (dead flows into living), which the panel killed. Living parent keeps
+  // the family wisp. Both share the alpha/width envelope — color + rhythm differ only.
+  if (parent.afterglow) {
+    // Silver at BOTH stops (no family color): the alpha still fades toward the
+    // child end to match the wisp envelope exactly; only the hue is neutralized.
+    const [sr, sg, sb] = AFTERGLOW_SILVER
+    const seam = ctx.createLinearGradient(pEndX, pEndY, cStartX, cStartY)
+    seam.addColorStop(0, `rgba(${sr},${sg},${sb},${connAlpha})`)
+    seam.addColorStop(1, `rgba(${sr},${sg},${sb},${connAlpha * 0.3})`)
+    ctx.strokeStyle = seam
+    ctx.setLineDash(SEAM_DASH)
+  } else {
+    // Depth-adjusted colors from parent and child
+    const parentD = (1 - nodeDepthT(parent, tree)) * 2
+    const childD = (1 - nodeDepthT(child, tree)) * 2
+    const pDc = depthColor(FAMILY_COLOR[parent.family] ?? DEFAULT_COLOR, parentD)
+    const cDc = depthColor(FAMILY_COLOR[child.family] ?? DEFAULT_COLOR, childD)
 
-  // Gradient: parent color → child color, alpha fades along curve
-  const grad = ctx.createLinearGradient(pEndX, pEndY, cStartX, cStartY)
-  grad.addColorStop(0, `rgba(${pDc[0]},${pDc[1]},${pDc[2]},${connAlpha})`)
-  grad.addColorStop(1, `rgba(${cDc[0]},${cDc[1]},${cDc[2]},${connAlpha * 0.3})`)
-  ctx.strokeStyle = grad
+    // Gradient: parent color → child color, alpha fades along curve
+    const grad = ctx.createLinearGradient(pEndX, pEndY, cStartX, cStartY)
+    grad.addColorStop(0, `rgba(${pDc[0]},${pDc[1]},${pDc[2]},${connAlpha})`)
+    grad.addColorStop(1, `rgba(${cDc[0]},${cDc[1]},${cDc[2]},${connAlpha * 0.3})`)
+    ctx.strokeStyle = grad
+  }
 
   // Multi-pass filament: overlapping strokes with slight offset for soft appearance
   for (let pass = 0; pass < TREE_CONNECTOR_SAMPLES; pass++) {
@@ -687,6 +702,9 @@ function drawConnectorWisp(
     )
     ctx.stroke()
   }
+
+  // Reset dash immediately so no later path in the frame inherits the seam rhythm.
+  if (parent.afterglow) ctx.setLineDash([])
 }
 
 // ── Tree renderer ────────────────────────────────────

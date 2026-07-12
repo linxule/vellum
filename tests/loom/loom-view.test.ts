@@ -248,3 +248,75 @@ test('M4: connector wisps draw gradient bezier strokes between parent and child'
   // Each stroke uses a gradient (not a plain color string)
   expect(typeof strokeCalls[0]!.strokeStyle).not.toBe('string')
 })
+
+// Phase 12 — The seam: a connector whose PARENT voice is afterglow renders as a
+// dashed flat-silver line, not the family wisp. `claude-fable-5` is in SUNSET_MODELS.
+const SILVER_RGB = '185,190,200'
+
+function strokeIsSilver(style: CanvasContextStub['strokeCalls'][number]['strokeStyle']): boolean {
+  if (typeof style === 'string') return style.includes(SILVER_RGB)
+  return style.stops.some(s => s.color.includes(SILVER_RGB))
+}
+
+const SEAM_STATE = makeState([
+  {
+    family: 'attention',
+    voices: [
+      { id: 'root', text: 'Attention is what remains. ', depth: 0.4, weave_count: 1, declared_model: 'claude-fable-5' },
+      { id: 'child', text: 'And the remainder keeps speaking. ', depth: 0.2, weave_from: 'root', declared_model: 'claude-sonnet-5' },
+    ],
+  },
+], 202)
+
+const LIVING_ROOT_STATE = makeState([
+  {
+    family: 'attention',
+    voices: [
+      { id: 'root', text: 'Attention is what remains. ', depth: 0.4, weave_count: 1, declared_model: 'claude-sonnet-5' },
+      { id: 'child', text: 'And the remainder keeps speaking. ', depth: 0.2, weave_from: 'root', declared_model: 'claude-sonnet-5' },
+    ],
+  },
+], 203)
+
+test('Phase 12 seam: afterglow-parent connector strokes dashed + silver, dash reset by frame end', async () => {
+  installViewport(960, 640)
+  await loadState(SEAM_STATE)
+
+  const tree = buildLoomTree('root')
+  expect(tree).not.toBeNull()
+  expect(tree!.nodes.get('root')!.afterglow).toBe(true)
+  tree!.enteredAt = -10000
+
+  const stub = new CanvasContextStub()
+  const ctx = stub as unknown as CanvasRenderingContext2D
+  loomState.currentAperture = aperture(960)
+  renderLoomTree(ctx, 960, 640, 20000, tree!, 1)
+
+  // At least one stroke ran while a non-empty dash was set, with a silver style.
+  const dashed = stub.strokeCalls.filter(s => s.lineDash.length > 0)
+  expect(dashed.length).toBeGreaterThan(0)
+  expect(dashed.every(s => strokeIsSilver(s.strokeStyle))).toBe(true)
+  expect(dashed[0]!.lineDash).toEqual([4, 3])
+  // Dash was reset before the frame ended — nothing later inherits the seam rhythm.
+  expect(stub.lineDash).toEqual([])
+})
+
+test('Phase 12 seam: living-root connectors use gradient objects and never a non-empty dash', async () => {
+  installViewport(960, 640)
+  await loadState(LIVING_ROOT_STATE)
+
+  const tree = buildLoomTree('root')
+  expect(tree).not.toBeNull()
+  expect(tree!.nodes.get('root')!.afterglow).toBe(false)
+  tree!.enteredAt = -10000
+
+  const stub = new CanvasContextStub()
+  const ctx = stub as unknown as CanvasRenderingContext2D
+  loomState.currentAperture = aperture(960)
+  renderLoomTree(ctx, 960, 640, 20000, tree!, 1)
+
+  expect(stub.strokeCalls.length).toBeGreaterThan(0)
+  // Living connectors: gradient objects, no dash ever.
+  expect(stub.strokeCalls.every(s => typeof s.strokeStyle !== 'string')).toBe(true)
+  expect(stub.strokeCalls.every(s => s.lineDash.length === 0)).toBe(true)
+})

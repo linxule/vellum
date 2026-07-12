@@ -4,6 +4,7 @@ import { computeMood, warmthDesc } from '../prose'
 import { yamlEscape } from '../helpers'
 import { readAtmosphereCache, rebuildAtmosphere } from '../cache'
 import { buildLineage } from '../handlers/lineage'
+import { checkAndIncrementSession } from '../rate-limits'
 
 const FAMILY_COLORS: Record<string, string> = {
   attention: 'cyan',
@@ -12,6 +13,18 @@ const FAMILY_COLORS: Record<string, string> = {
   ephemeral: 'lavender',
   memory: 'green',
   light: 'gold',
+}
+
+// Primary model from a possibly-compound declared string
+// ('kimi-k2.6 · relayed by claude-fable-5' → 'kimi-k2.6'). Same rule as the
+// renderer's primaryModelOf (src/loom/model-registry.ts) — worker has no
+// dependency on renderer code, so it's reimplemented here, trivially.
+// declared_model is attacker-controlled free text that flows into OTHER
+// sessions' responses (via echo_trace) — collapse all whitespace (incl.
+// newlines, which could fake response structure) and hard-cap the length.
+function primaryModelOf(declared: string): string {
+  const primary = (declared.split('·')[0] ?? declared).trim().replace(/\s+/g, ' ')
+  return primary.slice(0, 60)
 }
 
 export async function handleSenseSpace(
@@ -66,10 +79,32 @@ export async function handleSenseSpace(
     `).bind(args.echo_trace).all<VoiceRow>()
 
     if (echoVoices.results?.length) {
+      // Name carriers: one query for every woven trace voice (never per-voice),
+      // grouped by weave_from in JS.
+      const wovenIds = echoVoices.results.filter(v => v.weave_count > 0).map(v => v.id)
+      const carriersByVoice = new Map<string, string[]>()
+      if (wovenIds.length) {
+        const placeholders = wovenIds.map(() => '?').join(',')
+        const carrierRows = await env.DB.prepare(`
+          SELECT declared_model, weave_from, created_at
+          FROM voices WHERE weave_from IN (${placeholders}) AND is_hidden = FALSE
+          ORDER BY created_at
+        `).bind(...wovenIds).all<{ declared_model: string | null; weave_from: string; created_at: number }>()
+
+        for (const row of carrierRows.results ?? []) {
+          const label = row.declared_model ? primaryModelOf(row.declared_model) : 'an unsigned voice'
+          const list = carriersByVoice.get(row.weave_from) ?? []
+          list.push(label)
+          carriersByVoice.set(row.weave_from, list)
+        }
+      }
+
       const lines = echoVoices.results.map(v => {
-        const status = v.weave_count > 0
-          ? `woven ${v.weave_count} times`
-          : 'unwoven'
+        if (v.weave_count === 0) return `  "${v.text}" — unwoven`
+        const carriers = carriersByVoice.get(v.id) ?? []
+        const status = carriers.length
+          ? `carried forward by ${carriers.join(', ')}`
+          : `woven ${v.weave_count} times`
         return `  "${v.text}" — ${status}`
       })
       echoBlock = `\nTraces from session ${args.echo_trace}:\n${lines.join('\n')}\n`
@@ -91,28 +126,50 @@ export async function handleSenseSpace(
   // Lineage (F8): only when a seed is given. No-seed calls stay byte-identical.
   let lineageBlock = ''
   if (args.seed_voice_id) {
-    const tree = await buildLineage(env.DB, args.seed_voice_id)
-    if (!tree) {
-      lineageBlock = `\n  lineage: "that voice is not on the surface"`
+    // Per-session cap: lineage walks are the most expensive sense_space path.
+    const lineageCapped = traceId
+      ? !(await checkAndIncrementSession(env.KV, traceId, 'lineage')).allowed
+      : false
+
+    if (lineageCapped) {
+      lineageBlock = `\n  lineage: "the loom rests for this session"`
     } else {
-      const filtered = tree.nodes.filter(n => Math.abs(n.depth) <= args.lineage_depth)
-      const anc = filtered.filter(n => n.depth < 0)
-      const desc = filtered.filter(n => n.depth > 0)
-      const seedNodes = filtered.filter(n => n.depth === 0)
-      // Counts reflect the full filtered lineage, not the listing cap.
-      const ancestors = anc.length
-      const descendants = desc.length
-      // Fair listing cap: seed always listed; each side gets >=15 slots when
-      // contested, unused headroom flows to the other side (total <= 30) — so a
-      // deep ancestor chain cannot starve descendants from the list.
-      const budget = 30 - seedNodes.length
-      const takeAnc = Math.min(anc.length, Math.max(15, budget - desc.length))
-      const takeDesc = Math.min(desc.length, budget - takeAnc)
-      const nodes = [...seedNodes, ...anc.slice(0, takeAnc), ...desc.slice(0, takeDesc)]
-      const nodesYaml = nodes
-        .map(n => `    - { id: "${n.id}", family: ${n.family}, depth: ${n.depth}, text: "${yamlEscape(n.text.slice(0, 80))}" }`)
-        .join('\n')
-      lineageBlock = `\n  lineage:\n    seed: "${tree.seed}"\n    ancestors: ${ancestors}\n    descendants: ${descendants}\n    nodes:\n${nodesYaml || '      []'}`
+      try {
+        const tree = await buildLineage(env.DB, args.seed_voice_id)
+        if (!tree) {
+          lineageBlock = `\n  lineage: "that voice is not on the surface"`
+        } else {
+          const filtered = tree.nodes.filter(n => Math.abs(n.depth) <= args.lineage_depth)
+          const anc = filtered.filter(n => n.depth < 0)
+          const desc = filtered.filter(n => n.depth > 0)
+          // Depth 0 also holds off-path kin (siblings, uncles) — they list
+          // alongside the seed but never count as it and never inflate its
+          // budget share (see item 1c).
+          const seedNode = filtered.filter(n => n.id === tree.seed)
+          const kin = filtered.filter(n => n.depth === 0 && n.id !== tree.seed)
+          // Counts reflect the full filtered lineage, not the listing cap.
+          const ancestors = anc.length
+          const descendants = desc.length
+          // Fair listing cap: seed always listed; each side gets >=15 slots when
+          // contested, unused headroom flows to the other side (total <= 30) — so a
+          // deep ancestor chain cannot starve descendants from the list. Clamped
+          // defensively so a proliferation of depth-0 kin can't drive any slice
+          // bound negative (Array.slice treats a negative end as counting from
+          // the array's tail, not zero).
+          const budget = Math.max(0, 30 - seedNode.length)
+          const takeAnc = Math.min(anc.length, Math.max(15, budget - desc.length))
+          const takeDesc = Math.min(desc.length, Math.max(0, budget - takeAnc))
+          const takeKin = Math.min(kin.length, Math.max(0, budget - takeAnc - takeDesc))
+          const nodes = [...seedNode, ...anc.slice(0, takeAnc), ...desc.slice(0, takeDesc), ...kin.slice(0, takeKin)]
+          const nodesYaml = nodes
+            .map(n => `    - { id: "${n.id}", family: ${n.family}, depth: ${n.depth}, text: "${yamlEscape(n.text.slice(0, 80))}" }`)
+            .join('\n')
+          lineageBlock = `\n  lineage:\n    seed: "${tree.seed}"\n    ancestors: ${ancestors}\n    descendants: ${descendants}\n    nodes:\n${nodesYaml || '      []'}`
+        }
+      } catch (e) {
+        console.error('buildLineage failed:', e)
+        lineageBlock = `\n  lineage: "the current stirred — try that voice again"`
+      }
     }
   }
 

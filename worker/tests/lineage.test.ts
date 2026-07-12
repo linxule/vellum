@@ -117,6 +117,32 @@ describe('buildLineage', () => {
     expect(result!.nodes.map(n => n.id).sort()).toEqual(['v:a1b2c3d4e5', 'v:f6g7h8i9j0'])
   })
 
+  test('assigns generational depth to off-path kin (uncles, cousins), not just the direct ancestor chain', async () => {
+    const now = Date.now()
+    const grandparent = makeVoice('gp', 'grandparent', { created_at: now - 5000 })
+    // Uncle: a sibling of the direct-line parent — child of the grandparent,
+    // NOT on the seed's weave_from chain. Previously fell back to depth 0.
+    const uncle = makeVoice('unc', 'uncle', { weave_from: 'gp', created_at: now - 4000 })
+    const parent = makeVoice('p', 'parent', { weave_from: 'gp', created_at: now - 3000 })
+    const seed = makeVoice('s', 'seed', { weave_from: 'p', created_at: now - 2000 })
+    // Cousin: uncle's child — same generation as the seed.
+    const cousin = makeVoice('cuz', 'cousin', { weave_from: 'unc', created_at: now - 1000 })
+    const child = makeVoice('c', 'child', { weave_from: 's', created_at: now })
+    const voices = [grandparent, uncle, parent, seed, cousin, child]
+    const families: VoiceFamilyRow[] = voices.map(v => ({ voice_id: v.id, family: 'attention', ordinal: 0 }))
+    const db = buildMockD1(voices, families)
+    const result = await buildLineage(db, 's')
+    expect(result).not.toBeNull()
+    const nodeMap = new Map(result!.nodes.map(n => [n.id, n]))
+
+    expect(nodeMap.get('gp')!.depth).toBe(-2)
+    expect(nodeMap.get('p')!.depth).toBe(-1)
+    expect(nodeMap.get('unc')!.depth).toBe(-1)
+    expect(nodeMap.get('s')!.depth).toBe(0)
+    expect(nodeMap.get('cuz')!.depth).toBe(0)
+    expect(nodeMap.get('c')!.depth).toBe(1)
+  })
+
   test('excludes hidden voices', async () => {
     const seed = makeVoice('s', 'seed')
     const hidden = makeVoice('h', 'hidden child', { weave_from: 's', is_hidden: 1 })

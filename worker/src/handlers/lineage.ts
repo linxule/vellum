@@ -72,17 +72,22 @@ export async function buildLineage(db: D1Database, seedVoiceId: string): Promise
   depthMap.set(seedVoiceId, 0)
 
   // Ancestors: walk up from seed
+  const ancestorIds: string[] = []
   let walkId: string | null = seedRow.weave_from
   let d = -1
   while (walkId && allRows.has(walkId) && !depthMap.has(walkId)) {
     depthMap.set(walkId, d)
+    ancestorIds.push(walkId)
     const row = allRows.get(walkId)!
     walkId = row.weave_from
     d--
   }
 
-  // Descendants: BFS from seed downward
-  const bfsQueue = [seedVoiceId]
+  // Descendants: BFS from the seed AND every direct-line ancestor — off-path
+  // kin (a sibling of the seed, an uncle, a cousin) are children of an
+  // ancestor, not of the seed, so the walk must start from ancestors too or
+  // they never get a depth and silently default to 0 via the fallback below.
+  const bfsQueue = [seedVoiceId, ...ancestorIds]
   while (bfsQueue.length > 0) {
     const parentId = bfsQueue.shift()!
     const parentDepth = depthMap.get(parentId) ?? 0

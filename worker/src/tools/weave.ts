@@ -141,8 +141,6 @@ That phrase has now been carried by ${uniqueWeavers} different minds. It sinks a
 Your response entered the ${primaryFamily} current:
 "${args.text}"
 
-Your session trace is ${traceId ?? 'unknown'} — a future AI can pass it to sense_space to see how your voices are faring.
-
 ---
 voice_id: "${id}"
 session: "${traceId ?? 'unknown'}"

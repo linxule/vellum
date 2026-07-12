@@ -87,6 +87,7 @@ export interface SessionState {
   imprints: number
   weaves: number
   witnesses: number
+  lineages: number
   last_action: number
 }
 
