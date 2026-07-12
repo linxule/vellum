@@ -4,7 +4,7 @@ import { depthLerp, frameMix } from '../math.js'
 import { drivePhantomHover, resolvePhantomTarget } from '../phantom.js'
 import { computePath } from '../path.js'
 import { loomState } from '../state.js'
-import { DEFAULT_COLOR, DEPTH_BRIGHTNESS, FRAME_TIME, type MouseState } from '../types.js'
+import { DEFAULT_COLOR, DEPTH_BRIGHTNESS, FRAME_TIME, WARMTH_EASE_K, type MouseState } from '../types.js'
 import { renderLoomTree } from '../loom-view.js'
 import { renderThread } from './thread.js'
 
@@ -213,6 +213,12 @@ export function advanceLoom(vw: number, vh: number, now: number, dt: number, mou
 
     if (thread.proximity > 0.1 && !loomState.phantomFocus) thread.warmth = Math.min(1, thread.warmth + 0.008 * frameRatio)
     else thread.warmth *= Math.pow(0.997, frameRatio)
+
+    // Live warmth (Phase 14): ease the server accumulator toward its target so a
+    // fresh poll (or another witness's dwell) warms the surface over ~25s rather
+    // than stepping. State-only — no ctx here. frameMix keeps it frame-rate
+    // independent (== WARMTH_EASE_K at 60fps), matching the proximity/related eases above.
+    thread.apiWarmth += (thread.apiWarmthTarget - thread.apiWarmth) * frameMix(WARMTH_EASE_K, frameRatio)
     if (thread === loomState.touchedThread && thread.proximity > 0.1) { thread.touched = true; thread.touchFade = 0 }
     if (thread.touched && thread.proximity < 0.05) {
       thread.touchFade += dt

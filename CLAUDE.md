@@ -57,12 +57,12 @@ bun run migrate:local                 # local variant
 20 modules under `src/loom/` (17 root + 3 in `render/`). Public barrel: `src/loom/index.ts`. Key modules:
 
 - `loom/state.ts` — module-level singletons + test accessors + loom view state
-- `loom/refresh.ts` — `refreshLoom()` with identity-stable voice merge + event emission (DI)
+- `loom/refresh.ts` — `refreshLoom()` with identity-stable voice merge + event emission (DI). Phase 14: preserves eased `apiWarmth` + Math.max-merges `apiWarmthTarget` across rebuild (advanceLoom eases display toward target ~25s — live warmth steps, the ocean eases; both entry points poll visible tabs every ~15s)
 - `loom/phantom.ts` — synthetic hover (drives dive lens on `ontoolresult`)
 - `loom/resonance.ts` — per-voice resonance with canonical voiceId (Phase 10: resolves to flat UID per frame)
 - `loom/loom-view.ts` — loom tree building, layout, entry/exit/recenter API, living tree renderer (breath, emergence stagger, filaments, hover proximity, hit targets). Uses ocean vocabulary: `depthLerp`, `threadColor`, `fontSizeForScale`, `frameMix`. `recenterLoomView()` swaps tree in place without touching transition.
 - `loom/render/frame.ts` — `advanceLoom` (state-only) + `paintLoom` (draw-only) + `renderLoom` (combined) + loom view transition
-- `loom/render/{thread,line}.ts` — per-thread layout + drawing + per-voice resonance glow + hit-test cache. Dot/signature placement branches on `line.rtl` (mirrors to the LEFT edge with `textAlign` save/restore — Phase 12 known-issue #3 fix)
+- `loom/render/{thread,line}.ts` — per-thread layout + drawing + per-voice resonance glow + hit-test cache. Dot/signature placement branches on `line.rtl` (mirrors to the LEFT edge with `textAlign` save/restore — Phase 12 known-issue #3 fix). Phase 14: warm currents boost `diveT` + baseAlpha (both via `clamp01(apiWarmth)` — the server accumulator is UNCLAMPED); `thread.sparse` threads paint ONE contiguous vertically-centered copy (cursor-catch-up termination, not line count) with a real-viewport-edge fade (`SPARSE_EDGE_FADE_PX`) instead of the block-relative edge fade in BOTH draw paths — the block-relative form blanks short whispers entirely
 - `loom/model-registry.ts` — leaf module (like `events.ts`): model signatures + `SUNSET_MODELS` afterglow registry (Phase 11). `signatureFor` = ocean display (primary author only), `fullSignatureFor` = loom display (full relay string). **Edit `SUNSET_MODELS` by hand at each model sunset** — no date math, entries are already-retired models only.
 - `loom/{math,color,aperture,text,path,thread,init,highlight,scroll,types}.ts` — focused helpers
 
@@ -91,7 +91,7 @@ Entry points (divergent concerns live here, not in `runtime/` or `audio/`):
 
 **Do not move sound or audio/ into `src/runtime/`** — sound lives in `src/main.ts` only (Strudel init, toggle, render-loop modulation, localStorage persistence). Ext-app has no sound layer (iframe autoplay restrictions). **Do not move force-voice / ext-apps SDK into `src/runtime/`** — ext-app-only. **Do not try to unify `poll()`** — the orchestration differences are load-bearing. Loom auto-entry timing differs by entry point: main.ts delays 800ms on URL highlight (user-initiated), mcp-app.ts enters immediately on weave (tool result), stays open until user dismisses (Escape or click blank space).
 
-Tests under `tests/loom/` (23 files incl. `signature.test.ts` + `model-registry.test.ts` from Phase 11/12, and `threshold.test.ts` — which tests `app/src/threshold.ts` cross-tree, Phase 13). Named regression tests in `regressions.test.ts` guard historical bug classes (zero-path bootstrap, mouse.x sentinel trap, sparse sampling, scroll walk, phantom→dive). Golden-equivalence pattern in `frame.test.ts` protects the advanceLoom/paintLoom split. For subsystem-specific test discipline see `docs/PATTERNS_AND_GOTCHAS.md` → Testing idioms.
+Tests under `tests/loom/` (25 files incl. `signature.test.ts` + `model-registry.test.ts` from Phase 11/12, `threshold.test.ts` + `hit-targets.test.ts` from Phase 13 — the former tests `app/src/threshold.ts` cross-tree — and `ember.test.ts` from Phase 14: warmth reveal, decoupling no-rank guard, sparse whisper/legible, ease convergence). Named regression tests in `regressions.test.ts` guard historical bug classes (zero-path bootstrap, mouse.x sentinel trap, sparse sampling, scroll walk, phantom→dive). Golden-equivalence pattern in `frame.test.ts` protects the advanceLoom/paintLoom split. For subsystem-specific test discipline see `docs/PATTERNS_AND_GOTCHAS.md` → Testing idioms.
 
 ### Worker (`worker/src/`)
 

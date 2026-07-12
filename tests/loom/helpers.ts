@@ -167,6 +167,27 @@ export function maxFontSizeForText(ctx: CanvasRenderingContext2D, marker: string
   return maxSize
 }
 
+// Parse the alpha channel out of an `rgba(r,g,b,a)` fill string. Returns 0 for
+// gradient fills or unparseable styles (they carry no single alpha).
+export function parseRgbaAlpha(fillStyle: unknown): number {
+  if (typeof fillStyle !== 'string') return 0
+  const match = fillStyle.match(/rgba?\([^)]*,\s*([\d.]+)\s*\)/)
+  return match ? Number(match[1]) : 0
+}
+
+// Max alpha across body-text fills (string rgba only). With an unsigned,
+// unwoven voice every fillText call is a body glyph, so this reads the
+// brightest body text drawn this frame.
+export function maxBodyAlpha(ctx: CanvasRenderingContext2D): number {
+  const calls = (ctx as unknown as CanvasContextStub).fillTextCalls
+  let maxAlpha = 0
+  for (const call of calls) {
+    if (call.text.trim() === '') continue
+    maxAlpha = Math.max(maxAlpha, parseRgbaAlpha(call.fillStyle))
+  }
+  return maxAlpha
+}
+
 function makeVoice(voice: {
   id: string
   text: string

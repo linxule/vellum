@@ -53,6 +53,8 @@ export function refreshLoom(newVoiceInfo?: { hasNew: boolean, newIds: Set<string
     touchFade: number,
     related: number,
     warmth: number,
+    apiWarmth: number,
+    apiWarmthTarget: number,
     emergenceStart: number,
     emergenceDepthFrom: number,
     emergenceVoiceUids: Set<number>,
@@ -70,6 +72,8 @@ export function refreshLoom(newVoiceInfo?: { hasNew: boolean, newIds: Set<string
       touchFade: t.touchFade,
       related: t.related,
       warmth: t.warmth,
+      apiWarmth: t.apiWarmth,
+      apiWarmthTarget: t.apiWarmthTarget,
       emergenceStart: t.emergenceStart,
       emergenceDepthFrom: t.emergenceDepthFrom,
       emergenceVoiceUids: new Set(t.emergenceVoiceUids),
@@ -92,6 +96,13 @@ export function refreshLoom(newVoiceInfo?: { hasNew: boolean, newIds: Set<string
     thread.touchFade = p.touchFade
     thread.related = p.related
     thread.warmth = Math.max(thread.warmth, p.warmth)
+    // Live warmth (Phase 14): the incoming server warmth lands in apiWarmthTarget
+    // (Math.max preserved — warmth never visibly decays mid-session); the eased
+    // display value carries across the rebuild so the transition eases, never
+    // steps. makeThread set both fields to the fresh incoming value, so this max
+    // merges it with the preserved target; apiWarmth resumes from where it eased.
+    thread.apiWarmthTarget = Math.max(thread.apiWarmthTarget, p.apiWarmthTarget)
+    thread.apiWarmth = p.apiWarmth
     if (p.emergenceStart > 0) {
       thread.emergenceStart = p.emergenceStart
       thread.emergenceDepthFrom = p.emergenceDepthFrom

@@ -40,6 +40,7 @@ export interface Thread {
   related: number
   warmth: number
   apiWarmth: number
+  apiWarmthTarget: number
   arrivalGlow: number
   emergenceStart: number
   emergenceDepthFrom: number
@@ -52,6 +53,7 @@ export interface Thread {
   newVoiceUids: Set<number>
   lineEndCursors: LayoutCursor[]
   totalLines: number
+  sparse: boolean                           // voices.length <= 1: paint one contiguous copy, don't re-tile (Phase 14 Part B)
   _frameColor: [number, number, number]
   _handDist: number
   balancedWidth: number
@@ -188,6 +190,16 @@ export const TEXTURE_SCALE = 0.45
 export const TEXTURE_LINE_H = 8.5
 export const DIVE_SIGMA_LINES = 4
 export const HL_FONT_BOOST = 1.25
+
+// ── The Ember (Phase 14) ─────────────────────────────
+// Server warmth (thread.apiWarmth) changes how a current reads when TOUCHED,
+// never how it ranks at a glance. clamp01 at every consumption site —
+// apiWarmth is an unclamped decayed accumulator that can exceed 1.
+export const WARM_DIVE_BOOST = 0.35      // warm currents reach reading scale at lower proximity / over a taller band
+export const WARM_BASE_ALPHA = 0.22      // warm currents rest slightly brighter (below conscious-comparison threshold)
+export const SPARSE_REPEAT_CAP = 2       // a 1-voice family tiles at most this many times — a whisper, not a monologue
+export const WARMTH_EASE_K = 0.002       // per-frame ease of apiWarmth → apiWarmthTarget (~95% convergence in ~25s at 60fps)
+export const SPARSE_EDGE_FADE_PX = 24    // sparse blocks fade over this many px from the REAL viewport edge (not block-relative)
 
 // ── Signature / afterglow (Phase 11 F7) ──────────────
 // Attribution revealed by attention: a small `— model` fades in only when the

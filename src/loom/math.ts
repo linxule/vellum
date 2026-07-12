@@ -20,6 +20,10 @@ export function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t
 }
 
+export function clamp01(x: number): number {
+  return x < 0 ? 0 : x > 1 ? 1 : x
+}
+
 export function smoothstep(x: number): number {
   const t = Math.max(0, Math.min(1, x))
   return t * t * (3 - 2 * t)

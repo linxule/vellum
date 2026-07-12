@@ -39,8 +39,8 @@ let highlightAutoLoomTimeout: ReturnType<typeof setTimeout> | null = null
 const TID = 'vl\u00b7' + Math.random().toString(36).slice(2, 7) + '\u00b7' + Date.now().toString(36).slice(-4)
 document.getElementById('tr')!.textContent = TID
 
-const VISIBLE_POLL_MS = 120_000
-const VISIBLE_POLL_JITTER_MS = 10_000
+const VISIBLE_POLL_MS = 15_000
+const VISIBLE_POLL_JITTER_MS = 2_000
 const RETRY_BASE_MS = 5_000
 const FETCH_STATE_TIMEOUT_MS = 20_000
 const HIGHLIGHT_RETRY_DELAYS_MS = [3_000, 10_000, 30_000]
@@ -63,7 +63,7 @@ function clearPollTimeouts() {
 
 function nextVisiblePollDelay(): number {
   const jitter = (Math.random() * 2 - 1) * VISIBLE_POLL_JITTER_MS
-  return Math.max(30_000, Math.round(VISIBLE_POLL_MS + jitter))
+  return Math.max(10_000, Math.round(VISIBLE_POLL_MS + jitter))
 }
 
 // ── Input handlers ────────────────────────────────────

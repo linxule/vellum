@@ -1,13 +1,13 @@
 import { layoutNextLine, type LayoutCursor } from '@chenglou/pretext'
 import { getState } from '../../content.js'
 import { highlightUidForThread } from '../highlight.js'
-import { depthLerp, fontRatioForScale, fontSizeForScale, lerp } from '../math.js'
+import { clamp01, depthLerp, fontRatioForScale, fontSizeForScale, lerp } from '../math.js'
 import { diveGaussian, pathXAtY, widthAtY } from '../path.js'
 import { resolvePhantomTarget } from '../phantom.js'
 import { updateResonances } from '../resonance.js'
 import { loomState } from '../state.js'
 import { copyCursor, isLineRTL, voiceGroupIndex, voiceSpanForLine } from '../text.js'
-import { AFTERGLOW_DIVE_GATE, AFTERGLOW_SILVER, BREATH_AMP, BREATH_SPATIAL, DEPTH_ALPHA, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, HL_FONT_BOOST, SIGNATURE_ALPHA, SIGNATURE_GRAY_MIX, SIGNATURE_RATIO, ZERO_CURSOR, type ApertureConfig, type Thread } from '../types.js'
+import { AFTERGLOW_DIVE_GATE, AFTERGLOW_SILVER, BREATH_AMP, BREATH_SPATIAL, DEPTH_ALPHA, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, HL_FONT_BOOST, SIGNATURE_ALPHA, SIGNATURE_GRAY_MIX, SIGNATURE_RATIO, SPARSE_EDGE_FADE_PX, WARM_BASE_ALPHA, WARM_DIVE_BOOST, ZERO_CURSOR, type ApertureConfig, type Thread } from '../types.js'
 import { depthColor, signatureGray, threadColor } from '../color.js'
 import { drawLine, drawLineSegmented } from './line.js'
 
@@ -78,7 +78,7 @@ export function renderThread(
   const apiWarm = thread.apiWarmth
   const glowBoost = thread.arrivalGlow * 0.4
   const hlThreadBoost = hlUid >= 0 ? 0.12 : 0
-  const baseAlpha = (depthLerp(DEPTH_ALPHA, d) + prox * (0.85 - depthLerp(DEPTH_ALPHA, d)) + rel * 0.12 + warm * 0.08 + apiWarm * 0.15 + glowBoost + hlThreadBoost) * immersionDim * visibilityAlpha * dimFactor
+  const baseAlpha = (depthLerp(DEPTH_ALPHA, d) + prox * (0.85 - depthLerp(DEPTH_ALPHA, d)) + rel * 0.12 + warm * 0.08 + clamp01(apiWarm) * WARM_BASE_ALPHA + glowBoost + hlThreadBoost) * immersionDim * visibilityAlpha * dimFactor
 
   ctx.textBaseline = 'middle'
   const path = thread._path
@@ -132,12 +132,33 @@ export function renderThread(
     })
   }
 
-  let yPos = 0
+  // Sparse blocks float centered in the column — air above AND below, a voice in
+  // the water, not a heading pinned to the (clipped) top edge (top-alignment reads
+  // as vertical truncation, and a 1-line whisper at y=0 gets zeroed by the real-
+  // edge fade). Center on the texture-scale block height; a dive expands the block
+  // downward from the centered start, which is acceptable. The Math.max floor keeps
+  // a block taller than the viewport clear of the top edge. Non-sparse columns tile
+  // the whole height, so they still start at y=0.
+  let yPos = thread.sparse
+    ? Math.max(SPARSE_EDGE_FADE_PX, (loomState.VH - thread.totalLines * ac.textureLineH) / 2)
+    : 0
   const minLineH = Math.max(1, ac.textureLineH * (1 + lineBreath * 0.08))
   const maxLines = Math.ceil((loomState.VH + ac.diveLineH) / minLineH) + 2
+  // Sparse threads (Phase 14 Part B) paint exactly one contiguous copy of the
+  // prepared text. The scroll offset may start us mid-text, so track where we
+  // began and whether the cursor-reset wrap has already fired once — a copy is
+  // complete when the wrap catches back up to the start. Hoisted here (not inside
+  // the loop) so the outer termination check can see them.
+  const startCursor = copyCursor(cursor)
+  const startIsZero = scrollOffset === 0
+  let sparseWrapped = false
   while (yPos < loomState.VH + ac.diveLineH && laidOutLines.length < maxLines) {
     const lineY = Math.min(yPos, loomState.VH)
-    const diveT = (isPrimary && prox > 0.05 && mouse.x > -1000) ? prox * diveGaussian(lineY, mouse.y, diveSigma) : 0
+    let diveT = (isPrimary && prox > 0.05 && mouse.x > -1000) ? prox * diveGaussian(lineY, mouse.y, diveSigma) : 0
+    // Ember (Phase 14): a warm current reaches reading scale at lower proximity
+    // and over a taller band — easier to read once you touch it. Gated by the
+    // same isPrimary/prox path above, so nothing changes at a glance.
+    diveT = Math.min(1, diveT * (1 + clamp01(apiWarm) * WARM_DIVE_BOOST))
     const lineFontScale = lerp(ac.textureScale, ac.diveScale, diveT)
     const lineLineH = lerp(ac.textureLineH, ac.diveLineH, diveT) * (1 + lineBreath * 0.08)
     const t = Math.min(1, yPos / loomState.VH)
@@ -169,8 +190,14 @@ export function renderThread(
     let lineStart = copyCursor(cursor)
     let ln = layoutNextLine(thread.prepared, cursor, layoutWidth)
     if (!ln) {
+      // End of the prepared text. A sparse thread that began at the top (scroll
+      // offset 0) or has already wrapped once has now shown its whole whisper —
+      // stop instead of re-tiling into the air below. Non-sparse threads (and a
+      // sparse thread completing a copy that started mid-text) reset and continue.
+      if (thread.sparse && (sparseWrapped || startIsZero)) break
       cursor = copyCursor(ZERO_CURSOR)
       lineStart = copyCursor(ZERO_CURSOR)
+      if (thread.sparse) sparseWrapped = true
       ln = layoutNextLine(thread.prepared, cursor, layoutWidth)
       if (!ln) break
     }
@@ -212,6 +239,15 @@ export function renderThread(
       if (mouse.y >= y - lineLineH / 2 && mouse.y < y + lineLineH / 2) hoveredLineIndex = lineIndex
     }
     yPos += lineLineH
+
+    // Sparse one-copy stop: after the wrap, once the cursor has caught back up to
+    // where the scroll offset started us, the whole (contiguous) copy is on
+    // screen. Cursor comparison — not a fixed line count — because a dive re-lays
+    // the same text at a different width, so "one copy" is not a constant #lines.
+    if (thread.sparse && sparseWrapped && (
+      cursor.segmentIndex > startCursor.segmentIndex ||
+      (cursor.segmentIndex === startCursor.segmentIndex && cursor.graphemeIndex >= startCursor.graphemeIndex)
+    )) break
   }
 
   let activeUid = -1

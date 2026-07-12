@@ -4,7 +4,7 @@ import { fontRatioForScale } from './math.js'
 import { computeBalancedWidth } from './path.js'
 import { loomState } from './state.js'
 import { containsRTL, copyCursor, graphemeSegmenter, scriptClass } from './text.js'
-import { DEFAULT_COLOR, FAMILY_COLOR, FONT, PATH_POINTS, type ApertureConfig, type Thread } from './types.js'
+import { DEFAULT_COLOR, FAMILY_COLOR, FONT, PATH_POINTS, SPARSE_REPEAT_CAP, type ApertureConfig, type Thread } from './types.js'
 
 export function makeThread(
   voices: Voice[],
@@ -18,7 +18,15 @@ export function makeThread(
 ): Thread {
   const baseText = voices.map(v => v.text).join('')
   const targetLength = 4000
-  const repeatCount = Math.min(200, Math.max(3, Math.ceil(targetLength / Math.max(1, baseText.length))))
+  const fillRepeat = Math.min(200, Math.max(3, Math.ceil(targetLength / Math.max(1, baseText.length))))
+  // Texture honesty (Phase 14): a lone voice tiled wall-to-wall reads as a glitch
+  // ("one message on repeat"). Cap a 1-voice (or empty) family to a whisper.
+  // Multi-voice families keep the fill formula. Input is voices.length (surfaced
+  // count) — NOT texture_density, which is reserved for future borrowed-echoes.
+  // The `sparse` flag drives the render-side one-copy paint (see render/thread.ts);
+  // the cap alone is a memory/scroll-modulus tidy-up that the renderer would re-tile.
+  const sparse = voices.length <= 1
+  const repeatCount = sparse ? Math.min(fillRepeat, SPARSE_REPEAT_CAP) : fillRepeat
   const text = (baseText + ' ').repeat(repeatCount)
   const prepared = prepareWithSegments(text, FONT, { whiteSpace: 'pre-wrap' })
   const textureLayoutWidth = ac.restingWidth / fontRatioForScale(ac.textureScale)
@@ -113,6 +121,7 @@ export function makeThread(
     related: 0,
     warmth: 0,
     apiWarmth: warmth,
+    apiWarmthTarget: warmth,
     arrivalGlow: 0,
     emergenceStart: 0,
     emergenceDepthFrom: 0,
@@ -125,6 +134,7 @@ export function makeThread(
     newVoiceUids: new Set(),
     lineEndCursors,
     totalLines,
+    sparse,
     _frameColor: [baseColor[0], baseColor[1], baseColor[2]],
     _handDist: Infinity,
     balancedWidth: computeBalancedWidth(baseText, FONT, ac.openWidth),

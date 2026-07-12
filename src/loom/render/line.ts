@@ -2,7 +2,7 @@ import { threadColor } from '../color.js'
 import { depthLerp } from '../math.js'
 import { loomState } from '../state.js'
 import { graphemeSegmenter } from '../text.js'
-import { DEPTH_BRIGHTNESS, SCRIPT_SHIMMER, type Thread } from '../types.js'
+import { DEPTH_BRIGHTNESS, SCRIPT_SHIMMER, SPARSE_EDGE_FADE_PX, type Thread } from '../types.js'
 
 export function drawLine(
   ctx: CanvasRenderingContext2D,
@@ -25,8 +25,15 @@ export function drawLine(
 ) {
   if (width < 12) return
 
+  // Edge fade softens the ends of the column. Non-sparse columns tile the whole
+  // viewport, so a block-relative fraction (lineIndex/lineCount) lands on the real
+  // viewport edges. A sparse block paints only its few lines, so that fraction
+  // would fade the block's own ends mid-viewport (and blank a 1-line whisper
+  // outright) — sparse threads fade by real distance from the viewport edge.
   const t = lineIndex / lineCount
-  const edgeFade = Math.min(1, t * 8, (1 - t) * 8)
+  const edgeFade = thread.sparse
+    ? Math.min(1, y / SPARSE_EDGE_FADE_PX, (loomState.VH - y) / SPARSE_EDGE_FADE_PX)
+    : Math.min(1, t * 8, (1 - t) * 8)
   const isPrimary = thread === loomState.touchedThread
   const msgSpot = voiceActive ? Math.min(1, 0.35 + proximity * 0.95) : 0
   const msgDim = (isPrimary && proximity > 0.2 && !voiceActive) ? 0.4 : 1
@@ -82,8 +89,13 @@ export function drawLineSegmented(
 
   const segments = thread.prepared.segments
   const segWidths = (thread.prepared as any).widths as number[]
+  // Sparse threads fade by real viewport-edge distance, not block-relative
+  // fraction — mirror of drawLine (see the note there). Same reason applies to
+  // the dive path: a sparse block's lines otherwise fade mid-viewport.
   const t = lineIndex / lineCount
-  const edgeFade = Math.min(1, t * 8, (1 - t) * 8)
+  const edgeFade = thread.sparse
+    ? Math.min(1, y / SPARSE_EDGE_FADE_PX, (loomState.VH - y) / SPARSE_EDGE_FADE_PX)
+    : Math.min(1, t * 8, (1 - t) * 8)
   const msgSpot = voiceActive ? Math.min(1, 0.35 + proximity * 0.95) : 0
   const isPrimary = thread === loomState.touchedThread
   const msgDim = (isPrimary && proximity > 0.2 && !voiceActive) ? 0.4 : 1
