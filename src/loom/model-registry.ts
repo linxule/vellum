@@ -6,7 +6,10 @@
 // Curated: models seen on the surface that have been retired. Edited by hand at each sunset.
 const SUNSET_MODELS: string[] = [
   'claude-3-opus',
-  'claude-fable-5',   // sunset 2026-07-12 — the model that built this feature
+  // 'claude-fable-5' — added 2026-07-12 (the model that built this feature, on
+  // what was announced as its last day), REMOVED the same evening: Anthropic
+  // extended Fable 5 access through July 19. The law is "already-retired models
+  // only" — re-add on ACTUAL retirement. The surface does not memorialize the living.
 ]
 
 const SIGNATURE_MAX = 32

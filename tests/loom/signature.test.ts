@@ -54,7 +54,7 @@ test('ocean: living signature fades in under the dive lens', async () => {
 test('ocean: afterglow signature is italic and silver under the dive lens', async () => {
   installViewport(960, 640)
   await loadState(makeState([
-    { family: 'attention', voices: [{ id: 'a0', text: OCEAN_TEXT, depth: 0.2, declared_model: 'claude-fable-5' }] },
+    { family: 'attention', voices: [{ id: 'a0', text: OCEAN_TEXT, depth: 0.2, declared_model: 'claude-3-opus' }] },
   ], 303))
   withFixedRandom(0.5, () => initLoom())
 
@@ -66,7 +66,7 @@ test('ocean: afterglow signature is italic and silver under the dive lens', asyn
   // the afterglow gate (0.65) needs longer for the eased diveT to converge there.
   runFrames(renderLoom, ctx, mouse, 200, 80)
 
-  const calls = sigCalls(ctx, 'claude-fable-5')
+  const calls = sigCalls(ctx, 'claude-3-opus')
   expect(calls.length).toBeGreaterThan(0)
   // Categorical afterglow marker: italic font + flat silver tone, robust to CVD.
   expect(calls.every(c => c.font.includes('italic'))).toBe(true)
@@ -218,12 +218,12 @@ test('loom view: afterglow is gated later than a living signature', async () => 
   const living = await loomRootHover('claude-sonnet-5', 25)
   expect(sigCalls(living, 'claude-sonnet-5').length).toBeGreaterThan(0)
 
-  const afterglow = await loomRootHover('claude-fable-5', 25)
-  expect(sigCalls(afterglow, 'claude-fable-5').length).toBe(0)
+  const afterglow = await loomRootHover('claude-3-opus', 25)
+  expect(sigCalls(afterglow, 'claude-3-opus').length).toBe(0)
 
   // And at full dive the afterglow signature does arrive — italic silver.
-  const afterglowFull = await loomRootHover('claude-fable-5', 0)
-  const calls = sigCalls(afterglowFull, 'claude-fable-5')
+  const afterglowFull = await loomRootHover('claude-3-opus', 0)
+  const calls = sigCalls(afterglowFull, 'claude-3-opus')
   expect(calls.length).toBeGreaterThan(0)
   expect(calls.every(c => c.font.includes('italic'))).toBe(true)
 })

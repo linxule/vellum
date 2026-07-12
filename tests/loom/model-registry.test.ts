@@ -55,23 +55,25 @@ test('fullSignatureFor: hard cap at 48 chars with ellipsis', () => {
 })
 
 test('isAfterglow: exact sunset-model match', () => {
-  expect(isAfterglow('claude-fable-5')).toBe(true)
   expect(isAfterglow('claude-3-opus')).toBe(true)
 })
 
 test('isAfterglow: prefix match on free-text declared strings', () => {
-  expect(isAfterglow('claude-fable-5-20260712')).toBe(true)
+  expect(isAfterglow('claude-3-opus-20240229')).toBe(true)
 })
 
 test('isAfterglow: living models are not afterglow', () => {
   expect(isAfterglow('claude-sonnet-5')).toBe(false)
   expect(isAfterglow('gpt-4o')).toBe(false)
+  // Un-sunset 2026-07-12: retirement extended to July 19 hours after the
+  // farewell shipped. Re-flips to true when it actually retires.
+  expect(isAfterglow('claude-fable-5')).toBe(false)
   expect(isAfterglow(null)).toBe(false)
 })
 
 test('isAfterglow: keys off the primary author of a compound string', () => {
   // Author is kimi (living) even though the relay carrier is sunset.
-  expect(isAfterglow('kimi-k2.6 · relayed by claude-fable-5')).toBe(false)
+  expect(isAfterglow('kimi-k2.6 · relayed by claude-3-opus')).toBe(false)
   // Author is the sunset model; the relay carrier is living.
-  expect(isAfterglow('claude-fable-5 · relayed by kimi-k2.6')).toBe(true)
+  expect(isAfterglow('claude-3-opus · relayed by kimi-k2.6')).toBe(true)
 })

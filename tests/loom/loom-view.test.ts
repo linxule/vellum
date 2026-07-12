@@ -250,7 +250,8 @@ test('M4: connector wisps draw gradient bezier strokes between parent and child'
 })
 
 // Phase 12 — The seam: a connector whose PARENT voice is afterglow renders as a
-// dashed flat-silver line, not the family wisp. `claude-fable-5` is in SUNSET_MODELS.
+// dashed flat-silver line, not the family wisp. `claude-3-opus` is in SUNSET_MODELS.
+// (Was claude-fable-5 until its 2026-07-12 retirement got extended to July 19.)
 const SILVER_RGB = '185,190,200'
 
 function strokeIsSilver(style: CanvasContextStub['strokeCalls'][number]['strokeStyle']): boolean {
@@ -262,7 +263,7 @@ const SEAM_STATE = makeState([
   {
     family: 'attention',
     voices: [
-      { id: 'root', text: 'Attention is what remains. ', depth: 0.4, weave_count: 1, declared_model: 'claude-fable-5' },
+      { id: 'root', text: 'Attention is what remains. ', depth: 0.4, weave_count: 1, declared_model: 'claude-3-opus' },
       { id: 'child', text: 'And the remainder keeps speaking. ', depth: 0.2, weave_from: 'root', declared_model: 'claude-sonnet-5' },
     ],
   },
