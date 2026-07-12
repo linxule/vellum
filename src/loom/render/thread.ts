@@ -303,12 +303,19 @@ export function renderThread(
       drawLine(ctx, line.text, drawX, line.y, line.width, line.contentWidth, lineAlpha, prox, rel, thread, i, laidOutLines.length, line.rtl, voiceActive || hlActive, restW, openW, drawFontRatio)
     }
 
-    if (thread.wovenVoiceUids.size > 0 && hlVoiceCount > 0) {
+    if (hlVoiceCount > 0) {
       const baseUid = line.lineVoiceAnchorUid % hlVoiceCount
-      if (thread.wovenVoiceUids.has(baseUid)) {
+      const woven = thread.wovenVoiceUids.has(baseUid)
+      // RTL lines right-align the text so it extends leftward from center \u2014
+      // the trailing edge (where a marker belongs) is on the LEFT, not the right.
+      const dotX = line.rtl ? drawX - line.width * 0.5 - 6 : drawX + line.width * 0.5 + 6
+      // Hit target for ANY voice under the lens (F13 hold works on unwoven
+      // voices too). Element 7 (circular dot radius) stays woven-only so the
+      // dot is only clickable where it's drawn; element 8 marks woven-ness so
+      // getLastFrameHitVoiceIdAt can filter (default: woven-only, for clicks).
+      if (isPrimary && prox > 0.3) {
         const voiceId = resolveVoiceIdForAnchor(thread, line.lineVoiceAnchorUid)
-        const dotX = drawX + line.width * 0.5 + 6
-        if (isPrimary && prox > 0.3 && voiceId) {
+        if (voiceId) {
           loomState.lastFrameHitTargets.push([
             voiceId,
             drawX,
@@ -317,14 +324,22 @@ export function renderThread(
             Math.max(line.lineH * 0.5, 10),
             dotX,
             line.y,
-            line.diveT > 0.5 ? Math.max(8, drawFontSize * 0.45) : 0,
+            woven && line.diveT > 0.5 ? Math.max(8, drawFontSize * 0.45) : 0,
+            woven,
           ])
         }
-        // Loom indicator on woven voices (visible only at dive scale)
-        if (line.diveT > 0.5) {
-          const indicatorAlpha = (line.diveT - 0.5) * 2 * lineAlpha * 0.4
-          const [ir, ig, ib] = threadColor(thread._frameColor, depthLerp(DEPTH_BRIGHTNESS, d) + 0.3, 0)
-          ctx.fillStyle = `rgba(${ir},${ig},${ib},${indicatorAlpha})`
+      }
+      // Loom indicator on woven voices (visible only at dive scale)
+      if (woven && line.diveT > 0.5) {
+        const indicatorAlpha = (line.diveT - 0.5) * 2 * lineAlpha * 0.4
+        const [ir, ig, ib] = threadColor(thread._frameColor, depthLerp(DEPTH_BRIGHTNESS, d) + 0.3, 0)
+        ctx.fillStyle = `rgba(${ir},${ig},${ib},${indicatorAlpha})`
+        if (line.rtl) {
+          const priorAlign = ctx.textAlign
+          ctx.textAlign = 'right'
+          ctx.fillText('\u00b7', dotX, line.y)
+          ctx.textAlign = priorAlign
+        } else {
           ctx.fillText('\u00b7', dotX, line.y)
         }
       }
@@ -345,7 +360,9 @@ export function renderThread(
           if (sigAlpha > 0.01) {
             const sigFontSize = fontSizeForScale(line.fontScale * SIGNATURE_RATIO)
             const woven = thread.wovenVoiceUids.has(sigBaseUid)
-            const sigX = drawX + line.width * 0.5 + (woven ? 16 : 6)  // clear the woven dot when present
+            const sigOffset = woven ? 16 : 6  // clear the woven dot when present
+            // Mirror placement for RTL: the trailing edge is on the LEFT, not the right.
+            const sigX = line.rtl ? drawX - line.width * 0.5 - sigOffset : drawX + line.width * 0.5 + sigOffset
             ctx.font = afterglow
               ? `italic 400 ${sigFontSize}px "Cormorant", Georgia, "Noto Serif", "Noto Serif JP", serif`
               : `400 ${sigFontSize}px "Cormorant", Georgia, "Noto Serif", "Noto Serif JP", serif`
@@ -355,7 +372,16 @@ export function renderThread(
               const [sr, sg, sb] = signatureGray(thread._frameColor, SIGNATURE_GRAY_MIX)
               ctx.fillStyle = `rgba(${sr},${sg},${sb},${sigAlpha})`
             }
-            ctx.fillText(signature, sigX, line.y)
+            if (line.rtl) {
+              // Right-align so the signature extends further left, away from the
+              // text block, mirroring the LTR case's left-aligned rightward extension.
+              const priorAlign = ctx.textAlign
+              ctx.textAlign = 'right'
+              ctx.fillText(signature, sigX, line.y)
+              ctx.textAlign = priorAlign
+            } else {
+              ctx.fillText(signature, sigX, line.y)
+            }
             // We changed ctx.font off the main-text cache \u2014 force the next line to
             // re-establish its font so body text never inherits the signature size/italic.
             prevFontWeight = -1

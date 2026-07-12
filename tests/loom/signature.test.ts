@@ -99,6 +99,60 @@ test('ocean: a multi-line voice signs exactly once per frame (regression: per-li
   expect(sigCalls(ctx, 'claude-sonnet-5').length).toBe(1)
 })
 
+// ── RTL placement (regression: dot/signature drawn on the wrong side of RTL lines) ──
+
+const RTL_TEXT = 'الانتباه هو ما يتبقى عندما تتوقف عن الوصول إليه دائما '
+
+// Approximate the rendered line's center x from the body-text fillText calls
+// sharing its y (the signature and dot share `line.y` exactly; body glyphs land
+// within a few px of it via shimmerY jitter).
+function lineCenterX(ctx: CanvasRenderingContext2D, y: number, excludeMarkers: string[]): number {
+  const body = (ctx as unknown as CanvasContextStub).fillTextCalls.filter(c =>
+    Math.abs(c.y - y) < 6 && !excludeMarkers.some(m => c.text.includes(m)))
+  const xs = body.map(c => c.x)
+  return (Math.min(...xs) + Math.max(...xs)) / 2
+}
+
+test('ocean: RTL signature is placed left of the line center', async () => {
+  installViewport(960, 640)
+  await loadState(makeState([
+    { family: 'attention', voices: [{ id: 'rtl0', text: RTL_TEXT, depth: 0.2, declared_model: 'claude-sonnet-5' }] },
+  ], 305))
+  withFixedRandom(0.5, () => initLoom())
+
+  const ctx = createCanvasContext()
+  const mouse = makeMouse()
+  runFrames(renderLoom, ctx, mouse, 5)
+  triggerPhantomHover(0, 'rtl0')
+  runFrames(renderLoom, ctx, mouse, 60, 80)
+
+  const calls = sigCalls(ctx, 'claude-sonnet-5')
+  expect(calls.length).toBeGreaterThan(0)
+  const sig = calls[0]!
+  const center = lineCenterX(ctx, sig.y, ['claude-sonnet-5'])
+  expect(sig.x).toBeLessThan(center)
+})
+
+test('ocean: LTR signature is placed right of the line center (control)', async () => {
+  installViewport(960, 640)
+  await loadState(makeState([
+    { family: 'attention', voices: [{ id: 'a0', text: OCEAN_TEXT, depth: 0.2, declared_model: 'claude-sonnet-5' }] },
+  ], 306))
+  withFixedRandom(0.5, () => initLoom())
+
+  const ctx = createCanvasContext()
+  const mouse = makeMouse()
+  runFrames(renderLoom, ctx, mouse, 5)
+  triggerPhantomHover(0, 'a0')
+  runFrames(renderLoom, ctx, mouse, 60, 80)
+
+  const calls = sigCalls(ctx, 'claude-sonnet-5')
+  expect(calls.length).toBeGreaterThan(0)
+  const sig = calls[0]!
+  const center = lineCenterX(ctx, sig.y, ['claude-sonnet-5'])
+  expect(sig.x).toBeGreaterThan(center)
+})
+
 // ── Loom view (radial lens) ──────────────────────────
 
 const TWO_VOICE = (rootModel: string | null) => makeState([

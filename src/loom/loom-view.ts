@@ -974,6 +974,7 @@ export function renderLoomTree(
       hitHalfW, hitHalfH,
       hitCenterX, hitCenterY,
       0,
+      true,
     ])
   }
 }

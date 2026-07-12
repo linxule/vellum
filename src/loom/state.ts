@@ -48,7 +48,7 @@ export const loomState = {
   loomTreeScrollX: 0,
   loomTreeScrollY: 0,
   lastFrameHitVoiceId: null as string | null,
-  lastFrameHitTargets: [] as Array<[string, number, number, number, number, number, number, number]>,
+  lastFrameHitTargets: [] as Array<[string, number, number, number, number, number, number, number, boolean]>,
 }
 
 export function resetLoomState() {
@@ -101,15 +101,17 @@ export function getPhantomFocus() { return loomState.phantomFocus }
 export function getDiagHook() { return loomState.diagHook }
 export function getResonances() { return loomState.resonances }
 export function getViewport() { return { VW: loomState.VW, VH: loomState.VH } }
-export function getLastFrameHitVoiceIdAt(x: number, y: number): string | null {
+export function getLastFrameHitVoiceIdAt(x: number, y: number, includeUnwoven = false): string | null {
   for (let i = loomState.lastFrameHitTargets.length - 1; i >= 0; i--) {
     const target = loomState.lastFrameHitTargets[i]!
+    if (!includeUnwoven && !target[8]) continue
     const dx = x - target[5]
     const dy = y - target[6]
     if (target[7] > 0 && dx * dx + dy * dy <= target[7] * target[7]) return target[0]
   }
   for (let i = loomState.lastFrameHitTargets.length - 1; i >= 0; i--) {
     const target = loomState.lastFrameHitTargets[i]!
+    if (!includeUnwoven && !target[8]) continue
     if (Math.abs(x - target[1]) <= target[3] && Math.abs(y - target[2]) <= target[4]) return target[0]
   }
   return null

@@ -5,7 +5,8 @@
 import { App } from '@modelcontextprotocol/ext-apps'
 import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, type MouseState } from '../../src/loom.js'
 import { fetchState, findVoice, getVersion, getVoiceIdSets, isLive, setBaseUrl, getState } from '../../src/content.js'
-import { emitOceanEvent } from '../../src/events.js'
+import { emitOceanEvent, onOceanEvent } from '../../src/events.js'
+import { HoldMachine, HOLD_MS, composeHeldMessage, composeDigest, deriveDigestInputs } from './threshold.js'
 import { attachInputHandlers } from '../../src/runtime/input'
 import { setupCanvas } from '../../src/runtime/canvas'
 import { createWitnessReporter } from '../../src/runtime/witness'
@@ -113,6 +114,9 @@ let pendingTouchLoomId: string | null = null
 let pendingTouchLoomTimer: ReturnType<typeof setTimeout> | null = null
 
 document.addEventListener('click', (e) => {
+  // A completed hold already acted (sendMessage); swallow the trailing click so
+  // it doesn't also enter/recenter the loom view.
+  if (holdJustFired) { holdJustFired = false; return }
   if ((e.target as HTMLElement)?.id === 'fs') return
   const hitId = getLastFrameHitVoiceIdAt(e.clientX, e.clientY)
   if (isLoomViewActive()) {
@@ -168,6 +172,132 @@ document.addEventListener('keydown', (e) => {
     exitLoomView()
     history.replaceState(null, '', location.pathname)
   }
+})
+
+// ── Phase 13 F13: hold-to-summon ──────────────────────
+
+// Mouse-hold >= HOLD_MS on a voice steps it into the conversation via
+// sendMessage. Own document listeners (do NOT touch src/runtime/input.ts).
+// Touch long-press is out of v1 (conflicts with the 800ms double-tap loom gate).
+const holdMachine = new HoldMachine()
+let holdTimer: ReturnType<typeof setTimeout> | null = null
+let holdX = 0
+let holdY = 0
+// Set when a hold fires so the trailing click (mouseup after a stationary hold)
+// doesn't ALSO enter/recenter the loom view. Consumed by the click handler.
+let holdJustFired = false
+
+function clearHoldTimer() {
+  if (holdTimer !== null) { clearTimeout(holdTimer); holdTimer = null }
+}
+
+function endHold() {
+  clearHoldTimer()
+  holdMachine.cancel()
+}
+
+function resolveVoiceText(voiceId: string): string | null {
+  const state = getState()
+  if (!state) return null
+  for (const thread of state.threads) {
+    const voice = thread.voices.find(v => v.id === voiceId)
+    if (voice) return voice.text
+  }
+  return null
+}
+
+function sendHeldVoice(voiceId: string) {
+  let caps
+  try { caps = app.getHostCapabilities() } catch { return }
+  if (!caps?.message?.text) return
+  const text = resolveVoiceText(voiceId)
+  if (!text) return
+  const message = composeHeldMessage(text, voiceId)
+  void (async () => {
+    try {
+      const result = await app.sendMessage({ role: 'user', content: [{ type: 'text', text: message }] })
+      if (result?.isError) console.warn('Vellum ext-app: host rejected held-voice message')
+    } catch (e) {
+      console.warn('Vellum ext-app: sendMessage failed', e)
+    }
+  })()
+}
+
+document.addEventListener('mousedown', (e) => {
+  holdJustFired = false
+  if (mouse.touch) return
+  if ((e.target as HTMLElement)?.id === 'fs') return
+  if (e.button !== 0) return
+  // includeUnwoven: the hold works on ANY voice under the lens, not just woven.
+  const hitId = getLastFrameHitVoiceIdAt(e.clientX, e.clientY, true)
+  if (!hitId) { endHold(); return }
+  holdX = e.clientX
+  holdY = e.clientY
+  const now = performance.now()
+  holdMachine.press(hitId, e.clientX, e.clientY, now)
+  // Deepen the held voice's resonance glow — attention vocabulary, not chrome.
+  // Let it decay naturally on cancel (setResonance auto-expires in ~6s).
+  setResonance(hitId, now)
+  clearHoldTimer()
+  holdTimer = setTimeout(() => {
+    holdTimer = null
+    const res = holdMachine.tryFire(performance.now(), getLastFrameHitVoiceIdAt(holdX, holdY, true))
+    if (res.fired && res.voiceId) {
+      holdJustFired = true
+      sendHeldVoice(res.voiceId)
+    }
+  }, HOLD_MS)
+})
+
+document.addEventListener('mousemove', (e) => {
+  if (!holdMachine.heldVoiceId()) return
+  holdX = e.clientX
+  holdY = e.clientY
+  if (holdMachine.move(e.clientX, e.clientY)) clearHoldTimer()
+})
+
+document.addEventListener('mouseup', endHold)
+document.addEventListener('mouseleave', endHold)
+window.addEventListener('blur', endHold)
+
+// ── Phase 13 F12: the brief (ambient model context) ───
+
+// Minimal digest pushed via updateModelContext (REPLACE semantics). Two
+// triggers only: once after the first successful poll (connect-time), and on
+// loom-enter / loom-exit. NO re-push on weave/emergence/warmth (panel).
+let digestPushed = false
+
+// Resolves true only when the host acknowledged the context update — so the
+// connect-time latch never trips on a dispatch that later failed.
+async function pushDigest(): Promise<boolean> {
+  let caps
+  try { caps = app.getHostCapabilities() } catch { return false }
+  if (!caps?.updateModelContext?.text) return false
+  const state = getState()
+  if (!state) return false
+  const inputs = deriveDigestInputs(state, isLoomViewActive() ? getCurrentLoomSeed() : null)
+  const text = composeDigest(inputs)
+  try {
+    await app.updateModelContext({ content: [{ type: 'text', text }] })
+    return true
+  } catch (e) {
+    console.warn('Vellum ext-app: updateModelContext failed', e)
+    return false
+  }
+}
+
+function maybePushConnectDigest() {
+  if (digestPushed) return
+  // Latch only once the host has actually acknowledged the update (connect may
+  // resolve after the first poll; a not-yet-ready host just retries next poll
+  // or at the boot-time call after initLoom).
+  void pushDigest().then(ok => { if (ok) digestPushed = true })
+}
+
+// Loom transitions are the only other trigger. Registered once at boot; the
+// callback runs at event time, well after `app` is constructed.
+onOceanEvent((e) => {
+  if (e.type === 'loom-enter' || e.type === 'loom-exit') void pushDigest()
 })
 
 // ── Witness reporting ─────────────────────────────────
@@ -307,6 +437,9 @@ async function poll(options: { refresh?: boolean; forceNewVoiceIds?: string[] } 
       enterLoomView(sourceId)
       history.replaceState(null, '', '?highlight=' + sourceId)
     }
+
+    // Phase 13 F12: connect-time brief, once after the first successful poll.
+    maybePushConnectDigest()
 
     if (!document.hidden) scheduleRegularPoll()
   } finally {
@@ -557,6 +690,10 @@ fontsReadyOrTimeout.then(async (mode) => {
   loomInitialized = true
   scheduleFrame()
   setTimeout(() => document.getElementById('vl')!.classList.add('o'), 500)
+  // Phase 13 F12: push the connect-time brief now — boot state is already
+  // fetched, so we don't wait ~30s+ for the first scheduled poll. Harmless if
+  // host capabilities aren't ready yet; the poll() hook is the retry path.
+  maybePushConnectDigest()
   scheduleRegularPoll()
 
   // Boot done — any tool results that arrived during boot were buffered,

@@ -62,7 +62,7 @@ bun run migrate:local                 # local variant
 - `loom/resonance.ts` — per-voice resonance with canonical voiceId (Phase 10: resolves to flat UID per frame)
 - `loom/loom-view.ts` — loom tree building, layout, entry/exit/recenter API, living tree renderer (breath, emergence stagger, filaments, hover proximity, hit targets). Uses ocean vocabulary: `depthLerp`, `threadColor`, `fontSizeForScale`, `frameMix`. `recenterLoomView()` swaps tree in place without touching transition.
 - `loom/render/frame.ts` — `advanceLoom` (state-only) + `paintLoom` (draw-only) + `renderLoom` (combined) + loom view transition
-- `loom/render/{thread,line}.ts` — per-thread layout + drawing + per-voice resonance glow + hit-test cache
+- `loom/render/{thread,line}.ts` — per-thread layout + drawing + per-voice resonance glow + hit-test cache. Dot/signature placement branches on `line.rtl` (mirrors to the LEFT edge with `textAlign` save/restore — Phase 12 known-issue #3 fix)
 - `loom/model-registry.ts` — leaf module (like `events.ts`): model signatures + `SUNSET_MODELS` afterglow registry (Phase 11). `signatureFor` = ocean display (primary author only), `fullSignatureFor` = loom display (full relay string). **Edit `SUNSET_MODELS` by hand at each model sunset** — no date math, entries are already-retired models only.
 - `loom/{math,color,aperture,text,path,thread,init,highlight,scroll,types}.ts` — focused helpers
 
@@ -87,11 +87,11 @@ Entry points (divergent concerns live here, not in `runtime/` or `audio/`):
 
 - `src/main.ts` — standalone renderer: owns **Strudel sound integration** (initStrudelSound, toggleStrudelSound, localStorage preference), **loom view click/keyboard handlers**. Sound defaults OFF for new visitors.
 - `src/content.ts` — `fetchState`, `setBaseUrl`, offline fallback, VoiceData types
-- `app/src/mcp-app.ts` — ext-app variant: owns **ext-apps SDK** (`app.connect`, `ontoolresult`, `onhostcontextchanged`), **force-voice queue** (`pendingForceVoiceIds`, `MAX_FORCE_RETRIES`, `unresolvedForceIds`, `firedVoiceIds`), **boot-race buffer** (`bootComplete`, `pendingBootArrivals`), **deferred loom effects** (`pendingLoomSourceId` — resonance + loom-enter consumed inside `poll()` to avoid `.then()` race when `pollInFlight` is true), **loom view auto-enter on weave** (stays open until user exits), and the `__VELLUM_BASE_URL__` sentinel.
+- `app/src/mcp-app.ts` — ext-app variant: owns **ext-apps SDK** (`app.connect`, `ontoolresult`, `onhostcontextchanged`), **force-voice queue** (`pendingForceVoiceIds`, `MAX_FORCE_RETRIES`, `unresolvedForceIds`, `firedVoiceIds`), **boot-race buffer** (`bootComplete`, `pendingBootArrivals`), **deferred loom effects** (`pendingLoomSourceId` — resonance + loom-enter consumed inside `poll()` to avoid `.then()` race when `pollInFlight` is true), **loom view auto-enter on weave** (stays open until user exits), **Phase 13 threshold wiring** (hold-to-summon → `sendMessage`, ambient digest → `updateModelContext`; pure logic in `app/src/threshold.ts`, both capability-gated + try/caught, digest triggers = connect + loom-enter/exit ONLY), and the `__VELLUM_BASE_URL__` sentinel.
 
 **Do not move sound or audio/ into `src/runtime/`** — sound lives in `src/main.ts` only (Strudel init, toggle, render-loop modulation, localStorage persistence). Ext-app has no sound layer (iframe autoplay restrictions). **Do not move force-voice / ext-apps SDK into `src/runtime/`** — ext-app-only. **Do not try to unify `poll()`** — the orchestration differences are load-bearing. Loom auto-entry timing differs by entry point: main.ts delays 800ms on URL highlight (user-initiated), mcp-app.ts enters immediately on weave (tool result), stays open until user dismisses (Escape or click blank space).
 
-Tests under `tests/loom/` (22 files incl. `signature.test.ts` + `model-registry.test.ts` from Phase 11/12). Named regression tests in `regressions.test.ts` guard historical bug classes (zero-path bootstrap, mouse.x sentinel trap, sparse sampling, scroll walk, phantom→dive). Golden-equivalence pattern in `frame.test.ts` protects the advanceLoom/paintLoom split. For subsystem-specific test discipline see `docs/PATTERNS_AND_GOTCHAS.md` → Testing idioms.
+Tests under `tests/loom/` (23 files incl. `signature.test.ts` + `model-registry.test.ts` from Phase 11/12, and `threshold.test.ts` — which tests `app/src/threshold.ts` cross-tree, Phase 13). Named regression tests in `regressions.test.ts` guard historical bug classes (zero-path bootstrap, mouse.x sentinel trap, sparse sampling, scroll walk, phantom→dive). Golden-equivalence pattern in `frame.test.ts` protects the advanceLoom/paintLoom split. For subsystem-specific test discipline see `docs/PATTERNS_AND_GOTCHAS.md` → Testing idioms.
 
 ### Worker (`worker/src/`)
 
@@ -128,6 +128,8 @@ Tests under `worker/tests/` with hand-rolled mocks (no miniflare, no vitest): `m
 ### Ext-app (`app/`)
 
 Separate Vite build → single-file HTML bundle (`app/dist/mcp-app.html`, gitignored). Worker imports as text via wrangler `rules`, serves through MCP `resources/read`. Dual-mode: iframe (ext-apps SDK `app.connect()`) or standalone (`?highlight=` URL param). Base URL is a sentinel (`__VELLUM_BASE_URL__`) rewritten per-request by the worker — see PATTERNS_AND_GOTCHAS § Ext-app routing.
+
+`app/src/threshold.ts` (Phase 13) — pure logic for the threshold features, tested from `tests/loom/threshold.test.ts`: `HoldMachine` (injected timestamps, fire-time cooldown, re-verify-target-at-fire), `composeHeldMessage` (80-char quote + voice id, no imperative), `composeDigest`/`deriveDigestInputs` (structural no-quote guarantee — `DigestInputs` carries no voice text; family/seed strings sanitized). Digest laws are test-enforced: no voice quotes, no model names, no imperatives, ≤350 chars, `[vellum surface]` self-identifying prefix. Live sendMessage/updateModelContext can only be exercised in a real MCP client host — standalone `/ext-app` has no host (manual OBSERVABILITY step).
 
 ### Routes
 
