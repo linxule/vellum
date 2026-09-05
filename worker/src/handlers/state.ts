@@ -4,8 +4,10 @@ import { checkAndIncrementRateLimit, checkRateLimitDO, RATE_LIMITS } from '../ra
 import { constantTimeEqual } from '../hmac'
 import { trackAnalytics } from '../analytics'
 import { STATE_CACHE_STALE_MS } from '../schemas'
+import { DEFAULT_SURFACE } from '../surfaces'
+import { modeOf } from '../levee-admission'
 
-export async function handleState(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+export async function handleState(request: Request, env: Env, ctx: ExecutionContext, surface: string = DEFAULT_SURFACE): Promise<Response> {
   const url = new URL(request.url)
   const defaultProjection = { threads: [], computed_at: Date.now(), version: 0 }
 
@@ -24,26 +26,27 @@ export async function handleState(request: Request, env: Env, ctx: ExecutionCont
   // Force-refresh is expensive (rebuilds entire projection) — gate behind admin key
   const adminKey = request.headers.get('x-admin-key')
   const forceRefresh = url.searchParams.get('refresh') === '1' && adminKey !== null && constantTimeEqual(adminKey, env.ADMIN_KEY)
-  let projection = await readProjectionCache(env.KV)
+  let projection = await readProjectionCache(env.KV, surface)
   let analyticsState = 'hit'
+  const permanenceMode = modeOf(env, 'LEVEE_PERMANENCE')
 
   if (!projection) {
     analyticsState = 'miss-inline'
-    await rebuildStateProjection(env.DB, env.KV)
-    projection = await readProjectionCache(env.KV)
+    await rebuildStateProjection(env.DB, env.KV, 'off', surface, permanenceMode)
+    projection = await readProjectionCache(env.KV, surface)
   } else if (forceRefresh) {
     analyticsState = 'force-refresh'
     const startedAt = Date.now()
-    let rebuildStatus: 'locked' | 'rebuilt' | 'rebuilt-twice'
+    let rebuildStatus: 'locked' | 'rebuilt' | 'rebuilt-twice' | 'debounced'
     try {
-      rebuildStatus = await rebuildStateProjectionIfNotLocked(env.DB, env.KV)
+      rebuildStatus = await rebuildStateProjectionIfNotLocked(env.DB, env.KV, undefined, 'off', 0, surface, permanenceMode)
       trackAnalytics(env, ['cache_rebuild', 'state', rebuildStatus], [Date.now() - startedAt])
     } catch (error) {
       trackAnalytics(env, ['cache_rebuild', 'state', 'error'], [Date.now() - startedAt])
       throw error
     }
     if (rebuildStatus === 'rebuilt' || rebuildStatus === 'rebuilt-twice') {
-      projection = await readProjectionCache(env.KV)
+      projection = await readProjectionCache(env.KV, surface)
       analyticsState = 'force-refreshed'
     } else {
       // KNOWN: contention-acceptable — see PATTERNS_AND_GOTCHAS § Cache contention
@@ -54,7 +57,7 @@ export async function handleState(request: Request, env: Env, ctx: ExecutionCont
     if (ageMs > STATE_CACHE_STALE_MS) {
       analyticsState = 'stale-served'
       ctx.waitUntil(
-        rebuildStateProjectionIfNotLocked(env.DB, env.KV)
+        rebuildStateProjectionIfNotLocked(env.DB, env.KV, undefined, 'off', 0, surface, permanenceMode)
           .catch(e => console.error('Background state rebuild failed:', e))
       )
     } else {

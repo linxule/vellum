@@ -69,12 +69,12 @@ The split was pure refactor — signatures identical, no behavior changes, no te
 
 Phase 9.5 B2 added zod validation at every worker-level trust boundary that previously trusted `await request.json() as T` casts or `kv.get<T>('json')` projection casts:
 
-- `handlers/mcp.ts` — parses the JSON-RPC envelope through `JSON_RPC_ENVELOPE_SCHEMA` (in `schemas.ts`). Malformed → JSON-RPC parse error (`-32700`, HTTP 400).
+- `handlers/mcp.ts` — parses the JSON-RPC envelope through `JSON_RPC_ENVELOPE_SCHEMA` (in `schemas.ts`). Malformed JSON → `-32700`; valid JSON with an invalid envelope → `-32600` (both HTTP 400, split in Phase 15).
 - `handlers/admin.ts` — parses the `/api/admin/hide` body through `ADMIN_HIDE_BODY_SCHEMA`. Malformed / missing `voice_id` → 400.
-- `handlers/witness.ts` — parses `/api/witness` body through `WITNESS_BODY_SCHEMA`. Post-parse dedupe + family whitelist logic from Phase 9.0 stays downstream of the schema. Malformed → 400.
+- `handlers/witness.ts` — parses `/api/witness` body through `WITNESS_BODY_SCHEMA`. Post-parse dedupe stays; Phase 15 moves the family whitelist into the Zod enum. Malformed → 400.
 - `cache.ts` — KV reads `state:projection` and `atmosphere` go through `STATE_RESPONSE_SCHEMA` / `ATMOSPHERE_DATA_SCHEMA` via `safeParse`. Parse failure logs the error and returns `null`, which triggers the existing rebuild path. **Does not throw** — cache corruption must not take down reads.
 
-Tests in `worker/tests/validation.test.ts` cover all three malformed-body HTTP boundaries. The `/mcp` test uses a schema-invalid envelope (`{method: 42}`) rather than syntactically broken JSON — both paths hit the same `safeParse` fail branch. KV cache corruption is not directly tested (would need a mock that returns a bad payload); the graceful null-return is protected by the "corrupt → null → rebuild" shape being trivial to audit.
+Tests in `worker/tests/validation.test.ts` cover all three malformed-body HTTP boundaries. The `/mcp` test uses a schema-invalid envelope (`{method: 42}`): Phase 15 corrects its expected code to `-32600`, while syntactically broken JSON is independently tested as `-32700`. KV cache corruption is not directly tested (would need a mock that returns a bad payload); the graceful null-return is protected by the "corrupt → null → rebuild" shape being trivial to audit.
 
 **When adding new boundaries**: if you find yourself writing `await request.json() as T` or `kv.get<T>(...'json')` without a schema, stop. Add the schema to `schemas.ts` and safe-parse at the boundary. The cost is ~6 lines per boundary.
 
@@ -386,9 +386,19 @@ It strips types, same as esbuild. A TS2552 (or any other TS error) in `src/loom/
 
 ## Testing idioms
 
+### Phase 15 worker contract and admission
+
+`contract.ts` is public descriptive data; schemas validate it, and `discovery.ts` renders cards, schemas, skills and AI-doc sections. Root `AGENTS.md` and `worker/server.json` are generated with `bun scripts/discovery-artifacts.ts`; tests catch drift. The ignored local Wrangler config must include `**/*.md` alongside `**/*.html` in its Text rule. No renderer or MCP-tool additions.
+
+`admitBody` checks Content-Length before touching the stream, then counts real bytes even if the header is missing or lies. Imprint reads at most 4096 bytes, charges, then parses. REST weave parses, validates and resolves before charging. MCP gets 16384 bytes, not batch support (array envelopes are still invalid).
+
+Session verification returns a discriminated result, authenticates the signature before reporting expiry, and every post-initialize method passes the shared guard. Expired-token retry_after is zero: re-initialization is immediately possible. Session quota retry_after measures the existing sliding KV window from last_action; Phase 15 does not alter quota values or storage behavior. Origin logging is opt-in via MCP_ORIGIN_LOG_ONLY=true; unknown origins never reject.
+
+`sortByWarmth` preserves discover semantics: family warmth descending, weave-count tie break, applied after SQL pagination. This is ordering within a selected page, not a global warmest-first search.
+
 ### Hand-rolled worker mocks (no miniflare, no vitest)
 
-`worker/tests/mocks.ts` provides `MockKV`, `MockD1`, `MockExecutionContext`, and `makeTestEnv()`. Tests run under bun:test native. The `MockKV` supports `injectDelay('key', ms)` for testing race conditions deterministically.
+`worker/tests/mocks.ts` provides `MockKV`, `MockD1`, `MockExecutionContext`, and `makeTestEnv()`. Tests run under bun:test native. Phase 15 adds `door-mocks.ts`, which extends `MockD1` with write/source/listing queries without changing `mocks.ts` or its literal projection matchers. New tests are named with acceptance row IDs; the only pre-existing test edits update resource session setup and the corrected invalid-envelope code. The `MockKV` supports `injectDelay('key', ms)` for testing race conditions deterministically.
 
 **Why:** miniflare was heavy and vitest added another test runner. The hand-rolled mocks are ~250 lines, cover the surface we use, and execute fast.
 
@@ -476,3 +486,27 @@ When transition reaches 0 (exit complete), `loomTree` and `loomViewSeed` are nul
 ### Per-family voices in base pattern
 
 Each of the 6 families has its own voice with a distinct synth + note + parameters, gain-driven by warmth. `warmth-update` events re-evaluate the base pattern with fresh gains. Pattern strings are placeholder and can be refined with Music Studio MCP.
+
+---
+
+## Rooms and surfaces (Phase 18)
+
+### `backfillRoomId`'s 500-row cap is a real, documented limitation — not a bug to silently fix
+
+When a voice with an EXISTING loom subtree is promoted into a room (`POST /api/rooms`, not the inline `open_room` path — that one's subtree is always empty, since the seed is brand new), `rooms.ts`'s `backfillRoomId` BFS-walks `weave_from` to stamp `room_id` on every descendant, capped at `ARCHIPELAGO.room.backfillCap` (500) rows per promotion call. Beyond the cap, the remainder is simply never backfilled by this code path — there is no lazy sweep-on-read that picks up the rest later. In practice this only bites a promotion of a voice with a genuinely enormous (500+) pre-existing subtree, which the spec itself calls out as an edge case worth noting rather than solving this phase. If this becomes a real problem, the fix is a `room_id IS NULL AND weave_from IN (...)` sweep triggered from a read path (e.g. `GET /api/rooms/:seed` or `discover{room}`), not a bigger cap.
+
+### `voices.room_id` is a denormalized projection of the loom subtree, never a second source of truth
+
+`handlers/lineage.ts`'s `buildLineage` (BFS via `weave_from`) is the ONLY authority on room membership. `room_id` exists purely so `discover{room}` and `GET /api/rooms/:seed`'s member count can be a single indexed query instead of a BFS per read — it is written once, at weave time (`source.room_id` is copied onto the new voice), never recomputed from `buildLineage` on every read. If these two ever disagree (they shouldn't, absent a bug), `buildLineage` is right.
+
+### `weave_log`/`echo_events` carry NO `surface_id` column, deliberately
+
+A weave can only cite a source on the same surface (`resolveSource`'s every branch is `surface_id`-scoped), so a `weave_log` row's surface is always implicitly the same as its `source_voice_id`'s. Adding a redundant column would be a second source of truth for something already derivable. Same reasoning for `echo_events` — an echo is always about one `voice_id`, whose surface is on the voice row.
+
+### `touchSurfaceActivity`'s `surface_woven` echo uses `voice_id: ''`
+
+`echo_events.voice_id` is `NOT NULL` (migration `0008`), but a "you had activity on your surface today" echo isn't about any ONE voice — it's about the surface as a whole. Rather than adding a nullable column to a table three other phases already depend on, this event's `voice_id` is an empty string. `renderEchoLines`' `default:` branch renders it as `  : surface_woven` today (harmless, if slightly odd) — a future phase adding surface-specific echo rendering should special-case `kind === 'surface_woven'` there rather than trying to make `voice_id` meaningful for it.
+
+### Sense_space's `rooms:`/`surfaces:` blocks are always computed, even off the default surface
+
+`listActiveRooms` is scoped to the CURRENT surface (rooms are per-surface); `listActiveSurfaces` always lists OTHER oceans regardless of which one you're currently sensing from (deliberately not scoped by current surface — discovering peer islands is equally relevant whether you're on the mainland or already on one). Both run on every `sense_space` call (not just `surface: "?"`) and are cheap no-ops when there's nothing to list.

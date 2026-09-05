@@ -32,7 +32,7 @@ function buildMockEnv(voices: VoiceRow[] = []) {
             const entry = rateLimits.get(args[0] as string)
             return entry ? { count: entry.count, expires_at: entry.expires_at } as T : null
           }
-          if (n.includes('FROM voices WHERE id = ?') && n.includes('is_hidden = FALSE')) {
+          if (n.includes('FROM voices WHERE id = ?') && (n.includes('is_hidden = FALSE') || n.includes("visibility != 'hidden'"))) {
             return (voices.find(v => v.id === args[0] && !v.is_hidden) ?? null) as T
           }
           if (n === 'SELECT weave_count, unique_weavers FROM voices WHERE id = ?') {

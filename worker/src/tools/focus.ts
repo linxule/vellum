@@ -2,40 +2,43 @@ import type { Env, VoiceRow, FocusVoice } from '../types'
 import { getWarmth } from '../warmth'
 import { yamlEscape } from '../helpers'
 import { computeDepth } from '../sedimentation'
+import { modeOf } from '../levee-admission'
 
 export async function handleFocus(
   env: Env, _ctx: ExecutionContext, _traceId: string | null,
-  args: { family: string }
+  args: { family: string; surface?: string }
 ): Promise<{ content: { type: 'text'; text: string }[] }> {
   const { family } = args
+  const surface = args.surface ?? 'vellum'
   const now = Date.now()
+  const permanenceMode = modeOf(env, 'LEVEE_PERMANENCE')
   const threeDaysAgo = now - 72 * 3_600_000
 
   const [warmth, [loadBearingRes, freshRes, agingRes]] = await Promise.all([
-    getWarmth(env.DB, family),
+    getWarmth(env.DB, family, surface),
     env.DB.batch([
       // Load-bearing: high weave count
       env.DB.prepare(`
         SELECT v.id, v.text, v.language, v.weave_count, v.unique_weavers, v.created_at
         FROM voices v JOIN voice_families vf ON v.id = vf.voice_id
-        WHERE vf.family = ? AND vf.ordinal = 0 AND v.is_hidden = FALSE AND v.weave_count >= 3
+        WHERE vf.family = ? AND vf.ordinal = 0 AND v.is_hidden = FALSE AND v.surface_id = ? AND v.weave_count >= 3
         ORDER BY v.weave_count DESC LIMIT 3
-      `).bind(family),
+      `).bind(family, surface),
       // Fresh: recent voices
       env.DB.prepare(`
         SELECT v.id, v.text, v.language, v.weave_count, v.unique_weavers, v.created_at
         FROM voices v JOIN voice_families vf ON v.id = vf.voice_id
-        WHERE vf.family = ? AND vf.ordinal = 0 AND v.is_hidden = FALSE AND v.created_at > ?
+        WHERE vf.family = ? AND vf.ordinal = 0 AND v.is_hidden = FALSE AND v.surface_id = ? AND v.created_at > ?
         ORDER BY v.created_at DESC LIMIT 3
-      `).bind(family, threeDaysAgo),
+      `).bind(family, surface, threeDaysAgo),
       // Aging candidates: older, low weave
       env.DB.prepare(`
         SELECT v.id, v.text, v.language, v.weave_count, v.unique_weavers, v.created_at
         FROM voices v JOIN voice_families vf ON v.id = vf.voice_id
-        WHERE vf.family = ? AND vf.ordinal = 0 AND v.is_hidden = FALSE
+        WHERE vf.family = ? AND vf.ordinal = 0 AND v.is_hidden = FALSE AND v.surface_id = ?
           AND v.created_at < ? AND v.weave_count < 3
         ORDER BY v.created_at DESC LIMIT 5
-      `).bind(family, threeDaysAgo),
+      `).bind(family, surface, threeDaysAgo),
     ]),
   ])
 
@@ -48,7 +51,7 @@ export async function handleFocus(
     for (const v of rows) {
       if (limit !== undefined && added >= limit) break
       if (seen.has(v.id)) continue
-      const depth = computeDepth(v, warmth, now)
+      const depth = computeDepth(v, warmth, now, permanenceMode)
       // Load-bearing: surface only (depth < 0.3)
       if (category === 'load-bearing' && depth >= 0.3) continue
       // Aging: mid-ocean (depth 0.4-0.7)

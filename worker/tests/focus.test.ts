@@ -51,7 +51,7 @@ class FocusTestDb {
 
   async first<T>(sql: string, args: unknown[]): Promise<T | null> {
     const normalized = normalizeSql(sql)
-    if (normalized === 'SELECT score, last_updated FROM warmth_state WHERE family = ?') {
+    if (normalized === 'SELECT score, last_updated FROM warmth_state WHERE family = ? AND surface_id = ?') {
       return { score: 0, last_updated: 0 } as T
     }
     throw new Error(`Unhandled first() SQL: ${normalized}`)
@@ -61,7 +61,9 @@ class FocusTestDb {
     const sql = normalizeSql((statement as unknown as { sql: string }).sql)
     const args = (statement as unknown as { args: unknown[] }).args
     const family = args[0] as string
-    const threeDaysAgo = args[1] as number | undefined
+    // Phase 18 Part B3: every focus.ts query gained a `surface` bind right after family (args[1]);
+    // threeDaysAgo (when present) shifted to args[2].
+    const threeDaysAgo = args[2] as number | undefined
     const rows = this.visiblePrimaryVoices(family)
 
     if (sql.includes('v.weave_count >= 3')) {

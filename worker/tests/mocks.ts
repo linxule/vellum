@@ -1,8 +1,8 @@
 const FAMILIES = ['attention', 'silence', 'space', 'ephemeral', 'memory', 'light'] as const
 type Family = typeof FAMILIES[number]
-type VoiceRow = { id: string, text: string, language: string | null, created_at: number, trace_id: string | null, model: string | null, declared_model: string | null, weave_count: number, unique_weavers: number, weave_from: string | null, is_hidden: number }
+type VoiceRow = { id: string, text: string, language: string | null, created_at: number, trace_id: string | null, model: string | null, declared_model: string | null, weave_count: number, unique_weavers: number, weave_from: string | null, is_hidden: number, qualified_weavers?: number, permanence_source?: 'legacy' | 'earned', visibility?: 'surfaced' | 'quarantined' | 'hidden', damped?: number, author_id?: string | null, sink_mark?: number, rooted_at?: number | null, distinct_weavers?: number, writer_bucket?: string | null, surface_id?: string, room_id?: string | null }
 type VoiceFamilyRow = { voice_id: string, family: Family, ordinal: number }
-type WarmthStateRow = { family: Family, score: number, last_updated: number }
+type WarmthStateRow = { family: Family, score: number, last_updated: number, surface_id?: string, checked_score?: number, warmed_echoed_at?: number | null }
 type RateLimitRow = { key: string, count: number, window_start: number, expires_at: number }
 type Seed = { voices?: VoiceRow[], voice_families?: VoiceFamilyRow[], warmth_state?: WarmthStateRow[], rate_limits?: RateLimitRow[] }
 const normalizeSql = (sql: string) => sql.replace(/\s+/g, ' ').trim()
@@ -129,21 +129,25 @@ export class MockD1 {
     return { meta: { changes: await this.executeRun(normalized, args) } }
   }
 
-  private visiblePrimaryVoices(family: string) {
+  private visiblePrimaryVoices(family: string, surface = 'vellum') {
     const primaryIds = new Set(
       this.voiceFamilies
         .filter(row => row.family === family && row.ordinal === 0)
         .map(row => row.voice_id)
     )
-    return this.voices.filter(voice => primaryIds.has(voice.id) && !voice.is_hidden)
+    return this.voices.filter(voice => primaryIds.has(voice.id) && !voice.is_hidden && (voice.surface_id ?? 'vellum') === surface)
   }
 
   private async select<T>(sql: string, args: unknown[]): Promise<T[]> {
     const normalized = normalizeSql(sql)
-    if (normalized === 'SELECT family, score, last_updated FROM warmth_state') return this.warmthState as T[]
-    if (normalized === 'SELECT score, last_updated FROM warmth_state WHERE family = ?') {
-      const family = args[0] as Family
-      return this.warmthState.filter(row => row.family === family) as T[]
+    // Phase 18 Part B3: warmth_state's PRIMARY KEY became (surface_id, family).
+    if (normalized === 'SELECT family, score, last_updated FROM warmth_state WHERE surface_id = ?') {
+      const surface = args[0] as string
+      return this.warmthState.filter(row => (row.surface_id ?? 'vellum') === surface) as T[]
+    }
+    if (normalized === 'SELECT score, last_updated FROM warmth_state WHERE family = ? AND surface_id = ?') {
+      const [family, surface] = args as [Family, string]
+      return this.warmthState.filter(row => row.family === family && (row.surface_id ?? 'vellum') === surface) as T[]
     }
     if (normalized === 'SELECT count, expires_at FROM rate_limits WHERE key = ?') {
       const key = args[0] as string
@@ -151,32 +155,39 @@ export class MockD1 {
         .filter(row => row.key === key)
         .map(row => ({ count: row.count, expires_at: row.expires_at })) as T[]
     }
-    if (normalized.includes('FROM voices v JOIN voice_families vf ON v.id = vf.voice_id') && normalized.includes('v.unique_weavers >= 10')) {
-      const family = args[0] as string
-      return this.visiblePrimaryVoices(family)
-        .filter(voice => voice.unique_weavers >= 10) as T[]
+    // Phase 16 post-16 SQL (docs/PHASE_16_SPEC.md Part D3) — foundation is earned permanence
+    // (qualified_weavers >= 10) or grandfathered legacy voices, capped at 40/family. Phase 18
+    // Part B3 added `AND v.surface_id = ?` (args[1]) — additive, no-op for single-surface tests.
+    if (normalized.includes('FROM voices v JOIN voice_families vf ON v.id = vf.voice_id') && normalized.includes("v.qualified_weavers >= 10 OR v.permanence_source = 'legacy'") && normalized.includes('LIMIT 40')) {
+      const [family, surface] = args as [string, string]
+      const isPermanent = (voice: VoiceRow) => (voice.qualified_weavers ?? 0) >= 10 || voice.permanence_source === 'legacy'
+      return this.visiblePrimaryVoices(family, surface)
+        .filter(isPermanent)
+        .sort((a, b) => (b.qualified_weavers ?? 0) - (a.qualified_weavers ?? 0) || b.created_at - a.created_at)
+        .slice(0, 40) as T[]
     }
-    if (normalized.includes('FROM voices v JOIN voice_families vf ON v.id = vf.voice_id') && normalized.includes('v.weave_count >= 3 AND v.unique_weavers < 10')) {
-      const family = args[0] as string
-      return this.visiblePrimaryVoices(family)
-        .filter(voice => voice.weave_count >= 3 && voice.unique_weavers < 10)
+    if (normalized.includes('FROM voices v JOIN voice_families vf ON v.id = vf.voice_id') && normalized.includes('v.weave_count >= 3') && normalized.includes("NOT (v.qualified_weavers >= 10 OR v.permanence_source = 'legacy')")) {
+      const [family, surface] = args as [string, string]
+      const isPermanent = (voice: VoiceRow) => (voice.qualified_weavers ?? 0) >= 10 || voice.permanence_source === 'legacy'
+      return this.visiblePrimaryVoices(family, surface)
+        .filter(voice => voice.weave_count >= 3 && !isPermanent(voice))
         .sort((a, b) => b.weave_count - a.weave_count)
         .slice(0, 20) as T[]
     }
     if (normalized.includes('FROM voices v JOIN voice_families vf ON v.id = vf.voice_id') && normalized.includes('ORDER BY v.created_at DESC LIMIT 150')) {
-      const family = args[0] as string
-      return this.visiblePrimaryVoices(family)
+      const [family, surface] = args as [string, string]
+      return this.visiblePrimaryVoices(family, surface)
         .sort((a, b) => b.created_at - a.created_at)
         .slice(0, 150) as T[]
     }
-    if (normalized === 'SELECT COUNT(*) as cnt FROM voice_families vf JOIN voices v ON v.id = vf.voice_id WHERE vf.family = ? AND vf.ordinal = 0 AND v.is_hidden = FALSE') {
-      const family = args[0] as string
-      return [{ cnt: this.visiblePrimaryVoices(family).length }] as T[]
+    if (normalized === 'SELECT COUNT(*) as cnt FROM voice_families vf JOIN voices v ON v.id = vf.voice_id WHERE vf.family = ? AND vf.ordinal = 0 AND v.is_hidden = FALSE AND v.surface_id = ?') {
+      const [family, surface] = args as [string, string]
+      return [{ cnt: this.visiblePrimaryVoices(family, surface).length }] as T[]
     }
-    if (normalized === 'SELECT v.language, COUNT(*) as cnt FROM voices v JOIN voice_families vf ON v.id = vf.voice_id WHERE vf.family = ? AND vf.ordinal = 0 AND v.is_hidden = FALSE GROUP BY v.language ORDER BY cnt DESC LIMIT 5') {
-      const family = args[0] as string
+    if (normalized === 'SELECT v.language, COUNT(*) as cnt FROM voices v JOIN voice_families vf ON v.id = vf.voice_id WHERE vf.family = ? AND vf.ordinal = 0 AND v.is_hidden = FALSE AND v.surface_id = ? GROUP BY v.language ORDER BY cnt DESC LIMIT 5') {
+      const [family, surface] = args as [string, string]
       const counts = new Map<string, number>()
-      for (const voice of this.visiblePrimaryVoices(family)) {
+      for (const voice of this.visiblePrimaryVoices(family, surface)) {
         const key = voice.language ?? 'en'
         counts.set(key, (counts.get(key) ?? 0) + 1)
       }
@@ -185,11 +196,34 @@ export class MockD1 {
         .slice(0, 5)
         .map(([language, cnt]) => ({ language, cnt })) as T[]
     }
+    // Post-review fix (item 6): cache.ts's 'room_fading' sweep now runs on EVERY rebuild, but this
+    // base mock (used directly by many test files via makeTestEnv, no DoorD1 layered on) has no
+    // concept of rooms at all — that's a Phase 18/DoorD1-only addition. The correct answer for a
+    // rooms-less world is simply "no room is fading."
+    if (normalized.startsWith('SELECT seed_voice_id, author_id, expires_at FROM rooms')) {
+      return [] as T[]
+    }
     throw new Error(`Mock D1 does not handle: ${normalized}`)
   }
 
   private async executeRun(sql: string, args: unknown[]): Promise<number> {
     const normalized = normalizeSql(sql)
+    // Phase 17 Part B: op_receipts retention, piggybacked on every rebuildStateProjection call.
+    // No seed here ever populates op_receipts, so this is always a no-op.
+    if (normalized.startsWith('DELETE FROM op_receipts')) return 0
+    // Phase 16 Part E: quarantine release, head of rebuildStateProjection. No seed here ever sets
+    // visibility = 'quarantined' (the fuse is off), so this is always a no-op — kept as an
+    // explicit match rather than falling through to the generic throw below.
+    if (normalized.startsWith("UPDATE voices SET visibility = 'surfaced', is_hidden = FALSE WHERE visibility = 'quarantined'")) {
+      const cutoff = args[0] as number
+      let changes = 0
+      for (const v of this.voices) {
+        if (v.visibility === 'quarantined' && ((v.damped ?? 0) === 0 || v.created_at < cutoff)) {
+          v.visibility = 'surfaced'; v.is_hidden = 0; changes++
+        }
+      }
+      return changes
+    }
     if (normalized.startsWith('INSERT INTO rate_limits')) {
       const [key, now, expiresAt, check1] = args as [string, number, number, number]
       const existing = this.rateLimits.find(row => row.key === key)
@@ -204,13 +238,13 @@ export class MockD1 {
       }
       return 1
     }
-    if (normalized.startsWith('INSERT INTO warmth_state (family, score, last_updated) VALUES')) {
-      // Warmth UPSERT: args = [family, contribution, now]
-      const [family, contribution, now] = args as [Family, number, number]
+    if (normalized.startsWith('INSERT INTO warmth_state (surface_id, family, score, last_updated) VALUES')) {
+      // Warmth UPSERT: args = [surface, family, contribution, now] — PRIMARY KEY (surface_id, family).
+      const [surface, family, contribution, now] = args as [string, Family, number, number]
       if (this.failWarmthUpdateFamilies.has(family)) throw new Error('warmth update failed')
-      const existing = this.warmthState.find(row => row.family === family)
+      const existing = this.warmthState.find(row => row.family === family && (row.surface_id ?? 'vellum') === surface)
       if (!existing) {
-        this.warmthState.push({ family, score: contribution, last_updated: now })
+        this.warmthState.push({ surface_id: surface, family, score: contribution, last_updated: now })
       } else {
         const elapsed = (now - existing.last_updated) / 3_600_000
         existing.score = existing.score * Math.exp(-0.029 * elapsed) + contribution

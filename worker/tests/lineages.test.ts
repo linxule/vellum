@@ -75,10 +75,11 @@ function buildMockEnv(
         const args = stmt._boundArgs()
 
         if (normalized.includes('SELECT v.id, v.text, v.language, v.weave_count, v.unique_weavers, v.created_at, vf.family,')
-          && normalized.includes('WHERE vf.ordinal = 0 AND v.is_hidden = FALSE AND v.weave_count > 0')
+          && normalized.includes('WHERE vf.ordinal = 0 AND v.is_hidden = FALSE AND v.surface_id = ? AND v.weave_count > 0')
           && normalized.includes('LIMIT ? OFFSET ?')) {
-          const limit = args[0] as number
-          const offset = args[1] as number
+          // Phase 18 Part B3: args[0] is now `surface` (bound before limit/offset).
+          const limit = args[1] as number
+          const offset = args[2] as number
           const rows = voiceFamilies
             .filter(f => f.ordinal === 0)
             .map(familyRow => {
@@ -103,7 +104,7 @@ function buildMockEnv(
         }
 
         if (normalized.includes('SELECT COUNT(*) as total FROM voices v')
-          && normalized.includes('WHERE vf.ordinal = 0 AND v.is_hidden = FALSE AND v.weave_count > 0')) {
+          && normalized.includes('WHERE vf.ordinal = 0 AND v.is_hidden = FALSE AND v.surface_id = ? AND v.weave_count > 0')) {
           const total = voiceFamilies
             .filter(f => f.ordinal === 0)
             .reduce((count, familyRow) => {

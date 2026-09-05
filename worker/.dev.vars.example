@@ -1,0 +1,6 @@
+# Copy to worker/.dev.vars (gitignored) for `bun run dev`. In production set these with `bunx wrangler secret put <NAME>`.
+# Generate values with: openssl rand -hex 32
+SESSION_SECRET=replace-me
+ADMIN_KEY=replace-me
+# Optional Phase 15+ flags
+# MCP_ORIGIN_LOG_ONLY=true

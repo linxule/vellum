@@ -7,7 +7,7 @@ mock.module('../../app/dist/mcp-app.html', () => ({ default: htmlText }))
 const { handleMCP, handleWitness } = await import('../src/index')
 
 describe('boundary validation', () => {
-  test('handleMCP returns parse error for malformed JSON-RPC envelopes', async () => {
+  test('handleMCP returns Invalid Request for malformed JSON-RPC envelopes', async () => {
     const { env } = makeTestEnv()
     const ctx = new MockExecutionContext()
     const request = new Request('https://example.test/mcp', {
@@ -20,8 +20,8 @@ describe('boundary validation', () => {
     const body = await response.json() as { error: { code: number; message: string } }
 
     expect(response.status).toBe(400)
-    expect(body.error.code).toBe(-32700)
-    expect(body.error.message).toBe('Parse error')
+    expect(body.error.code).toBe(-32600)
+    expect(body.error.message).toBe('Invalid Request')
   })
 
   test('handleAdmin rejects malformed hide bodies with 400', async () => {
@@ -39,7 +39,9 @@ describe('boundary validation', () => {
     const body = await response.json() as { error: string }
 
     expect(response.status).toBe(400)
-    expect(body.error).toBe('voice_id required')
+    // Phase 16 Part F extended hide to a 3-selector body (voice_id | content_hash | writer_bucket);
+    // an empty body's error message reflects the new schema.
+    expect(body.error).toBe('Provide exactly one of voice_id, content_hash, or writer_bucket.')
   })
 
   test('handleWitness rejects malformed bodies with 400', async () => {

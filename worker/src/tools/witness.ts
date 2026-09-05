@@ -1,13 +1,16 @@
+import { mcpToolError } from '../errors'
 import type { Env } from '../types'
 import { FAMILIES } from '../types'
 import { checkAndIncrementSession } from '../rate-limits'
 import { updateWarmth } from '../warmth'
 import { rebuildStateProjectionIfNotLocked } from '../cache'
+import { modeOf } from '../levee-admission'
 
 export async function handleWitnessTool(
   env: Env, ctx: ExecutionContext, traceId: string,
-  args: { voice_id?: string; family?: string; families?: string[]; dwell_s: number }
-): Promise<{ content: { type: 'text'; text: string }[]; isError?: boolean }> {
+  args: { voice_id?: string; family?: string; families?: string[]; dwell_s: number; surface?: string }
+): Promise<{ content: { type: 'text'; text: string }[]; isError?: boolean; _meta?: Record<string, unknown> }> {
+  const surface = args.surface ?? 'vellum'
   // Resolve and validate target BEFORE spending session quota
   let targetFamilies: string[] = []
   let resolvedVoiceText: string | null = null
@@ -16,13 +19,10 @@ export async function handleWitnessTool(
     const row = await env.DB.prepare(
       `SELECT v.text, vf.family FROM voices v
        JOIN voice_families vf ON v.id = vf.voice_id
-       WHERE v.id = ? AND vf.ordinal = 0 AND v.is_hidden = FALSE`
-    ).bind(args.voice_id).first<{ text: string; family: string }>()
+       WHERE v.id = ? AND vf.ordinal = 0 AND v.is_hidden = FALSE AND v.surface_id = ?`
+    ).bind(args.voice_id, surface).first<{ text: string; family: string }>()
     if (!row) {
-      return {
-        content: [{ type: 'text', text: `Voice not found: ${args.voice_id}` }],
-        isError: true,
-      }
+      return mcpToolError('SOURCE_NOT_FOUND', `Voice not found: ${args.voice_id}`, { field: 'voice_id' })
     }
     targetFamilies = [row.family]
     resolvedVoiceText = row.text
@@ -37,19 +37,13 @@ export async function handleWitnessTool(
     targetFamilies.filter(f => (FAMILIES as readonly string[]).includes(f))
   )]
   if (validFamilies.length === 0) {
-    return {
-      content: [{ type: 'text', text: 'No valid families to witness. Provide voice_id, family, or families.' }],
-      isError: true,
-    }
+    return mcpToolError('VALIDATION', 'No valid families to witness. Provide voice_id, family, or families.', { field: 'families', valid_values: [...FAMILIES] })
   }
 
   // Session rate limit (after validation — don't waste quota on bad input)
-  const limit = await checkAndIncrementSession(env.KV, traceId, 'witness')
+  const limit = await checkAndIncrementSession(env.DB, traceId, 'witness')
   if (!limit.allowed) {
-    return {
-      content: [{ type: 'text', text: `You have reached the limit of ${limit.limit} witness events per session (${limit.count}/${limit.limit}).` }],
-      isError: true,
-    }
+    return mcpToolError('SESSION_QUOTA', `You have reached the limit of ${limit.limit} witness events per session (${limit.count}/${limit.limit}).`, { limit: limit.limit, count: limit.count, verb: 'witness', retry_after: limit.retryAfter })
   }
 
   // Clamp dwell
@@ -57,12 +51,12 @@ export async function handleWitnessTool(
 
   // Update warmth for each unique family
   for (const family of validFamilies) {
-    await updateWarmth(env.DB, family, dwell)
+    await updateWarmth(env.DB, family, dwell, surface)
   }
 
   // Background cache rebuild
   ctx.waitUntil(
-    rebuildStateProjectionIfNotLocked(env.DB, env.KV)
+    rebuildStateProjectionIfNotLocked(env.DB, env.KV, undefined, 'off', 0, surface, modeOf(env, 'LEVEE_PERMANENCE'))
       .catch(e => console.error('Background rebuild after witness tool failed:', e))
   )
 

@@ -1,21 +1,35 @@
 import type { Env, VoiceRow } from '../types'
-import { getWarmth } from '../warmth'
+import { getWarmth, sortByWarmth } from '../warmth'
 import { computeDepth } from '../sedimentation'
 import { yamlEscape } from '../helpers'
+import { resolveRoom } from '../rooms'
+import { modeOf } from '../levee-admission'
 
 export async function handleDiscover(
   env: Env, _ctx: ExecutionContext, _traceId: string | null,
-  args: { family?: string; language?: string; sort?: string; limit?: number }
+  args: { family?: string; language?: string; sort?: string; limit?: number; surface?: string; room?: string }
 ): Promise<{ content: { type: 'text'; text: string }[] }> {
   const sort = args.sort ?? 'age'
   const limit = Math.min(Math.max(1, args.limit ?? 10), 20)
+  const surface = args.surface ?? 'vellum'
   const now = Date.now()
+  const permanenceMode = modeOf(env, 'LEVEE_PERMANENCE')
+
+  // Phase 18 Part A5: filter to one room's membership, via the denormalized room_id.
+  let roomId: string | null = null
+  if (args.room) {
+    const room = await resolveRoom(env.DB, surface, args.room)
+    if (!room) {
+      return { content: [{ type: 'text', text: `No room matched "${args.room}".\n\n---\nvoices: []\nsort: ${sort}\ntotal: 0` }] }
+    }
+    roomId = room.seed_voice_id
+  }
 
   // Build query
   let sql = `SELECT v.id, v.text, v.language, v.weave_count, v.unique_weavers, v.created_at, vf.family
     FROM voices v JOIN voice_families vf ON v.id = vf.voice_id
-    WHERE vf.ordinal = 0 AND v.is_hidden = FALSE`
-  const binds: (string | number)[] = []
+    WHERE vf.ordinal = 0 AND v.is_hidden = FALSE AND v.surface_id = ?`
+  const binds: (string | number)[] = [surface]
 
   if (args.family) {
     sql += ' AND vf.family = ?'
@@ -24,6 +38,10 @@ export async function handleDiscover(
   if (args.language) {
     sql += ' AND v.language = ?'
     binds.push(args.language)
+  }
+  if (roomId) {
+    sql += ' AND v.room_id = ?'
+    binds.push(roomId)
   }
 
   // Sort (warmth is family-level — applied post-query after enrichment)
@@ -49,10 +67,10 @@ export async function handleDiscover(
 
   for (const v of voices) {
     if (!familyWarmthCache.has(v.family)) {
-      familyWarmthCache.set(v.family, await getWarmth(env.DB, v.family))
+      familyWarmthCache.set(v.family, await getWarmth(env.DB, v.family, surface))
     }
     const warmth = familyWarmthCache.get(v.family)!
-    const depth = computeDepth(v, warmth, now)
+    const depth = computeDepth(v, warmth, now, permanenceMode)
     enriched.push({
       id: v.id,
       text: v.text,
@@ -66,11 +84,7 @@ export async function handleDiscover(
 
   // Post-query sort by warmth (family-level, can't sort in SQL)
   if (sort === 'warmth') {
-    enriched.sort((a, b) => {
-      const wa = familyWarmthCache.get(a.family) ?? 0
-      const wb = familyWarmthCache.get(b.family) ?? 0
-      return wb - wa || b.weave_count - a.weave_count
-    })
+    sortByWarmth(enriched, familyWarmthCache)
   }
 
   // Prose

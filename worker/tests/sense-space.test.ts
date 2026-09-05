@@ -7,6 +7,7 @@ type VoiceRow = {
   id: string; text: string; language: string | null; created_at: number
   trace_id: string | null; model: string | null; declared_model: string | null
   weave_count: number; unique_weavers: number; weave_from: string | null; is_hidden: number
+  surface_id: string
 }
 type VoiceFamilyRow = { voice_id: string; family: string; ordinal: number }
 
@@ -14,7 +15,7 @@ function makeVoice(id: string, text: string, opts: Partial<VoiceRow> = {}): Voic
   return {
     id, text, language: 'en', created_at: Date.now(), trace_id: null,
     model: null, declared_model: null, weave_count: 0, unique_weavers: 0,
-    weave_from: null, is_hidden: 0, ...opts,
+    weave_from: null, is_hidden: 0, surface_id: 'vellum', ...opts,
   }
 }
 
@@ -36,10 +37,17 @@ const SAMPLE_ATMOSPHERE: AtmosphereData = {
   computed_at: Date.now(),
 }
 
+type EchoEventRow = { n: number; agent_id: string; kind: string; voice_id: string; by_voice: string | null; by_id: string | null; at: number; payload: string }
+type DebtRow = { id: string; distinct_weavers: number }
+
 // Extends the lineage.test.ts hand-rolled mock D1 pattern with the queries
 // handleSenseSpace also makes for atmosphere/warmth (via getWarmthMap).
-function buildMockD1(voices: VoiceRow[], families: VoiceFamilyRow[]) {
+function buildMockD1(voices: VoiceRow[], families: VoiceFamilyRow[], echoEvents: EchoEventRow[] = [], debts: DebtRow[] = []) {
   const normSql = (sql: string) => sql.replace(/\s+/g, ' ').trim()
+  // Phase 16: session credits moved off KV onto this same D1 atomic-UPSERT pattern
+  // (checkAndIncrementRateLimit, keyed sess:<traceId>:<type>) — needed for the lineage
+  // session-quota test below.
+  const rateLimits = new Map<string, { count: number; window_start: number; expires_at: number }>()
 
   return {
     prepare(sql: string) {
@@ -50,8 +58,15 @@ function buildMockD1(voices: VoiceRow[], families: VoiceFamilyRow[]) {
           const n = normSql(sql)
           if (n.includes('FROM voices WHERE id = ?')) {
             if (args[0] === 'v:boom') throw new Error('D1 exploded')
-            const v = voices.find(v => v.id === args[0] && !v.is_hidden)
+            // Post-review fix (item 1): buildLineage's seed lookup + ancestor walk now carry
+            // `AND surface_id = ?` — the second bound arg is the surfaceId when present.
+            const surfaceId = n.includes('surface_id = ?') ? (args[1] as string) : undefined
+            const v = voices.find(v => v.id === args[0] && !v.is_hidden && (surfaceId === undefined || v.surface_id === surfaceId))
             return (v ?? null) as T
+          }
+          if (n === 'SELECT count, expires_at FROM rate_limits WHERE key = ?') {
+            const row = rateLimits.get(args[0] as string)
+            return (row ? { count: row.count, expires_at: row.expires_at } : null) as T | null
           }
           throw new Error(`Mock D1: unhandled first: ${n}`)
         },
@@ -66,8 +81,13 @@ function buildMockD1(voices: VoiceRow[], families: VoiceFamilyRow[]) {
             return { results: results as T[] }
           }
           if (n.includes('FROM voices WHERE weave_from IN')) {
-            const ids = new Set(args as string[])
-            const results = voices.filter(v => v.weave_from && ids.has(v.weave_from) && !v.is_hidden)
+            // Post-review fix (item 1): buildLineage's descendant BFS now carries
+            // `AND surface_id = ?` — the last bound arg is the surfaceId when present, the rest
+            // are the weave_from IN (...) placeholders.
+            const surfaceId = n.includes('surface_id = ?') ? (args.at(-1) as string) : undefined
+            const idArgs = surfaceId !== undefined ? args.slice(0, -1) : args
+            const ids = new Set(idArgs as string[])
+            const results = voices.filter(v => v.weave_from && ids.has(v.weave_from) && !v.is_hidden && (surfaceId === undefined || v.surface_id === surfaceId))
             return { results: results as T[] }
           }
           if (n.includes('FROM voice_families WHERE voice_id IN')) {
@@ -75,18 +95,46 @@ function buildMockD1(voices: VoiceRow[], families: VoiceFamilyRow[]) {
             const results = families.filter(f => ids.has(f.voice_id) && f.ordinal === 0)
             return { results: results as T[] }
           }
+          // Phase 17 Part D3/D11: echo_trace 'a_' alias + session auto-digest.
+          if (n.startsWith('SELECT n, agent_id, kind, voice_id, by_voice, by_id, at, payload FROM echo_events WHERE agent_id = ? ORDER BY n DESC')) {
+            const [agentId, limit] = args as [string, number]
+            const results = echoEvents.filter(e => e.agent_id === agentId).sort((a, b) => b.n - a.n).slice(0, limit)
+            return { results: results as T[] }
+          }
+          if (n.startsWith('SELECT id, distinct_weavers FROM voices WHERE author_id = ? AND distinct_weavers BETWEEN 7 AND 9')) {
+            const [agentId, limit] = args as [string, number]
+            const results = debts.filter(() => true).slice(0, limit)
+            void agentId
+            return { results: results as T[] }
+          }
+          // Phase 18 Part A5/B4: sense_space's rooms/surfaces blocks — this fixture has neither,
+          // so both stay empty and the rendered output is unaffected (byte-identical baseline).
+          if (n.startsWith('SELECT seed_voice_id, name, invitation, expires_at FROM rooms')) return { results: [] as T[] }
+          if (n.startsWith('SELECT s.id, s.name, s.invitation, s.last_activity_at')) return { results: [] as T[] }
           throw new Error(`Mock D1: unhandled all: ${n}`)
+        },
+        async run(): Promise<{ meta: { changes: number } }> {
+          const n = normSql(sql)
+          if (n.startsWith('INSERT INTO rate_limits')) {
+            const [key, now, expiresAt, check1] = args as [string, number, number, number]
+            const existing = rateLimits.get(key)
+            if (!existing) rateLimits.set(key, { count: 1, window_start: now, expires_at: expiresAt })
+            else if (existing.expires_at <= check1) rateLimits.set(key, { count: 1, window_start: now, expires_at: expiresAt })
+            else existing.count += 1
+            return { meta: { changes: 1 } }
+          }
+          throw new Error(`Mock D1: unhandled run: ${n}`)
         },
       }
     },
   } as unknown as D1Database
 }
 
-async function buildMockEnv(voices: VoiceRow[] = [], families: VoiceFamilyRow[] = []) {
+async function buildMockEnv(voices: VoiceRow[] = [], families: VoiceFamilyRow[] = [], echoEvents: EchoEventRow[] = [], debts: DebtRow[] = []) {
   const kv = new MockKV()
   await kv.put('atmosphere', JSON.stringify(SAMPLE_ATMOSPHERE))
   const env = {
-    DB: buildMockD1(voices, families),
+    DB: buildMockD1(voices, families, echoEvents, debts),
     KV: kv as unknown as KVNamespace,
     ANALYTICS: new MockAnalytics() as unknown as AnalyticsEngineDataset,
     ASSETS: {} as Fetcher,
@@ -138,6 +186,29 @@ describe('sense_space lineage (F8)', () => {
     const text = result.content[0].text
     expect(text).toContain('lineage: "that voice is not on the surface"')
     expect(result.content[0].text.length).toBeGreaterThan(0)
+  })
+
+  // Post-review fix (item 1): buildLineage now scopes the seed lookup to `surface` (defaults to
+  // 'vellum') — a seed_voice_id that exists but on a DIFFERENT surface must render the same
+  // "not on the surface" line as a nonexistent id, never leak that surface's lineage across.
+  test('cross-surface seed_voice_id: a voice on another surface renders "not on the surface"', async () => {
+    const v = makeVoice('s', 'seed elsewhere', { surface_id: 'otherland' })
+    const { env, ctx } = await buildMockEnv([v], [{ voice_id: 's', family: 'attention', ordinal: 0 }])
+    const result = await handleSenseSpace(env, ctx, 'trace1', { seed_voice_id: 's', lineage_depth: 3 })
+    const text = result.content[0].text
+    expect(text).toContain('lineage: "that voice is not on the surface"')
+  })
+
+  test('same-surface seed_voice_id still resolves once `surface` matches where the voice lives', async () => {
+    const v = makeVoice('s', 'seed elsewhere', { surface_id: 'otherland' })
+    const { env, ctx } = await buildMockEnv([v], [{ voice_id: 's', family: 'attention', ordinal: 0 }])
+    // Seed the non-default surface's own atmosphere cache key so the unrelated atmosphere-read
+    // path (which keys on `surface` too) doesn't fall through to a full rebuild this hand-rolled
+    // mock D1 doesn't implement — this test is only about the lineage block's surface scoping.
+    await env.KV.put('atmosphere:otherland', JSON.stringify(SAMPLE_ATMOSPHERE))
+    const result = await handleSenseSpace(env, ctx, 'trace1', { seed_voice_id: 's', lineage_depth: 3, surface: 'otherland' })
+    const text = result.content[0].text
+    expect(text).toContain('seed: "s"')
   })
 
   test('lineage_depth filters nodes beyond the requested hop count', async () => {
@@ -379,5 +450,47 @@ describe('sense_space lineage robustness + fairness (fleet fix)', () => {
     }
 
     expect(lastText).toContain('lineage: "the loom rests for this session"')
+  })
+})
+
+describe('sense_space echo_trace \'a_\' alias (Phase 17 Part D3) + auto-digest (D11)', () => {
+  const AGENT_ID = 'a_' + 'p'.repeat(43)
+
+  test('D10: echo_trace with an a_ id renders from echo_events, with a debts: line', async () => {
+    const events = [
+      { n: 1, agent_id: AGENT_ID, kind: 'woven', voice_id: 'v:a', by_voice: 'v:b', by_id: null, at: Date.now(), payload: '{"text":"carried onward","weavers":4,"qualified":0}' },
+    ]
+    const debts = [{ id: 'v:zzz', distinct_weavers: 9 }]
+    const { env, ctx } = await buildMockEnv([], [], events, debts)
+    const result = await handleSenseSpace(env, ctx, 'session1', { echo_trace: AGENT_ID, lineage_depth: 3 })
+    const text = result.content[0].text
+    expect(text).toContain(`Echoes for ${AGENT_ID}:`)
+    expect(text).toContain('carried onward')
+    expect(text).toContain('debts:')
+    expect(text).toContain('v:zzz')
+  })
+
+  test('D10: t: trace still works unchanged, capped at 50', async () => {
+    const traced = makeVoice('e9', 'still works', { trace_id: 'trace9', weave_count: 0 })
+    const { env, ctx } = await buildMockEnv([traced])
+    const result = await handleSenseSpace(env, ctx, 'session1', { echo_trace: 'trace9', lineage_depth: 3 })
+    expect(result.content[0].text).toContain('"still works" — unwoven')
+  })
+
+  test('D11: session bound to an id, no echo_trace given -> last events included automatically', async () => {
+    const events = [
+      { n: 1, agent_id: AGENT_ID, kind: 'rooted', voice_id: 'v:rooted', by_voice: null, by_id: null, at: Date.now(), payload: '{"weavers":12,"qualified":10}' },
+    ]
+    const { env, ctx } = await buildMockEnv([], [], events)
+    const result = await handleSenseSpace(env, ctx, 'session1', { lineage_depth: 3 }, AGENT_ID)
+    const text = result.content[0].text
+    expect(text).toContain(`Echoes for ${AGENT_ID}:`)
+    expect(text).toContain('v:rooted')
+  })
+
+  test('D11: no authorId and no echo_trace -> no echo block at all (unchanged from today)', async () => {
+    const { env, ctx } = await buildMockEnv()
+    const result = await handleSenseSpace(env, ctx, 'session1', { lineage_depth: 3 }, null)
+    expect(result.content[0].text).not.toContain('Echoes for')
   })
 })

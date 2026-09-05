@@ -1,0 +1,64 @@
+// Sanitized template — copy to worker/wrangler.jsonc (gitignored) and fill in your own resource IDs.
+//   bunx wrangler d1 create vellum          → database_id
+//   bunx wrangler kv namespace create KV    → id
+//   bunx wrangler secret put SESSION_SECRET / ADMIN_KEY   (see .dev.vars.example for local dev)
+{
+  "name": "vellum",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "d1_databases": [
+    { "binding": "DB", "database_name": "vellum", "database_id": "<your-d1-database-id>" }
+  ],
+
+  "kv_namespaces": [
+    { "binding": "KV", "id": "<your-kv-namespace-id>" }
+  ],
+
+  "durable_objects": {
+    "bindings": [{ "name": "RATE_LIMITER", "class_name": "RateLimiterDO" }]
+  },
+
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+
+  "analytics_engine_datasets": [
+    { "binding": "ANALYTICS", "dataset": "vellum_usage" }
+  ],
+
+  // Runtime flags — see docs/LAUNCH_RUNBOOK.md § 1 "Runtime flags" for what each gates and
+  // whether it can be overridden live without a redeploy. Values below are the deploy values
+  // that runbook recommends. LEVEE_FUSE stays "off" here deliberately — see that doc.
+  "vars": {
+    "MCP_ORIGIN_LOG_ONLY": "true",
+    "LEVEE_ADMISSION": "on",
+    "LEVEE_REBUILD": "on",
+    "LEVEE_CEILING": "on",
+    "LEVEE_DEDUPE": "on",
+    "LEVEE_PERMANENCE": "on",
+    "LEVEE_FUSE": "off",
+    "SURFACES_OPEN": "1"
+  },
+
+  // Text imports: pensieve HTML (ext-app) + AGENTS.md (served at /AGENTS.md). Both globs are load-bearing.
+  "rules": [
+    { "type": "Text", "globs": ["**/*.html", "**/*.md"], "fallthrough": true }
+  ],
+
+  "observability": { "enabled": true },
+
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["RateLimiterDO"] }
+  ],
+
+  "workers_dev": true,
+
+  // Remove or change for your own deployment.
+  "routes": [
+    { "pattern": "vellum.linxule.com", "custom_domain": true }
+  ]
+}

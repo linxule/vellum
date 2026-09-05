@@ -1,5 +1,6 @@
-import type { SessionState } from './types'
 import { withRetry } from './helpers'
+
+export const SESSION_WINDOW_S = 3600
 
 // Single source of truth for all rate limits (D1-backed per-IP + KV per-session)
 export const RATE_LIMITS = {
@@ -11,6 +12,12 @@ export const RATE_LIMITS = {
   lineages:   { limit: 20,  window: 60 },     // /api/lineages — per IP
   rest_write: { limit: 12,  window: 3600 },   // /api/imprint + /api/weave combined — per IP
   session: { imprint: 7, weave: 5, witness: 15, lineage: 30 },
+  // Phase 17 "The Echo" Part A5: flat, generous, per-id (not per-IP). Replaces the anonymous
+  // rest_write bucket / MCP session bucket for named writes — never stacks with either.
+  agent: { imprint: 12, weave: 20, window: 3600 },
+  // Phase 17 Part D1: GET/HEAD /echo/{id} — per-IP (matches /api/voices) + per-id.
+  echo: { limit: 30, window: 60 },
+  echo_id: { limit: 60, window: 3600 },
 } as const
 
 type RateLimitRow = {
@@ -80,31 +87,16 @@ export async function checkRateLimitDO(
   return response.json()
 }
 
-// Session rate limiting (1h TTL)
-// NOTE: KV get-then-put is not atomic. Concurrent requests from the same
-// session can bypass rate limits. This is a known KV limitation. MCP clients
-// are inherently sequential, so the race window is narrow. For hard guarantees,
-// migrate to D1 atomic counters (INSERT + UPDATE WHERE count < limit).
+// Session rate limiting — Phase 16 "The Levee" Part A2: migrated off KV onto the same D1 atomic
+// UPSERT used everywhere else (`checkAndIncrementRateLimit`), keyed `sess:<traceId>:<type>`.
+// The old KV read-modify-write admitted the race its own comment described (concurrent requests
+// from one session could bypass the limit); D1's UPSERT is atomic. `count` is reported as `limit`
+// on rejection (never the true post-reject count) to preserve the pre-migration external contract:
+// a session can be probed repeatedly after hitting its quota without the reported count climbing.
 export async function checkAndIncrementSession(
-  kv: KVNamespace, traceId: string, type: 'imprint' | 'weave' | 'witness' | 'lineage'
-): Promise<{ allowed: boolean; count: number; limit: number }> {
-  const state: SessionState = {
-    imprints: 0, weaves: 0, witnesses: 0, lineages: 0, last_action: 0,
-    ...(await kv.get<SessionState>(`session:${traceId}`, 'json')),
-  }
-  const count = type === 'imprint' ? state.imprints
-    : type === 'weave' ? state.weaves
-    : type === 'witness' ? (state.witnesses ?? 0)
-    : (state.lineages ?? 0)
+  db: D1Database, traceId: string, type: 'imprint' | 'weave' | 'witness' | 'lineage'
+): Promise<{ allowed: boolean; count: number; limit: number; retryAfter: number }> {
   const limit = RATE_LIMITS.session[type]
-  if (count >= limit) {
-    return { allowed: false, count, limit }
-  }
-  if (type === 'imprint') state.imprints += 1
-  else if (type === 'weave') state.weaves += 1
-  else if (type === 'witness') state.witnesses = (state.witnesses ?? 0) + 1
-  else state.lineages = (state.lineages ?? 0) + 1
-  state.last_action = Date.now()
-  await kv.put(`session:${traceId}`, JSON.stringify(state), { expirationTtl: 3600 })
-  return { allowed: true, count: count + 1, limit }
+  const result = await checkAndIncrementRateLimit(db, `sess:${traceId}:${type}`, limit, SESSION_WINDOW_S)
+  return result.allowed ? result : { ...result, count: limit }
 }

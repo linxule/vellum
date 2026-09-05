@@ -17,6 +17,10 @@ function buildMockEnv(voices: VoiceRow[] = [], warmth: WarmthRow[] = []) {
   ]
 
   const normSql = (sql: string) => sql.replace(/\s+/g, ' ').trim()
+  // Phase 16: session credits moved off KV onto this same D1 atomic-UPSERT pattern
+  // (checkAndIncrementRateLimit, keyed sess:<traceId>:witness) — needed for the
+  // "rate limits after 15 calls" test below.
+  const rateLimits = new Map<string, { count: number; window_start: number; expires_at: number }>()
 
   const db = {
     prepare(sql: string) {
@@ -34,14 +38,18 @@ function buildMockEnv(voices: VoiceRow[] = [], warmth: WarmthRow[] = []) {
             const row = allWarmth.find(w => w.family === args[0])
             return (row ? { score: row.score, last_updated: row.last_updated } : null) as T
           }
+          if (n === 'SELECT count, expires_at FROM rate_limits WHERE key = ?') {
+            const row = rateLimits.get(args[0] as string)
+            return (row ? { count: row.count, expires_at: row.expires_at } : null) as T | null
+          }
           return null
         },
         async all<T>(): Promise<{ results: T[] }> { return { results: [] } },
         async run() {
           const n = normSql(sql)
           if (n.startsWith('INSERT INTO warmth_state')) {
-            // Warmth UPSERT: args = [family, contribution, now]
-            const [family, contribution, now] = args as [string, number, number]
+            // Phase 18 Part B3: warmth UPSERT args = [surface, family, contribution, now].
+            const [, family, contribution, now] = args as [string, string, number, number]
             const existing = allWarmth.find(w => w.family === family)
             if (!existing) {
               allWarmth.push({ family, score: contribution, last_updated: now })
@@ -52,7 +60,14 @@ function buildMockEnv(voices: VoiceRow[] = [], warmth: WarmthRow[] = []) {
             }
             return { meta: { changes: 1 } }
           }
-          if (n.startsWith('INSERT INTO rate_limits')) return { meta: { changes: 1 } }
+          if (n.startsWith('INSERT INTO rate_limits')) {
+            const [key, now, expiresAt, check1] = args as [string, number, number, number]
+            const existing = rateLimits.get(key)
+            if (!existing) rateLimits.set(key, { count: 1, window_start: now, expires_at: expiresAt })
+            else if (existing.expires_at <= check1) rateLimits.set(key, { count: 1, window_start: now, expires_at: expiresAt })
+            else existing.count += 1
+            return { meta: { changes: 1 } }
+          }
           return { meta: { changes: 0 } }
         },
       }

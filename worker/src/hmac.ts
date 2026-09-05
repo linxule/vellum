@@ -1,5 +1,9 @@
-const SESSION_ID_RE = /^(t:[0-9a-z]+):(\d+)\.([0-9a-f]+)$/
-const SESSION_MAX_AGE_S = 2700 // 45 minutes
+import { SESSION_MAX_AGE_S } from './contract'
+
+// Phase 17 Part A3: the session id optionally embeds an author id, bound at `initialize` and
+// carried thereafter — `t:<trace>|<author_id>:<iat>.<sig>`. The author-id segment is fixed-format
+// (agent-id.ts's alphabet, no colon), so it never collides with the `:iat.sig` suffix parse.
+const SESSION_ID_RE = /^(t:[0-9a-z]+)(?:\|(a_[A-Za-z0-9_-]{43}))?:(\d+)\.([0-9a-f]+)$/
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
@@ -24,27 +28,36 @@ async function importHmacKey(secret: string): Promise<CryptoKey> {
   )
 }
 
-export async function signSessionId(traceId: string, secret: string): Promise<string> {
+export async function signSessionId(traceId: string, secret: string, authorId?: string): Promise<string> {
   const iat = Math.floor(Date.now() / 1000)
-  const payload = `${traceId}:${iat}`
+  const idPart = authorId ? `${traceId}|${authorId}` : traceId
+  const payload = `${idPart}:${iat}`
   const key = await importHmacKey(secret)
   const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload))
   return `${payload}.${bytesToHex(new Uint8Array(sig))}`
 }
 
-export async function verifySessionId(sessionId: string, secret: string): Promise<string | null> {
+export type SessionVerification =
+  | { valid: true; traceId: string; authorId?: string }
+  | { valid: false; reason: 'invalid' | 'future' | 'expired'; retry_after?: number }
+
+export async function verifySessionId(sessionId: string, secret: string): Promise<SessionVerification> {
   const match = SESSION_ID_RE.exec(sessionId)
-  if (!match) return null
-  const [, traceId, iatStr, sigHex] = match
+  if (!match) return { valid: false, reason: 'invalid' }
+  const [, traceId, authorId, iatStr, sigHex] = match
   const iat = parseInt(iatStr, 10)
-  const now = Math.floor(Date.now() / 1000)
-  if (iat > now + 60) return null // reject future-dated tokens (60s clock skew tolerance)
-  if (now - iat > SESSION_MAX_AGE_S) return null
   const sig = hexToBytes(sigHex)
-  if (!sig) return null
+  if (!sig) return { valid: false, reason: 'invalid' }
+  const idPart = authorId ? `${traceId}|${authorId}` : traceId
   const key = await importHmacKey(secret)
-  const valid = await crypto.subtle.verify('HMAC', key, sig, new TextEncoder().encode(`${traceId}:${iat}`))
-  return valid ? traceId : null
+  const valid = await crypto.subtle.verify('HMAC', key, sig, new TextEncoder().encode(`${idPart}:${iat}`))
+  if (!valid) return { valid: false, reason: 'invalid' }
+  // Signature verified — an unsigned/tampered token can never reach 'future' or 'expired' below.
+  const now = Math.floor(Date.now() / 1000)
+  if (iat > now + 60) return { valid: false, reason: 'future' } // reject future-dated tokens (60s clock skew tolerance)
+  // Authenticate before exposing an expiry reason; re-initialization can happen immediately.
+  if (now - iat > SESSION_MAX_AGE_S) return { valid: false, reason: 'expired', retry_after: 0 }
+  return { valid: true, traceId, ...(authorId ? { authorId } : {}) }
 }
 
 /** Constant-time string comparison to prevent timing attacks on secret comparison. */

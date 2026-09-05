@@ -2,7 +2,7 @@
 // Entry point: canvas, input, sound, animation loop, polling, witness reporting
 
 import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, scrollThreadToVoice, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, triggerPhantomHover, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, findThreadIndexForFamily, type MouseState } from './loom.js'
-import { fetchState, findVoice, getVersion, getVoiceIdSets, isLive, getState } from './content.js'
+import { fetchState, findVoice, getVersion, getVoiceIdSets, isLive, getState, setSurface, getSurface, surfaceFromPathname, surfacePathPrefix, highlightUrlFor } from './content.js'
 import { emitOceanEvent } from './events.js'
 import { attachInputHandlers } from './runtime/input'
 import { setupCanvas } from './runtime/canvas'
@@ -44,6 +44,10 @@ const VISIBLE_POLL_JITTER_MS = 2_000
 const RETRY_BASE_MS = 5_000
 const FETCH_STATE_TIMEOUT_MS = 20_000
 const HIGHLIGHT_RETRY_DELAYS_MS = [3_000, 10_000, 30_000]
+// Phase 18 "The Archipelago" Part B5: derive the surface from the URL path once, at boot. The
+// canvas, loom view, sound, signatures, and warmth easing are all unchanged — only which ocean's
+// /api/state gets fetched (and witnessed) differs.
+setSurface(surfaceFromPathname(location.pathname))
 const highlightId = new URLSearchParams(location.search).get('highlight')
 let highlightRetryIndex = 0
 let pollInFlight = false
@@ -114,7 +118,7 @@ document.addEventListener('click', (e) => {
   if (isLoomViewActive()) {
     if (hitId && hitId !== getCurrentLoomSeed()) {
       recenterLoomView(hitId)
-      history.replaceState(null, '', '?highlight=' + hitId)
+      history.replaceState(null, '', highlightUrlFor(location.pathname, hitId))
     } else if (!hitId) {
       // Exit only on blank space tap — tapping the seed node does nothing
       exitLoomView()
@@ -132,7 +136,7 @@ document.addEventListener('click', (e) => {
           if (mouse.touch) {
             if (pendingTouchLoomId === hitId) {
               enterLoomView(hitId)
-              history.replaceState(null, '', '?highlight=' + hitId)
+              history.replaceState(null, '', highlightUrlFor(location.pathname, hitId))
               pendingTouchLoomId = null
               if (pendingTouchLoomTimer) { clearTimeout(pendingTouchLoomTimer); pendingTouchLoomTimer = null }
             } else {
@@ -142,7 +146,7 @@ document.addEventListener('click', (e) => {
             }
           } else {
             enterLoomView(hitId)
-            history.replaceState(null, '', '?highlight=' + hitId)
+            history.replaceState(null, '', highlightUrlFor(location.pathname, hitId))
           }
           break
         }
@@ -173,7 +177,7 @@ document.addEventListener('keydown', (e) => {
 // ── Witness reporting ─────────────────────────────────
 
 const { checkWitness } = createWitnessReporter({
-  endpoint: '/api/witness',
+  endpoint: surfacePathPrefix(getSurface()) + '/api/witness',
   getLoomState,
   isPhantomActive,
   isLiveFn: () => isLive,
@@ -182,6 +186,8 @@ const { checkWitness } = createWitnessReporter({
 // ── Polling ───────────────────────────────────────────
 
 let lastVersion = -1
+// Phase 18 Part B5: document.title reads the surface name, set once from the first live state.
+let surfaceTitleSet = false
 
 function scheduleRegularPoll(delayMs = nextVisiblePollDelay()) {
   if (document.hidden) return
@@ -236,6 +242,11 @@ async function poll(options: { refresh?: boolean } = {}) {
     }
 
     consecutivePollFailures = 0
+
+    if (state.surface && !surfaceTitleSet) {
+      document.title = state.surface.name + ' — Vellum'
+      surfaceTitleSet = true
+    }
 
     if (highlightId && findVoice(highlightId)) {
       setHighlight(highlightId)
@@ -332,7 +343,7 @@ document.fonts.ready.then(async () => {
       const voice = thread?.voices[found.voiceIndex]
       if (voice && (voice.weave_from || voice.weave_count > 0)) {
         // Woven voice: show the lineage tree after a brief moment to let the ocean settle
-        highlightAutoLoomTimeout = setTimeout(() => { highlightAutoLoomTimeout = null; enterLoomView(highlightId!); history.replaceState(null, '', '?highlight=' + highlightId) }, 800)
+        highlightAutoLoomTimeout = setTimeout(() => { highlightAutoLoomTimeout = null; enterLoomView(highlightId!); history.replaceState(null, '', highlightUrlFor(location.pathname, highlightId!)) }, 800)
       } else {
         // Non-woven voice: land the dive lens on it
         const threadIdx = findThreadIndexForFamily(found.family)

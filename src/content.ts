@@ -4,6 +4,33 @@
 let _baseUrl = ''
 export function setBaseUrl(url: string) { _baseUrl = url.replace(/\/$/, '') }
 
+// Phase 18 "The Archipelago" Part B5 — surface awareness. Pure helpers (tested directly in
+// tests/loom/surface-url.test.ts) plus the module-level surface the standalone renderer reads.
+const DEFAULT_SURFACE = 'vellum'
+let _surface = DEFAULT_SURFACE
+export function setSurface(slug: string) { _surface = slug }
+export function getSurface(): string { return _surface }
+
+/** Extracts the surface slug from a pathname like `/s/tidepool` or `/s/tidepool/...`. Anything
+ * else (including plain `/`) is the default surface. */
+export function surfaceFromPathname(pathname: string): string {
+  const m = pathname.match(/^\/s\/([a-z0-9][a-z0-9-]{1,30}[a-z0-9]|[a-z0-9]{3})(?:\/|$)/)
+  return m ? m[1] : DEFAULT_SURFACE
+}
+
+/** `/s/<slug>` prefix for a non-default surface's own API paths; empty string for the default
+ * surface (byte-identical URLs to pre-Phase-18). */
+export function surfacePathPrefix(surface: string): string {
+  return surface === DEFAULT_SURFACE ? '' : `/s/${surface}`
+}
+
+/** Preserves whatever path prefix the page is already on (e.g. `/s/tidepool`) when rewriting the
+ * `?highlight=` query — `location.pathname` never includes the query string, so this is a plain
+ * concatenation. */
+export function highlightUrlFor(pathname: string, voiceId: string): string {
+  return pathname + '?highlight=' + voiceId
+}
+
 export interface Voice {
   text: string
   lang: string
@@ -38,6 +65,8 @@ export interface StateResponse {
   threads: ThreadData[]
   computed_at: number
   version: number
+  /** Phase 18 Part B5 — additive, optional: present only for a non-default surface. */
+  surface?: { slug: string; name: string; invitation: string }
 }
 
 // --- State ---
@@ -68,7 +97,7 @@ export function findVoice(voiceId: string): { family: string, voiceIndex: number
 
 export async function fetchState(options: { refresh?: boolean; signal?: AbortSignal } = {}): Promise<StateResponse | null> {
   try {
-    const url = _baseUrl + (options.refresh ? '/api/state?refresh=1' : '/api/state')
+    const url = _baseUrl + surfacePathPrefix(_surface) + (options.refresh ? '/api/state?refresh=1' : '/api/state')
     const res = await fetch(url, { signal: options.signal })
     if (!res.ok) throw new Error('API unavailable')
     const data: StateResponse = await res.json()

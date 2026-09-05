@@ -1,7 +1,11 @@
+import type { LeveeMode } from './types'
+import { isPermanent } from './levee-permanence'
+
 export function computeDepth(
-  voice: { created_at: number; weave_count: number; unique_weavers: number },
+  voice: { created_at: number; weave_count: number; unique_weavers: number; qualified_weavers?: number; permanence_source?: 'legacy' | 'earned' },
   familyWarmth: number,
-  now: number = Date.now()
+  now: number = Date.now(),
+  permanenceMode: LeveeMode = 'off'
 ): number {
   const ageHours = (now - voice.created_at) / 3_600_000
 
@@ -19,8 +23,16 @@ export function computeDepth(
 
   const depth = ageFactor * weaveResist * warmthResist
 
-  // Foundation: 10+ unique weavers = permanent surface
-  if (voice.unique_weavers >= 10) return Math.min(depth, 0.1)
+  // Foundation: earned permanence (Phase 16 qualified_weavers) or grandfathered legacy = permanent
+  // surface — but only once LEVEE_PERMANENCE is 'on' (the spec's "flip the two read sites" step;
+  // this is one of them, cache.ts's foundation filter is the other). While the flag is 'off' or
+  // 'shadow', the read side ignores qualified_weavers/permanence_source entirely and uses the
+  // pre-Phase-16 rule instead — the columns still get computed and written unconditionally
+  // (tools/weave.ts, handlers/rest-weave.ts), so flipping the flag later needs no backfill.
+  const permanent = permanenceMode === 'on'
+    ? isPermanent({ qualified_weavers: voice.qualified_weavers ?? 0, permanence_source: voice.permanence_source })
+    : voice.unique_weavers >= 10
+  if (permanent) return Math.min(depth, 0.1)
 
   return depth
 }

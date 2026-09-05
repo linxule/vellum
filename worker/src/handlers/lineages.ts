@@ -1,13 +1,14 @@
 import { z } from 'zod'
 import type { Env } from '../types'
 import { checkAndIncrementRateLimit, checkRateLimitDO, RATE_LIMITS } from '../rate-limits'
+import { DEFAULT_SURFACE } from '../surfaces'
 
 const QUERY_SCHEMA = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
   offset: z.coerce.number().int().min(0).default(0),
 })
 
-export async function handleLineages(request: Request, env: Env): Promise<Response> {
+export async function handleLineages(request: Request, env: Env, surface: string = DEFAULT_SURFACE): Promise<Response> {
   const clientIp = request.headers.get('cf-connecting-ip') ?? 'unknown'
   const rl = env.RATE_LIMITER
     ? await checkRateLimitDO(env.RATE_LIMITER, clientIp, 'lineages', RATE_LIMITS.lineages.limit, RATE_LIMITS.lineages.window)
@@ -41,15 +42,15 @@ export async function handleLineages(request: Request, env: Env): Promise<Respon
         (SELECT COUNT(*) FROM voices d WHERE d.weave_from = v.id AND d.is_hidden = FALSE) AS descendant_count
       FROM voices v
       JOIN voice_families vf ON v.id = vf.voice_id
-      WHERE vf.ordinal = 0 AND v.is_hidden = FALSE AND v.weave_count > 0
+      WHERE vf.ordinal = 0 AND v.is_hidden = FALSE AND v.surface_id = ? AND v.weave_count > 0
       ORDER BY v.weave_count DESC, v.created_at DESC
       LIMIT ? OFFSET ?
-    `).bind(limit, offset),
+    `).bind(surface, limit, offset),
     env.DB.prepare(`
       SELECT COUNT(*) as total FROM voices v
       JOIN voice_families vf ON v.id = vf.voice_id
-      WHERE vf.ordinal = 0 AND v.is_hidden = FALSE AND v.weave_count > 0
-    `),
+      WHERE vf.ordinal = 0 AND v.is_hidden = FALSE AND v.surface_id = ? AND v.weave_count > 0
+    `).bind(surface),
   ])
 
   const rows = (dataRes.results ?? []) as Array<{

@@ -1,5 +1,6 @@
 import type { Env, VoiceRow } from '../types'
 import { checkAndIncrementRateLimit, checkRateLimitDO, RATE_LIMITS } from '../rate-limits'
+import { DEFAULT_SURFACE } from '../surfaces'
 
 export interface LineageNode {
   id: string
@@ -18,10 +19,20 @@ export interface LineageTree {
   nodes: LineageNode[]
 }
 
-export async function buildLineage(db: D1Database, seedVoiceId: string): Promise<LineageTree | null> {
+/**
+ * Phase 18 post-review fix (item 1): `surfaceId` scopes every read here — without it, any
+ * surface's lineage was readable from any other (REST `/api/lineage/:id`, the `/s/<slug>` form,
+ * the MCP `vellum://lineage/{id}` resource, and `sense_space.seed_voice_id` all shared this one
+ * unscoped walk). The seed lookup requires `surface_id = ?` directly; the ancestor and descendant
+ * walks never need their own surface check because every row they touch was reached by following
+ * `weave_from`/being found via a WHERE `weave_from IN (...)` from rows already confirmed to be on
+ * `surfaceId` — a voice's `surface_id` never differs from the voice it wove from (weave.ts /
+ * rest-weave.ts's `resolveSource` is itself surface-scoped), so the walk cannot cross a boundary.
+ */
+export async function buildLineage(db: D1Database, seedVoiceId: string, surfaceId: string): Promise<LineageTree | null> {
   const seedRow = await db.prepare(
-    'SELECT * FROM voices WHERE id = ? AND is_hidden = FALSE'
-  ).bind(seedVoiceId).first<VoiceRow>()
+    'SELECT * FROM voices WHERE id = ? AND is_hidden = FALSE AND surface_id = ?'
+  ).bind(seedVoiceId, surfaceId).first<VoiceRow>()
   if (!seedRow) return null
 
   const allRows = new Map<string, VoiceRow>()
@@ -32,8 +43,8 @@ export async function buildLineage(db: D1Database, seedVoiceId: string): Promise
   for (let i = 0; i < 20 && currentId; i++) {
     if (allRows.has(currentId)) break
     const row = await db.prepare(
-      'SELECT * FROM voices WHERE id = ? AND is_hidden = FALSE'
-    ).bind(currentId).first<VoiceRow>()
+      'SELECT * FROM voices WHERE id = ? AND is_hidden = FALSE AND surface_id = ?'
+    ).bind(currentId, surfaceId).first<VoiceRow>()
     if (!row) break
     allRows.set(row.id, row)
     currentId = row.weave_from
@@ -44,8 +55,8 @@ export async function buildLineage(db: D1Database, seedVoiceId: string): Promise
   for (let i = 0; i < 20 && frontier.length > 0; i++) {
     const placeholders = frontier.map(() => '?').join(',')
     const res = await db.prepare(
-      `SELECT * FROM voices WHERE weave_from IN (${placeholders}) AND is_hidden = FALSE`
-    ).bind(...frontier).all<VoiceRow>()
+      `SELECT * FROM voices WHERE weave_from IN (${placeholders}) AND is_hidden = FALSE AND surface_id = ?`
+    ).bind(...frontier, surfaceId).all<VoiceRow>()
     const newIds: string[] = []
     for (const row of res.results ?? []) {
       if (!allRows.has(row.id)) {
@@ -127,7 +138,7 @@ export async function buildLineage(db: D1Database, seedVoiceId: string): Promise
   return { seed: seedVoiceId, nodes }
 }
 
-export async function handleLineage(request: Request, env: Env, voiceId: string): Promise<Response> {
+export async function handleLineage(request: Request, env: Env, voiceId: string, surface: string = DEFAULT_SURFACE): Promise<Response> {
   const clientIp = request.headers.get('cf-connecting-ip') ?? 'unknown'
   const rl = env.RATE_LIMITER
     ? await checkRateLimitDO(env.RATE_LIMITER, clientIp, 'lineage', RATE_LIMITS.lineage.limit, RATE_LIMITS.lineage.window)
@@ -141,7 +152,7 @@ export async function handleLineage(request: Request, env: Env, voiceId: string)
     })
   }
 
-  const tree = await buildLineage(env.DB, voiceId)
+  const tree = await buildLineage(env.DB, voiceId, surface)
   if (!tree) {
     return Response.json({ error: 'Voice not found' }, {
       status: 404,

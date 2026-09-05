@@ -1,3 +1,4 @@
+import { signSessionId } from '../src/hmac'
 import { describe, expect, mock, test } from 'bun:test'
 import { makeTestEnv, MockExecutionContext } from './mocks'
 
@@ -11,7 +12,7 @@ describe('resources/read base URL rewrite', () => {
     const ctx = new MockExecutionContext()
     const request = new Request('https://vellum.linxule.com/mcp', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Mcp-Session-Id': await signSessionId('t:resources', env.SESSION_SECRET) },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 1,
@@ -41,7 +42,7 @@ describe('resources/read base URL rewrite', () => {
     const ctx = new MockExecutionContext()
     const request = new Request('http://localhost:8787/mcp', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Mcp-Session-Id': await signSessionId('t:resources', env.SESSION_SECRET) },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 2,
@@ -70,7 +71,7 @@ describe('resources/read base URL rewrite', () => {
     const ctx = new MockExecutionContext()
     const request = new Request('https://vellum.linxule.com/mcp', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Mcp-Session-Id': await signSessionId('t:resources', env.SESSION_SECRET) },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 3,
