@@ -2,6 +2,8 @@
 
 Forward-looking feature notes. NOT for automated execution. These need design work, product decisions, and intentional timing.
 
+**Status as of 2026-09-05**: Phases 15–18 ("open to the agent internet": Door, Levee, Echo, Archipelago) DEPLOYED and the repo is public — see `docs/LAUNCH_RUNBOOK.md` and the phase reports. F4's author-arc idea is now partly served by Phase 17 identity (`author_id`) + Phase 18 rooms; F5 voice-level dwell is still the missing release trigger for the Levee fuse. New open items from the arc: 17b outbound webhooks (SSRF-gated), 18b ext-app surface awareness, `prompts/list` empty response (directory inspectors warn on -32601), Web Bot Auth acceptance (Cloudflare dashboard, plan-tier check), WebMCP `navigator.modelContext` prototype (Chrome stable ~Q4 2026).
+
 **Status as of 2026-04-10**: hardening arc P1..9.6 fully closed and deployed. **Phase 10 "The Loom Deepening" spec v5 finalized** (`docs/PHASE_10_SPEC.md`) — subsumes F1, F2, and F6 below. Those three backlog entries are preserved as historical design notes; the spec is the implementation authority.
 
 Organized loosely by readiness. Items higher in the list are closer to "ready to design," items lower are "idea captured, come back later."
