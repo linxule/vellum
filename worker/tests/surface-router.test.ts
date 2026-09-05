@@ -68,6 +68,29 @@ test('default surface root is unaffected by the router prefix logic', async () =
   expect(r.status).toBe(200)
 })
 
+// Hotfix 1: the default surface reached explicitly through the /s/ prefix must behave identically
+// to the unprefixed route — S14 says `/s/vellum` and `/` serve the same canvas. Before this fix,
+// the router only rewrote url.pathname when `surface !== DEFAULT_SURFACE`, so `/s/vellum/...`
+// never got its prefix stripped, matched no route below, and fell through to a 404.
+test('hotfix 1: GET /s/vellum/api/state (default surface via the /s/ prefix) reaches handleState, same shape as /api/state', async () => {
+  const t = doorEnv()
+  const direct = await t.fetch(new Request('https://vellum.test/api/state'))
+  const prefixed = await t.fetch(new Request('https://vellum.test/s/vellum/api/state'))
+  expect(prefixed.status).toBe(200)
+  const directBody = await direct.json() as any
+  const prefixedBody = await prefixed.json() as any
+  expect(Array.isArray(prefixedBody.threads)).toBe(true)
+  expect(prefixedBody).toEqual(directBody)
+})
+
+test('hotfix 1: GET /s/vellum (browser) serves the same canvas bytes as GET /', async () => {
+  const t = doorEnv()
+  const root = await t.fetch(new Request('https://vellum.test/', { headers: { accept: 'text/html' } }))
+  const prefixed = await t.fetch(new Request('https://vellum.test/s/vellum', { headers: { accept: 'text/html' } }))
+  expect(prefixed.status).toBe(root.status)
+  expect(await prefixed.text()).toBe(await root.text())
+})
+
 // Post-review fix (item 1): buildLineage now requires a surfaceId — GET /api/lineage/:id (and the
 // /s/<slug> form) must scope the lookup to the surface the request resolved to, so a voice on one
 // surface never resolves through another surface's lineage endpoint.

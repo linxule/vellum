@@ -228,3 +228,59 @@ judgment calls worth flagging explicitly (both noted inline above, repeated here
 the MCP lineage resource's surface scope (item 1, hard-scoped to the default surface since its URI
 has no surface segment to carry one) and the coalescing-key mechanism for `surface_woven` (item 3,
 payload-embedded slug over a new migration column, on cost grounds).
+
+## Hotfix 1
+
+A small post-deploy batch, filed after Phases 15–18 went live (migrations `0007`–`0012` applied
+to production). Four items, none touching `permanence_source`.
+
+1. **`/s/vellum/...` (the default surface reached explicitly through the `/s/` prefix) 404'd.**
+   `worker/src/index.ts` only rewrote `url.pathname` to the prefix-stripped path when
+   `surface !== DEFAULT_SURFACE` — so a request for `/s/vellum/api/state` kept its unstripped
+   pathname, matched none of the routes below, and `/s/vellum` itself fell through to asset
+   serving as a 404, contradicting S14's own guarantee that `/s/<slug>` and `/` serve the same
+   canvas. Fixed by stripping the prefix whenever `parseSurfacePrefix` actually matched — detected
+   as `pathname !== url.pathname`, which is true for any match (default slug included) since a
+   match always removes the literal `/s/<slug>` text — rather than gating on the slug being
+   non-default. `routedRequest` (used for `env.ASSETS.fetch`, `discoveryResponse`, and
+   `methodNotAllowed`) now follows the same `prefixMatched` condition, not `onNonDefaultSurface`,
+   so it carries the corrected path too. Tests: `surface-router.test.ts` gained two cases —
+   `/s/vellum/api/state` returns the same JSON as `/api/state`, and `/s/vellum` returns the same
+   HTML bytes as `/`.
+2. **Grandfather backfill for `qualified_weavers`.** `0007` added the column with `DEFAULT 0` and
+   never backfilled it for voices that already existed — every pre-existing voice read
+   `qualified_weavers = 0` regardless of its real weave history, so under `LEVEE_PERMANENCE = 'on'`
+   none of that history counted toward permanence (0007's own grandfathering only covers
+   `permanence_source = 'legacy'`, i.e. `unique_weavers >= 10` — voices below that bar got neither
+   form of credit). `worker/migrations/0013_qualified_backfill.sql` is a one-shot, idempotent
+   `UPDATE voices SET qualified_weavers = unique_weavers WHERE qualified_weavers = 0 AND
+   unique_weavers > 0 AND created_at < 1788613200000` (2026-09-05T13:00:00Z, the `0007` migration
+   moment, as a literal epoch ms rather than a self-referential lookup). This is an honest
+   approximation — `unique_weavers` counted distinct weaving *sessions*, not proven-distinct
+   network buckets the way `computeQualifiedWeavers` (`worker/src/levee-permanence.ts`) actually
+   requires — accepted once, for the grandfathered population only. `permanence_source` is
+   deliberately untouched: `0007`'s `'legacy'` grandfathering already correctly covers the
+   `unique_weavers >= 10` population; this migration only reaches the population `0007` left
+   uncredited. `docs/LAUNCH_RUNBOOK.md`'s `LEVEE_PERMANENCE` row and migrations table (§1, §2) now
+   say the deploy value is `'on'` **after `0013`** — flipping the flag before `0013` runs in an
+   environment that's been live since `0007` would silently strip permanence from legacy voices
+   below the old bar.
+3. **`computeDepth` pinned-output regression test.** `focus`, `discover`, and the projection
+   rebuild all call the same `computeDepth` (`worker/src/sedimentation.ts`) — confirmed by
+   inspection, all three import it directly and none reimplement the curve. Added a fixed-input
+   test to `worker/tests/permanence.test.ts`: a brand-new voice depths to exactly `0`; a
+   never-woven, one-week-old voice depths to exactly `0.5`; a voice woven once, 55 days old,
+   depths to `550/713 ≈ 0.7714` — already past `cache.ts`'s `0.7` visibility cutoff. That third
+   case is deliberately the "quiet ocean" example: an island that hasn't been written to in
+   ~8 weeks can legitimately project very few or zero voices once each one crosses the cutoff.
+   That's the depth formula working as designed, not a bug to chase.
+4. **`docs/LAUNCH_RUNBOOK.md` documentation.** Added a "What a quiet ocean looks like" note under
+   the post-deploy smoke section (§6) with the age math behind item 3 above (a never-woven voice
+   crosses `depth 0.7` at ~16.3 days of silence; once-woven at ~28.9 days; twice-woven at
+   ~70.8 days; three-or-more-woven voices never cross from age alone, since their age-→-∞ maximum
+   depth is `weaveResist` itself, which drops below `0.7` once `weave_count >= 3`) and a
+   byte-for-byte `diff` check as the `/s/vellum` probe's actual expected output, replacing the
+   previous "expect the SAME shape" comment with no worked example. The `0007`–`0012` migration
+   range mentioned in §2 and §8 is now `0007`–`0013`.
+
+`bun run verify` is green after this batch (see the numbers in the final message of this work).

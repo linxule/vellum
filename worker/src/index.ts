@@ -72,7 +72,14 @@ export default {
     // behaves exactly as its unprefixed counterpart once the slug itself resolves.
     const { surface, pathname } = parseSurfacePrefix(url.pathname)
     const onNonDefaultSurface = surface !== DEFAULT_SURFACE
-    if (onNonDefaultSurface) url.pathname = pathname
+    // A match always strips the literal `/s/<slug>` prefix, so the returned pathname can never
+    // equal the original one — including the default surface reached explicitly via
+    // `/s/vellum/...`. Gating the rewrite on `onNonDefaultSurface` alone left that case
+    // un-rewritten (still `/s/vellum/api/state`, matching none of the routes below, and
+    // `/s/vellum` itself falling through to asset serving as a 404) even though S14 expects
+    // `/s/vellum` to be indistinguishable from `/`.
+    const prefixMatched = pathname !== url.pathname
+    if (prefixMatched) url.pathname = pathname
 
     // Unknown slug -> 404 OCEAN_NOT_FOUND for every route under it (S7) — the canvas included; an
     // unlisted island shows no shore. /api/rooms and /api/surfaces are deliberately NOT reached
@@ -89,7 +96,7 @@ export default {
       }
     }
     const routedUrl = new URL(url.pathname + url.search, url.origin)
-    const routedRequest = onNonDefaultSurface ? new Request(routedUrl, request) : request
+    const routedRequest = prefixMatched ? new Request(routedUrl, request) : request
 
     // MCP endpoint
     if (url.pathname === '/mcp' || url.pathname === '/mcp/') {

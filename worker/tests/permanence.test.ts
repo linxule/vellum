@@ -125,6 +125,37 @@ test('computeDepth: default permanenceMode (unspecified) behaves as off', () => 
   expect(computeDepth(v, 0, now)).toBeLessThanOrEqual(0.1)
 })
 
+// Hotfix 1 (post-deploy, see docs/PHASE_18_REPORT.md): computeDepth's curve is the entire basis
+// for what a quiet ocean looks like (docs/LAUNCH_RUNBOOK.md § post-deploy smoke) — cache.ts filters
+// non-foundation voices at depth >= 0.7 out of the projection (src/cache.ts's `.filter(v =>
+// !isFoundation(v) && v.depth < 0.7)`). These three fixed inputs pin the formula's literal output
+// so a drift in ageFactor/weaveResist/warmthResist is caught here, not discovered as "the surface
+// looks empty" in production.
+test('computeDepth: pinned outputs for 3 fixed inputs (regression guard against silent formula drift)', () => {
+  const now = 1_000_000_000_000 // arbitrary fixed epoch ms — the formula only cares about the delta
+
+  // 1. Brand new, never woven, no warmth: ageFactor = 1 - 1/(1+0) = 0, so depth is exactly 0
+  //    regardless of weave/warmth resistance (both multiply a zero).
+  const fresh = { created_at: now, weave_count: 0, unique_weavers: 0 }
+  expect(computeDepth(fresh, 0, now, 'off')).toBe(0)
+
+  // 2. Exactly 1 week old (168h), never woven, no warmth: ageFactor = 1 - 1/(1+168/168) = 0.5,
+  //    weaveResist = warmthResist = 1, so depth is exactly 0.5 — clean enough to pin with toBe.
+  const oneWeek = { created_at: now - 168 * hourMs, weave_count: 0, unique_weavers: 0 }
+  expect(computeDepth(oneWeek, 0, now, 'off')).toBe(0.5)
+
+  // 3. "What a quiet ocean looks like": a voice woven once, 55 days ago, never re-warmed.
+  //    ageFactor = 1320/1488 = 55/62, weaveResist = 1/1.15 = 20/23 — depth = (55/62)*(20/23) =
+  //    550/713 ≈ 0.7714, already PAST the 0.7 visibility cutoff (see LAUNCH_RUNBOOK.md's age
+  //    math). A surface with no writes for ~8 weeks legitimately projects very few or zero
+  //    voices once every one crosses this line — that is this formula working as designed, not
+  //    a bug to chase.
+  const quiet = { created_at: now - 55 * dayMs, weave_count: 1, unique_weavers: 1 }
+  const quietDepth = computeDepth(quiet, 0, now, 'off')
+  expect(quietDepth).toBeCloseTo(550 / 713, 10)
+  expect(quietDepth).toBeGreaterThan(0.7)
+})
+
 test('rebuildStateProjection: the foundation read site flips with LEVEE_PERMANENCE (integration)', async () => {
   const now = Date.now()
   const aged = now - 30 * dayMs

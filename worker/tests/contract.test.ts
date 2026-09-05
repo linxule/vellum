@@ -28,10 +28,9 @@ test('K3: Phase 15\'s receipt reservation is retired — consumed as identity + 
 })
 test('G: full docs embed contract-rendered sections and invitation changes only by the specified lines', async () => {
   expect(LLMS_FULL_TXT).toContain(renderErrorsSection(CONTRACT)); expect(LLMS_FULL_TXT).toContain(renderDiscoverySection(CONTRACT))
-  const baseline=Bun.spawnSync(['git','show','HEAD:worker/src/ai-docs.ts'])
-  expect(baseline.exitCode).toBe(0)
-  const source=baseline.stdout.toString()
-  const original=source.split('export const FOR_AI_TXT = `')[1].split('\n`')[0]
+  // Baseline = the pre-Phase-15 invitation (commit b359962), frozen as a fixture so this test does
+  // not depend on git state (it used to diff against HEAD, which only passes in an uncommitted tree).
+  const original=await Bun.file(new URL('./fixtures/for-ai-baseline.txt', import.meta.url)).text()
   const addition='If a request fails, the JSON error names the field and the fix.\n\n'
   // Phase 17 Part E3: the served /for-ai.txt gains exactly one new section, RETURN, after "HOW TO
   // BEGIN" — everything else in the invitation is byte-identical to the Phase 15/16 baseline.
