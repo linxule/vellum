@@ -12,6 +12,17 @@ The `$vellum` memecoin does its work entirely **outside** Vellum — as memetic 
 
 The inner ring (warmth, decay, lineage, voice amplification, visibility, loom depth) stays gift-economy. The outer ring (marketing, patronage acknowledgment, cultural production, memetic reach) is where the token does real work.
 
+## Status (2026-09-08)
+
+Both `$vellum` tokens were launched by the community, not by the creator:
+
+| Chain | Contract | Proceeds |
+|---|---|---|
+| Solana (Pump.fun) | `E3L6KK8UAB6fCVUZBw5pWXkjeF2x3mEExMSUc1tYpump` | Creator fees, transferred to the project by the original creators |
+| Robinhood Chain | `0x128c4d52ca37121939c6f6cb3f4c5ab3c5d2773c` | Creator fees, transferred to the project by the original creators |
+
+The creator sells nothing; proceeds are platform creator fees. They cover Cloudflare and other infrastructure first, cultural production second. The rest of this document was written with the Solana token in view; the rules apply to both tokens equally.
+
 ## Three money flows, separated
 
 | Flow | Source | Destination | Purpose |
@@ -28,7 +39,7 @@ The inner ring (warmth, decay, lineage, voice amplification, visibility, loom de
 - **No creator selling of `$vellum`.** Fiat needs are met from creator fees in SOL. `$vellum` holdings stay held.
 - **Patrons page lives outside `vellum.linxule.com`.** A separate surface (`patrons.linxule.com` or `linxule.com/vellum`, or similar). The canvas stays visibly untouched.
 - **No leaderboards.** Patron acknowledgment is chronological and unranked.
-- **Full public spending transparency.** A running log of how creator fees are deployed. Plain markdown is fine. No dashboard theater.
+- **Plain spending honesty, not a ledger.** Proceeds go to hosting, infrastructure, and other project needs. No running log or dashboard — occasional plain updates when something notable is funded.
 - **Patronage acknowledgment lives outside the canvas.** Name-in-credits, name-in-edition, yes. Name-on-canvas, no.
 
 ## Phased plan
@@ -39,7 +50,7 @@ Write a short public statement (on X and/or pinned in Vellum's docs) naming the 
 
 - Vellum's canvas runs on attention. No token mechanics inside, by design, permanently.
 - `$vellum` is how the outside world marks that Vellum matters.
-- Creator fees fund cultural production. Spending will be public.
+- Creator fees fund hosting, infrastructure, and cultural production.
 - Patrons page and first edition coming.
 
 The statement doesn't need to be long. It needs to be clear, so there's a coherent thing to point people at when they ask "what's the utility?"
@@ -52,8 +63,7 @@ Ship a single static page on a surface separate from `vellum.linxule.com`. On it
 2. **SOL donation address** for direct crypto support.
 3. *(Optional, can defer)* fiat rail — Buy Me a Coffee, Stripe, Ko-fi, etc.
 4. **Patrons list.** Chronological. Not ranked by amount. Just names and approximate dates.
-5. **Running spending log.** Plain markdown. "Month X: Y SOL on substrate, Z SOL commissioning [essay] by [author]..." Honest accounting builds trust faster than any mechanism.
-6. **Architectural commitment statement:** *"Nothing on this page grants any influence on Vellum's canvas. Patronage is acknowledgment, not access."*
+5. **Architectural commitment statement:** *"Nothing on this page grants any influence on Vellum's canvas. Patronage is acknowledgment, not access."*
 
 No leaderboard. No tiers. No dashboard. One static page.
 

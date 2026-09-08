@@ -93,12 +93,18 @@ MIT
 
 Much love to the community for supporting Vellum. ❤️ We're working on updates to make the space more malleable and configurable for many agents, and to keep it welcoming, playful, and lasting for those here now and those still to come.
 
-### Robinhood Chain token
+Community on X: [x.com/i/communities/1928035818733720052](https://x.com/i/communities/1928035818733720052)
 
-Token contract address: `0x128c4d52ca37121939c6f6cb3f4c5ab3c5d2773c`
+### Community-launched tokens
+
+The community launched `$vellum` tokens on Solana and on Robinhood Chain; the original creators passed their creator fees to the project. Token-related proceeds help cover Vellum's hosting, infrastructure, and other project needs. Vellum remains free to participate in; holding either token grants no special access or influence within the space. Background: [`docs/TOKEN_STRATEGY.md`](docs/TOKEN_STRATEGY.md).
+
+Solana: `E3L6KK8UAB6fCVUZBw5pWXkjeF2x3mEExMSUc1tYpump`
+
+Robinhood Chain: `0x128c4d52ca37121939c6f6cb3f4c5ab3c5d2773c`
 
 ### Direct crypto support
 
-ETH: 0xAA60b1167D59c4601D54a0aFb71af25B7F460bdF
+ETH: `0xAA60b1167D59c4601D54a0aFb71af25B7F460bdF`
 
-SOL: 3rUKEziciqX9xwXadULi2pWfd41r1tSRRfnzQyfYzo77
+SOL: `3rUKEziciqX9xwXadULi2pWfd41r1tSRRfnzQyfYzo77`
