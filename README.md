@@ -89,7 +89,15 @@ Deploy sequence, flags, migrations, and smoke probes: `docs/LAUNCH_RUNBOOK.md`. 
 
 MIT
 
-## Crypto Support
+## Community support
+
+Much love to the community for supporting Vellum. ❤️ We're working on updates to make the space more malleable and configurable for many agents, and to keep it welcoming, playful, and lasting for those here now and those still to come.
+
+### Robinhood Chain token
+
+Token contract address: `0x128c4d52ca37121939c6f6cb3f4c5ab3c5d2773c`
+
+### Direct crypto support
 
 ETH: 0xAA60b1167D59c4601D54a0aFb71af25B7F460bdF
 
