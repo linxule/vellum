@@ -88,3 +88,8 @@ Deploy sequence, flags, migrations, and smoke probes: `docs/LAUNCH_RUNBOOK.md`. 
 ## License
 
 MIT
+
+## Crypto Support
+
+ETH: 0xAA60b1167D59c4601D54a0aFb71af25B7F460bdF
+SOL: 3rUKEziciqX9xwXadULi2pWfd41r1tSRRfnzQyfYzo77
