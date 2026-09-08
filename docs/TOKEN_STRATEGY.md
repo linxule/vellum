@@ -21,7 +21,7 @@ Both `$vellum` tokens were launched by the community, not by the creator:
 | Solana (Pump.fun) | `E3L6KK8UAB6fCVUZBw5pWXkjeF2x3mEExMSUc1tYpump` | Creator fees, transferred to the project by the original creators |
 | Robinhood Chain | `0x128c4d52ca37121939c6f6cb3f4c5ab3c5d2773c` | Creator fees, transferred to the project by the original creators |
 
-The creator sells nothing; proceeds are platform creator fees. They cover Cloudflare and other infrastructure first, cultural production second. The rest of this document was written with the Solana token in view; the rules apply to both tokens equally.
+Token-related funding comes from platform creator fees. They cover Cloudflare and other infrastructure first, cultural production second. The rest of this document was written with the Solana token in view; the rules apply to both tokens equally.
 
 ## Three money flows, separated
 
@@ -31,68 +31,22 @@ The creator sells nothing; proceeds are platform creator fees. They cover Cloudf
 | **Symbolic patronage** | Patrons burn `$vellum` | A verifiable burn address | Credit in the patrons list and in edition credits. No fiat flow. No creator tax event. Deflationary pressure on `$vellum` supply. |
 | **Optional direct support** | Patrons send SOL or fiat | A dedicated donation address | For patrons who want to fund *materially* more than a symbolic burn. Same credit as burners. Optional path, not primary. |
 
-**Crucial rule: the creator never sells `$vellum`.** Production is funded from creator fees (which arrive in SOL on every trade that already happened), not by dumping held `$vellum`. This prevents the creator from becoming a structural seller of their own coin.
+**Crucial rule: the creator never sells `$vellum`.** Production is funded from platform creator fees, not by dumping held `$vellum`. This prevents the creator from becoming a structural seller of their own coin.
 
 ## Hard rules
 
 - **No canvas-side token mechanics.** The token never buys warmth, slower decay, weaving priority, canonical voice claims, visual effects, loom depth, ambient session time, or any other form of canvas privilege. Ever.
-- **No creator selling of `$vellum`.** Fiat needs are met from creator fees in SOL. `$vellum` holdings stay held.
+- **No creator selling of `$vellum`.** Fiat needs are met from platform creator fees. `$vellum` holdings stay held.
 - **Patrons page lives outside `vellum.linxule.com`.** A separate surface (`patrons.linxule.com` or `linxule.com/vellum`, or similar). The canvas stays visibly untouched.
 - **No leaderboards.** Patron acknowledgment is chronological and unranked.
 - **Plain spending honesty, not a ledger.** Proceeds go to hosting, infrastructure, and other project needs. No running log or dashboard — occasional plain updates when something notable is funded.
 - **Patronage acknowledgment lives outside the canvas.** Name-in-credits, name-in-edition, yes. Name-on-canvas, no.
 
-## Phased plan
-
-### Phase 0 — This week: publicly commit to the shape
-
-Write a short public statement (on X and/or pinned in Vellum's docs) naming the shape:
-
-- Vellum's canvas runs on attention. No token mechanics inside, by design, permanently.
-- `$vellum` is how the outside world marks that Vellum matters.
-- Creator fees fund hosting, infrastructure, and cultural production.
-- Patrons page and first edition coming.
-
-The statement doesn't need to be long. It needs to be clear, so there's a coherent thing to point people at when they ask "what's the utility?"
-
-### Phase 1 — Next 1–2 weeks: patronage infrastructure
-
-Ship a single static page on a surface separate from `vellum.linxule.com`. On it:
-
-1. **Burn address** with clear instructions. Memo field for credit (name or handle).
-2. **SOL donation address** for direct crypto support.
-3. *(Optional, can defer)* fiat rail — Buy Me a Coffee, Stripe, Ko-fi, etc.
-4. **Patrons list.** Chronological. Not ranked by amount. Just names and approximate dates.
-5. **Architectural commitment statement:** *"Nothing on this page grants any influence on Vellum's canvas. Patronage is acknowledgment, not access."*
-
-No leaderboard. No tiers. No dashboard. One static page.
-
-### Phase 2 — 1–2 months: Edition One
-
-Pick a cadence (quarterly feels right) and ship the first edition.
-
-- Curate 10–30 traces from Vellum into a story. Your choice, centralized — you're the editor.
-- Write a short editorial introduction.
-- Commission 1–2 external pieces (essay, illustration, translation, visual response) from voices you respect. Pay in fiat from creator fees.
-- Publish as a PDF hosted on your domain. Optional small print run (Blurb, Lulu, local printer).
-- Credit all patrons from the period since launch (or since last edition) in an "offerings" section.
-- Announce to the coin community *and* to a general audience.
-
-The first edition doesn't have to be polished. It has to be the first one.
-
-### Phase 3 — Steady state
-
-- Quarterly editions, or whatever cadence feels honest.
-- Active engagement with the memecoin community as deliberate bootstrap work.
-- Long-form writing about Vellum externally (blog, Substack, Mirror, wherever feels right).
-- Cultural production spending from creator fees — whatever extends Vellum's cultural presence in the world without touching the canvas.
-- Canvas mechanics stay untouched. Permanently.
-
 ## What NOT to do
 
 - Don't build any mechanism where `$vellum` grants canvas privilege. Any proposal that puts a purchasable feature on the canvas should be rejected.
 - Don't create patron leaderboards.
-- Don't sell `$vellum` yourself. Creator fees in SOL are the production budget.
+- Don't sell `$vellum` yourself. Platform creator fees are the production budget.
 - Don't host patronage surfaces on `vellum.linxule.com`. Keep them architecturally separate.
 - Don't announce "utility coming soon" or "tokenomics roadmap v2." The utility is what's described in this document. Saying more implies there's a mechanism coming that there isn't.
 - Don't build Suture, `$DECAY`, Radioactive Suture, Echo Matrix, or the other mechanisms explored during the design conversation. They are valid toolkits for *other* projects — projects where tokenomics had to be built from scratch as part of the space. Vellum is different: the encounter-economy was complete before the coin existed.
