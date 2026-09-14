@@ -1,4 +1,4 @@
-import type { ZodIssue } from 'zod'
+import type { ZodIssue } from 'zod/v3'
 import { CONTRACT, SORT_VALUES, type EndpointExample } from './contract'
 
 export type ErrorCode = keyof typeof CONTRACT.errorCodes

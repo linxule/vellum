@@ -1,7 +1,7 @@
 import { admitBody } from '../admission'
 import { CONTRACT, PROTOCOL_VERSIONS, SERVER_VERSION } from '../contract'
 import { mcpToolError, nearMissNote, zodToEnvelope } from '../errors'
-import { z } from 'zod'
+import { z } from 'zod/v3'
 import type { Env } from '../types'
 import pensieveHtml from '../../../app/dist/mcp-app.html'
 import { generateTraceId, parseModel } from '../ids'

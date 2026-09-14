@@ -94,7 +94,10 @@ Use Bun 1.3.14 for installs and lockfile updates (`bunx --package bun@1.3.14 bun
 The three active Bun lockfiles are committed in format v1, which the current
 Dependabot updater supports; Bun 1.4 generates unsupported v2 locks. Weekly Dependabot updates cover
 root, app, worker, and GitHub Actions; CI installs those exact locks, audits all
-three graphs, and runs `bun run verify`. TypeScript is installed explicitly in
+three graphs, and runs `bun run verify`. The worker imports Zod 4 through its supported `zod/v3` compatibility export
+to preserve the existing validation, error strings, and witness analytics contract.
+A full Zod 4 API migration is separate from dependency maintenance.
+TypeScript is installed explicitly in
 all three packages so a fresh clone does not download an unpinned compiler.
 
 Pretext 0.0.9 fixes GHSA-5478-66c3-rhxr. The ocean and loom renderers consume its
