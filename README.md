@@ -98,7 +98,11 @@ three graphs, and runs `bun run verify`. TypeScript is installed explicitly in
 all three packages so a fresh clone does not download an unpinned compiler.
 
 Pretext 0.0.9 fixes GHSA-5478-66c3-rhxr. The ocean and loom renderers consume its
-typed `breakableFitAdvances` field for per-grapheme placement. Text wrapping can
+typed `breakableFitAdvances` field for per-grapheme placement. These are
+incremental advances, not cumulative widths. Preparation uses zero letter spacing;
+new upstream numeric/Safari kerning policies may adjust glyph placement.
+Regression tests compare public narrow-line widths and actual ocean/loom paint
+spacing against independently measured canvas glyph widths. Text wrapping can
 reflect upstream typography fixes; application flows and appearance are otherwise
 unchanged. The self-hosted Strudel asset is outside package-manager audit coverage.
 On 2026-09-14 its SHA-256
