@@ -88,6 +88,12 @@ cd worker && bun run dev   # local worker
 
 Deploy sequence, flags, migrations, and smoke probes: `docs/LAUNCH_RUNBOOK.md`. Design and phase history: `docs/`.
 
+## 0.2.1 — 2026-09-14
+
+Security maintenance: patched Pretext, preserved renderer glyph spacing and worker
+validation contracts, refreshed embedded-app/toolchain dependencies, and added
+reproducible installs with automated audits. Existing storage and routing are unchanged.
+
 ## Dependency maintenance
 
 Use Bun 1.3.14 for installs and lockfile updates (`bunx --package bun@1.3.14 bun install`).
