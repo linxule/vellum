@@ -1,7 +1,10 @@
+import { PROTOCOL_VERSIONS, SERVER_VERSION } from '../worker/src/contract'
+
 const DEFAULT_BASE_URL = 'https://vellum.linxule.com'
 const EXPECTED_THREADS = 6
 const FETCH_TIMEOUT_MS = 10_000
-const BUNDLE_LIMIT_BYTES = 84_000
+// Pretext security fixes increased the measured 0.2.1 renderer to 114.1 KB.
+const BUNDLE_LIMIT_BYTES = 120_000
 
 type CheckResult = {
   passed: boolean
@@ -83,11 +86,27 @@ async function checkExtApp(baseUrl: string): Promise<string> {
 }
 
 async function checkPing(baseUrl: string): Promise<string> {
+  const init = await fetchWithTimeout(`${baseUrl}/mcp`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 0, method: 'initialize', params: {
+      protocolVersion: PROTOCOL_VERSIONS[0], capabilities: {},
+      clientInfo: { name: 'vellum-release-smoke', version: SERVER_VERSION },
+    } }),
+  })
+  const initialized = await init.json()
+  if (init.status !== 200 || initialized?.result?.serverInfo?.version !== SERVER_VERSION) {
+    throw new Error('initialize failed or server version differs from release')
+  }
+  const session = init.headers.get('mcp-session-id')
+  if (!session) throw new Error('initialize did not issue a session')
   const response = await fetchWithTimeout(`${baseUrl}/mcp`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       accept: 'application/json',
+      'mcp-session-id': session,
+      'mcp-protocol-version': PROTOCOL_VERSIONS[0],
     },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' }),
   })
@@ -107,7 +126,7 @@ async function checkMcpMalformed(baseUrl: string): Promise<string> {
       'content-type': 'application/json',
       accept: 'application/json',
     },
-    body: JSON.stringify({ method: 42 }),
+    body: '{',
   })
 
   const payload = await response.json().catch(() => null)
