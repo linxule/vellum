@@ -1,0 +1,26 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Install locked dependencies
+        run: |
+          bun install --frozen-lockfile
+          (cd app && bun install --frozen-lockfile)
+          (cd worker && bun install --frozen-lockfile)
+      - name: Audit active dependencies
+        run: |
+          bun audit
+          (cd app && bun audit)
+          (cd worker && bun audit)
+      - run: bun run verify

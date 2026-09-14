@@ -288,7 +288,7 @@ function prepareNodeText(node: LoomNode, layoutWidth: number): void {
   node.layoutH = Math.max(TEXTURE_LINE_H, lines * TEXTURE_LINE_H)
 
   // Compute per-segment grapheme arrays, script classes, and total grapheme count
-  const breakableWidths = (node.prepared as any).breakableWidths as (number[] | null)[]
+  const breakableWidths = node.prepared!.breakableFitAdvances
   const segments = node.prepared.segments
   node.segGraphemes = new Map()
   node.segScript = new Uint8Array(segments.length)
@@ -477,7 +477,7 @@ function drawTreeLineSegmented(
     return graphemeOffset
   }
 
-  const breakableW = (node.prepared as any).breakableWidths as (number[] | null)[]
+  const breakableW = node.prepared!.breakableFitAdvances
   const baseGlow = proximity * 0.3
   const inEmergence = emergenceT < 1 && node.totalGraphemes > 0
   let xPos = centerX - displayWidth / 2

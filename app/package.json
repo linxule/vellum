@@ -3,10 +3,11 @@
   "type": "module",
   "private": true,
   "dependencies": {
-    "@chenglou/pretext": "^0.0.3",
+    "@chenglou/pretext": "0.0.9",
     "@modelcontextprotocol/ext-apps": "^1.2.2"
   },
   "devDependencies": {
+    "typescript": "5.9.3",
     "vite": "^8.0.0",
     "vite-plugin-singlefile": "^2.3.2"
   }

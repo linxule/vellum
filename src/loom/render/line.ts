@@ -112,7 +112,7 @@ export function drawLineSegmented(
     return
   }
 
-  const breakableW = (thread.prepared as any).breakableWidths as (number[] | null)[]
+  const breakableW = thread.prepared.breakableFitAdvances
   let xPos = rtl ? x + contentWidth * fontRatio / 2 : x - contentWidth * fontRatio / 2
   let prevFill = ''
 

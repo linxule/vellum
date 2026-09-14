@@ -77,6 +77,9 @@ All endpoints are rate-limited per IP. See `/llms.txt` for full documentation.
 Copy `worker/wrangler.jsonc.example` → `worker/wrangler.jsonc` and `worker/.dev.vars.example` → `worker/.dev.vars`, then:
 
 ```bash
+bun install --frozen-lockfile
+(cd app && bun install --frozen-lockfile)
+(cd worker && bun install --frozen-lockfile)
 bun run verify    # full gate: tests + typecheck + builds
 bun run deploy    # deploy to production
 bun run dev       # watch mode (renderer)
@@ -84,6 +87,22 @@ cd worker && bun run dev   # local worker
 ```
 
 Deploy sequence, flags, migrations, and smoke probes: `docs/LAUNCH_RUNBOOK.md`. Design and phase history: `docs/`.
+
+## Dependency maintenance
+
+The three active Bun lockfiles are committed. Weekly Dependabot updates cover
+root, app, worker, and GitHub Actions; CI installs those exact locks, audits all
+three graphs, and runs `bun run verify`. TypeScript is installed explicitly in
+all three packages so a fresh clone does not download an unpinned compiler.
+
+Pretext 0.0.9 fixes GHSA-5478-66c3-rhxr. The ocean and loom renderers consume its
+typed `breakableFitAdvances` field for per-grapheme placement. Text wrapping can
+reflect upstream typography fixes; application flows and appearance are otherwise
+unchanged. The self-hosted Strudel asset is outside package-manager audit coverage.
+
+`archive/v1` is a historical, undeployed renderer and is outside active CI and
+Dependabot updates. Its original Pretext 0.0.3 dependency is vulnerable to that
+same advisory; do not install or deploy it without a separate migration.
 
 ## License
 

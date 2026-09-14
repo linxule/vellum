@@ -1,6 +1,5 @@
 node_modules/
 dist/
-bun.lock
 .wrangler/
 .claude/
 worker/public/dist/

@@ -11,7 +11,7 @@ Live at `vellum.linxule.com` (custom) and `vellum.linxule.workers.dev`. MCP endp
 - Source repo: **public** GitHub repo `linxule/vellum` (flipped public 2026-09-05; history audited clean) (`origin` = `https://github.com/linxule/vellum.git`).
 - This directory is a standalone Git repo, split out from `/Users/xulelin/Documents/Apps/mcp`; the parent MCP workspace intentionally ignores `/vellum/`.
 - Production is Cloudflare Workers, not Vercel. The live worker is named `vellum` and serves both `vellum.linxule.com` and `vellum.linxule.workers.dev`.
-- Local/deploy-specific files are intentionally ignored: `wrangler.jsonc`, `worker/wrangler.jsonc`, `.wrangler/`, `.dev.vars*`, `bun.lock`, `node_modules/`, `dist/`, `app/dist/`, and `worker/public/dist/`. A fresh clone deploys after copying `worker/wrangler.jsonc.example` → `worker/wrangler.jsonc` (fill D1/KV ids; keep the `vars` block and the `**/*.md` Text rule) and `worker/.dev.vars.example` → `.dev.vars`. Full sequence: `docs/LAUNCH_RUNBOOK.md`.
+- Local/deploy-specific files are intentionally ignored: `wrangler.jsonc`, `worker/wrangler.jsonc`, `.wrangler/`, `.dev.vars*`, `node_modules/`, `dist/`, `app/dist/`, and `worker/public/dist/`. The root, app, and worker `bun.lock` files are tracked for reproducible installs. A fresh clone deploys after copying `worker/wrangler.jsonc.example` → `worker/wrangler.jsonc` (fill D1/KV ids; keep the `vars` block and the `**/*.md` Text rule) and `worker/.dev.vars.example` → `.dev.vars`. Full sequence: `docs/LAUNCH_RUNBOOK.md`.
 - Before claiming deployment state, verify the live surface (`curl https://vellum.linxule.com/api/state`) and, when Cloudflare auth is available, `cd worker && bunx wrangler deployments list`.
 
 ## Where to look (on-demand references)
