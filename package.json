@@ -14,9 +14,10 @@
     "verify": "bun test tests/loom/ && bunx tsc --noEmit && cd app && bunx vite build && cd .. && cd worker && bun test tests/ && bunx tsc --noEmit && cd ../app && bunx tsc --noEmit && cd .. && bun run build"
   },
   "dependencies": {
-    "@chenglou/pretext": "^0.0.3"
+    "@chenglou/pretext": "0.0.9"
   },
   "devDependencies": {
+    "typescript": "5.9.3",
     "wrangler": "^4.80.0"
   }
 }

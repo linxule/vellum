@@ -321,3 +321,25 @@ test('Phase 12 seam: living-root connectors use gradient objects and never a non
   expect(stub.strokeCalls.every(s => typeof s.strokeStyle !== 'string')).toBe(true)
   expect(stub.strokeCalls.every(s => s.lineDash.length === 0)).toBe(true)
 })
+
+// Pretext 0.0.9 renamed its per-grapheme advances; cover the actual paint path
+// with wrapped Latin, CJK, Arabic, combining marks, and emoji.
+test('patched Pretext paints multilingual lineage text at finite coordinates', async () => {
+  installViewport(360, 640)
+  await loadState(makeState([{ family: 'attention', voices: [
+    { id: 'root', text: 'longunbrokenwordattention 中文 العربية e\u0301 🌊', depth: 0.4, weave_count: 1 },
+    { id: 'child', text: 'Another voice follows the thread.', depth: 0.2, weave_from: 'root' },
+  ] }], 102))
+  const tree = buildLoomTree('root')!
+  tree.enteredAt = -10000
+  loomState.currentAperture = aperture(360)
+  const ctx = createCanvasContext()
+  renderLoomTree(ctx, 360, 640, 20000, tree, 1)
+  const calls = (ctx as unknown as CanvasContextStub).fillTextCalls
+  expect(calls.length).toBeGreaterThan(0)
+  expect(calls.every(call => Number.isFinite(call.x) && Number.isFinite(call.y))).toBe(true)
+  const painted = calls.map(call => call.text).join('')
+  expect(painted).toContain('longunbrokenwordattention')
+  expect(painted).toContain('中文')
+  expect(painted).toContain('🌊')
+})

@@ -90,7 +90,7 @@ export function makeThread(
   const currentResponse = 0.3 + (Math.sin(s * 3.7) + 1) * 0.35
   const breathRate = 0.0002 + (Math.sin(s * 5.9) + 1) * 0.0002
 
-  const breakableWidths = (prepared as any).breakableWidths as (number[] | null)[]
+  const breakableWidths = prepared.breakableFitAdvances
   const segGraphemes = new Map<number, string[]>()
   const segScript = new Uint8Array(prepared.segments.length)
   for (let si = 0; si < prepared.segments.length; si++) {

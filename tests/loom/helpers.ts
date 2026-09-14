@@ -238,6 +238,8 @@ function installMeasurementCanvas() {
   })
 
   const documentStub = {
+    // No DOM layout in this canvas-only harness; use Pretext canvas metrics.
+    body: null,
     createElement(tag: string) {
       if (tag !== 'canvas') throw new Error(`unexpected element request in loom test helper: ${tag}`)
       return {
