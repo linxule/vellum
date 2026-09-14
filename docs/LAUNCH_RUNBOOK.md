@@ -203,8 +203,9 @@ mcp-publisher validate worker/server.json   # sanity check first
 mcp-publisher publish                        # adds a version, flips isLatest
 ```
 
-Bump `worker/server.json`'s `"version"` (currently `"0.2.0"`) before publishing if the tool surface
-changed since the last publish — the registry keys on it.
+Read the current release version from `worker/server.json` and keep it aligned with
+`worker/src/contract.ts`. Bump both before publishing a new release — the registry
+keys on the manifest version.
 
 ## 8. Rollback
 
