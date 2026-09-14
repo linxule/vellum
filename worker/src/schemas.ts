@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from 'zod/v3'
 import { FAMILIES } from './types'
 import { CONTRACT, SORT_VALUES } from './contract'
 

@@ -1,7 +1,7 @@
 import { CONTRACT, SORT_VALUES } from '../contract'
 import { envelope, errorResponse, zodToEnvelope } from '../errors'
 import { getWarmthMap, sortByWarmth } from '../warmth'
-import { z } from 'zod'
+import { z } from 'zod/v3'
 import type { Env, VoiceRow } from '../types'
 import { FAMILIES } from '../types'
 import { checkAndIncrementRateLimit, checkRateLimitDO, RATE_LIMITS } from '../rate-limits'
