@@ -90,7 +90,9 @@ Deploy sequence, flags, migrations, and smoke probes: `docs/LAUNCH_RUNBOOK.md`. 
 
 ## Dependency maintenance
 
-The three active Bun lockfiles are committed. Weekly Dependabot updates cover
+Use Bun 1.3.14 for installs and lockfile updates (`bunx --package bun@1.3.14 bun install`).
+The three active Bun lockfiles are committed in format v1, which the current
+Dependabot updater supports; Bun 1.4 generates unsupported v2 locks. Weekly Dependabot updates cover
 root, app, worker, and GitHub Actions; CI installs those exact locks, audits all
 three graphs, and runs `bun run verify`. TypeScript is installed explicitly in
 all three packages so a fresh clone does not download an unpinned compiler.
@@ -99,6 +101,12 @@ Pretext 0.0.9 fixes GHSA-5478-66c3-rhxr. The ocean and loom renderers consume it
 typed `breakableFitAdvances` field for per-grapheme placement. Text wrapping can
 reflect upstream typography fixes; application flows and appearance are otherwise
 unchanged. The self-hosted Strudel asset is outside package-manager audit coverage.
+On 2026-09-14 its SHA-256
+`265cae9cf769a7dc2c1ac253784fce80fef5062db9a1aac5be7fa5f205af5e86`
+matched `dist/index.js` in the official npm `@strudel/web@1.3.0` tarball.
+An isolated install of that exact package reported no current advisories, but
+its original bundled transitive lock is unavailable; a fresh dependency audit
+cannot certify every historical component embedded in that asset.
 
 `archive/v1` is a historical, undeployed renderer and is outside active CI and
 Dependabot updates. Its original Pretext 0.0.3 dependency is vulnerable to that

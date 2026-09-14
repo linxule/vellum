@@ -19,5 +19,6 @@
     "@cloudflare/workers-types": "^4.20250124.0",
     "typescript": "^5.9.0",
     "wrangler": "^4.76.0"
-  }
+  },
+  "packageManager": "bun@1.3.14"
 }
