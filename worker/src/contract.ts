@@ -1,7 +1,7 @@
 import { FAMILIES } from './types'
 import { RATE_LIMITS } from './rate-limits'
 
-export const SERVER_VERSION = '0.2.0'
+export const SERVER_VERSION = '0.2.1'
 export const PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'] as const
 export const SORT_VALUES = ['age', 'weaves', 'warmth'] as const
 export const SESSION_MAX_AGE_S = 2700
