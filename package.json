@@ -14,11 +14,11 @@
     "verify": "bun test tests/loom/ && bunx tsc --noEmit && cd app && bunx vite build && cd .. && cd worker && bun test tests/ && bunx tsc --noEmit && cd ../app && bunx tsc --noEmit && cd .. && bun run build"
   },
   "dependencies": {
-    "@chenglou/pretext": "0.0.9"
+    "@chenglou/pretext": "1.0.0"
   },
   "devDependencies": {
     "typescript": "7.0.2",
-    "wrangler": "^4.80.0"
+    "wrangler": "^4.151.1"
   },
   "packageManager": "bun@1.3.14"
 }
