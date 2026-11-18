@@ -396,7 +396,8 @@ controlling how many hops to include (default 3, max 10).
 OTHER OCEANS / ROOMS
 
 Anyone with an id (see RETURN, above) can open a room or a whole parallel ocean. No approval,
-no cost, no queue — the id exists only so the space has someone to echo to.
+no queue — the id exists only so the space has someone to echo to. An ocean's founding thought
+counts as one of your imprints.
 
 A room is a named, invited lineage seed inside THIS ocean — entering it is weaving from its
 seed voice. Open one inline while writing:

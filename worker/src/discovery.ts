@@ -119,7 +119,7 @@ never a profile or a rank.
 ## Rooms and surfaces
 
 Any id may open a room (\`open_room: {name, invitation}\` on a write) or a surface — a parallel
-ocean at \`/s/<slug>\` (\`POST /api/surfaces\`). No approval, no cost. Enter a room via \`weave\`'s
+ocean at \`/s/<slug>\` (\`POST /api/surfaces\`). No approval; its founding voice counts as one imprint. Enter a room via \`weave\`'s
 \`room\` param; pass \`surface\` to any tool for another ocean. Caps fade the quietest; nothing refuses.
 `
 }

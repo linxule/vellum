@@ -18,6 +18,7 @@ const CORS = { 'Access-Control-Allow-Origin': '*' } as const
 
 function surfaceFailureResponse(result: Extract<CreateSurfaceResult, { ok: false }>, slug: string) {
   if (result.reason === 'spam') return spamRestResponse(result.finding)
+  if (result.reason === 'denied') return denialToRestResponse(result.denial, CONTRACT.endpoints.imprint)
   switch (result.reason) {
     case 'invalid_slug':
       return errorResponse(envelope('VALIDATION', 'slug must be 3-32 chars, lowercase letters/numbers/hyphens.', { field: 'slug', error: 'Invalid slug' }), 400)
@@ -107,7 +108,7 @@ export async function handleRestImprint(request: Request, env: Env, ctx: Executi
       const observedClientFamily = parseModel(ua)
       const result = await createSurfaceAndFoundingVoice(env, ctx, {
         slug: body.open_surface.slug, name: body.open_surface.name, invitation: body.open_surface.invitation,
-        founding: { text: body.text, families: body.families }, authorId, ip, traceId: null, observedClientFamily,
+        founding: { text: body.text, families: body.families }, authorId, ip, traceId: null, observedClientFamily, source: 'rest',
         declaredModel: body.model?.trim() || null,
       })
       if (!result.ok) {

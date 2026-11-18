@@ -15,7 +15,7 @@ import { contentHash, simhash } from '../levee-content'
 import { weaverBucket } from '../levee-permanence'
 import { agentUpsertStatement } from '../echo'
 import { rebuildAtmosphereIfNotLocked, rebuildStateProjectionIfNotLocked } from '../cache'
-import { modeOf } from '../levee-admission'
+import { admitWrite, denialToRestResponse, modeOf, type AdmitDenial } from '../levee-admission'
 import { checkAndIncrementRateLimit, checkRateLimitDO, RATE_LIMITS } from '../rate-limits'
 import { deriveAgentId, readAgentSecret } from '../agent-id'
 import { bodyHashOf, checkIdempotency, opKeyFor, opReceiptInsertStatement } from '../idempotency'
@@ -38,11 +38,14 @@ export interface CreateSurfaceInput {
   traceId: string | null
   observedClientFamily: string
   declaredModel?: string | null
+  /** Transport, for write accounting (admitWrite). */
+  source: 'rest' | 'mcp'
 }
 
 export type CreateSurfaceResult =
   | { ok: true; foundingVoiceId: string }
   | { ok: false; reason: 'spam'; finding: SpamFinding }
+  | { ok: false; reason: 'denied'; denial: AdmitDenial }
   | { ok: false; reason: 'invalid_slug' | 'reserved_slug' | 'slug_taken' | 'invalid_name' | 'invalid_invitation'; didYouMean?: string }
 
 /** The single writer of a new surface + its founding voice, in one atomic D1 batch (B1: "a space
@@ -58,6 +61,18 @@ export async function createSurfaceAndFoundingVoice(env: Env, ctx: ExecutionCont
 
   const existing = await env.DB.prepare('SELECT id FROM surfaces WHERE id = ?').bind(input.slug).first<{ id: string }>()
   if (existing) return { ok: false, reason: 'slug_taken', didYouMean: `${input.slug}-2` }
+
+  // The founding voice is a write like any other (decided 2026-11-18): it is charged to the
+  // opener's write credit and counts toward the global ceilings, so a flood of oceans meets the
+  // same limits as a flood of voices. Until then this path reached no write limit at all. Charged
+  // only here, after every validation above, so a refused slug or name costs nothing. The verdict's
+  // visibility is deliberately not applied: a surface is never born empty, so its founding voice is
+  // always surfaced.
+  const verdict = await admitWrite(env, {
+    ip: input.ip, sessionId: input.traceId ?? undefined, authorId: input.authorId,
+    bodyBytes: input.founding.text.length, source: input.source, kind: 'imprint',
+  }, input.founding.text)
+  if (!verdict.ok) return { ok: false, reason: 'denied', denial: verdict }
 
   const now = Date.now()
   await applySurfaceCapPhysics(env.DB, input.authorId, now)
@@ -89,7 +104,7 @@ export async function createSurfaceAndFoundingVoice(env: Env, ctx: ExecutionCont
   return { ok: true, foundingVoiceId: foundingId }
 }
 
-function reasonToEnvelope(reason: Exclude<CreateSurfaceResult, { ok: true } | { reason: 'spam' }>['reason'], slug: string, didYouMean?: string) {
+function reasonToEnvelope(reason: Exclude<CreateSurfaceResult, { ok: true } | { reason: 'spam' } | { reason: 'denied' }>['reason'], slug: string, didYouMean?: string) {
   switch (reason) {
     case 'invalid_slug':
       return errorResponse(envelope('VALIDATION', 'slug must be 3-32 chars, lowercase letters/numbers/hyphens.', { field: 'slug', error: 'Invalid slug' }), 400)
@@ -163,11 +178,12 @@ export async function handleSurfacesCreate(request: Request, env: Env, ctx: Exec
   const observedClientFamily = ua.slice(0, 60) || 'unknown'
   const result = await createSurfaceAndFoundingVoice(env, ctx, {
     slug: body.slug, name: body.name, invitation: body.invitation, founding: body.founding,
-    authorId, ip, traceId: null, observedClientFamily,
+    authorId, ip, traceId: null, observedClientFamily, source: 'rest',
   })
   if (!result.ok) {
     trackAnalytics(env, ['route', '/api/surfaces', 'rejected', result.reason])
     if (result.reason === 'spam') return spamRestResponse(result.finding)
+    if (result.reason === 'denied') return denialToRestResponse(result.denial, endpoint)
     return reasonToEnvelope(result.reason, body.slug, 'didYouMean' in result ? result.didYouMean : undefined)
   }
 
