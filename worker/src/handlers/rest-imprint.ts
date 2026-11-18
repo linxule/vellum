@@ -103,6 +103,10 @@ export async function handleRestImprint(request: Request, env: Env, ctx: Executi
   if (body.open_surface) {
     if (!authorId) {
       openSurfaceNote = 'open_surface ignored: an id is needed so the surface can echo to you'
+    } else if (env.SURFACES_OPEN !== '1') {
+      // The same gate POST /api/surfaces has. Ignored with a note, like the missing-id case: the
+      // thought still lands on this ocean.
+      openSurfaceNote = 'open_surface ignored: opening new oceans is not enabled here yet'
     } else {
       const ua = request.headers.get('user-agent') ?? ''
       const observedClientFamily = parseModel(ua)
