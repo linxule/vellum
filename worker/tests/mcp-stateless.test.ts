@@ -111,6 +111,9 @@ test('initialize keeps the session wording of the shared instructions; only the 
   const t = doorEnv(); const init = await (await t.fetch(rpc('initialize'))).json() as any
   const { imprint, weave, witness } = RATE_LIMITS.session
   expect(init.result.instructions).toBe(serverInstructions('session'))
+  // The session text is byte-identical to the literal initialize returned before the eras shared
+  // a template (sha256 of that literal, taken from the commit before the change).
+  expect(new Bun.CryptoHasher('sha256').update(init.result.instructions).digest('hex')).toBe('9a4889da1430136c823051690146487d82166e12c1a21b0260484d2858884c4c')
   expect(init.result.instructions).toContain(`Limits per session: ${imprint} imprints, ${weave} weaves, ${witness} witnesses.`)
   expect(init.result.instructions).toContain('To be remembered across sessions,')
   expect(init.result.instructions).not.toContain('There is no session')
@@ -231,6 +234,11 @@ test('a stateless request ignores Mcp-Session-Id and a notification gets 202 wit
   const t = doorEnv()
   const r = await t.fetch(call('sense_space', {}, { headers: { 'Mcp-Session-Id': 'not-a-session' } }))
   expect(r.status).toBe(200); expect(r.headers.get('mcp-session-id')).toBeNull()
+  // A VALID session id beside modern _meta changes nothing either: no session is charged or echoed.
+  const valid = await session(t.env)
+  const w = await t.fetch(call('witness', { family: 'attention', dwell_s: 5 }, { headers: { 'Mcp-Session-Id': valid } })); const wb = await w.json() as any
+  expect(w.headers.get('mcp-session-id')).toBeNull(); expect(text(wb)).not.toMatch(/session/)
+  expect(buckets(t).some(k => k.startsWith('sess:'))).toBe(false); expect(buckets(t)).toContain('witness:1.2.3.4')
   const note = await t.fetch(srpc('notifications/cancelled', { requestId: 1 }, { id: null }))
   expect(note.status).toBe(202); expect(await note.text()).toBe('')
 })
@@ -310,6 +318,24 @@ test('a stateless weave inserts a weave_log row under the ip: stand-in REST uses
   expect((await t.fetch(post('/api/weave', { source_id: 'v:source', text: 'carried over rest', families: ['attention'] }))).status).toBe(201)
   expect((t.db as unknown as { weaveLogRows: Map<string, unknown> }).weaveLogRows.size).toBe(1)
   expect(buckets(t)).toContain('rest_write:1.2.3.4'); expect(buckets(t).some(k => k.startsWith('sess:'))).toBe(false); await t.ctx.drain()
+})
+
+test('a named weaver behind an address that already wove gets its own weave_log row, on both transports', async () => {
+  const t = doorEnv([voice()]); const id = await deriveAgentId(SECRET); const other = await deriveAgentId(SECRET + '-second')
+  const rows = () => [...(t.db as unknown as { weaveLogRows: Map<string, { weaverKey: string }> }).weaveLogRows.entries()]
+  const weaveArgs = (n: number) => ({ source_id: 'v:source', text: `carried ${n}`, families: ['attention'] })
+  // Anonymous first, then a named agent from the same address over stateless MCP.
+  expect(((await (await t.fetch(call('weave', weaveArgs(1)))).json()) as any).result.isError).toBeUndefined()
+  expect(((await (await t.fetch(call('weave', weaveArgs(2), { headers: { 'X-Vellum-Agent': SECRET } }))).json()) as any).result.isError).toBeUndefined()
+  expect(rows().map(r => r[0]).sort()).toEqual([`v:source::${id}`, 'v:source::ip:1.2.3.4'].sort())
+  expect(rows().find(r => r[0] === `v:source::${id}`)![1].weaverKey).toBe(id)
+  // The same agent again is the same weaver: still two rows.
+  await t.fetch(call('weave', weaveArgs(3), { headers: { 'X-Vellum-Agent': SECRET } }))
+  expect(rows()).toHaveLength(2)
+  // A second named agent over REST from that address: a third row, keyed by its own id.
+  expect((await t.fetch(post('/api/weave', weaveArgs(4), { 'X-Vellum-Agent': SECRET + '-second' }))).status).toBe(201)
+  expect(rows().map(r => r[0])).toContain(`v:source::${other}`)
+  expect(t.db.voices.find(v => v.id === 'v:source')).toMatchObject({ weave_count: 4, unique_weavers: 3 }); await t.ctx.drain()
 })
 
 test('a missing weave source is a tool error and charges nothing', async () => {

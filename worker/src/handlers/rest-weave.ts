@@ -87,7 +87,10 @@ export async function performRestWeave(env: Env, ctx: ExecutionContext, p: RestW
     const lang = detectLanguage(p.text)
     const now = Date.now()
     const primaryFamily = p.families[0]
-    const pseudoTrace = `ip:${p.ip}`
+    // weave_log's key is (source, weaver_trace_id) and REST has no session: the agent id when the
+    // caller is named, else the address. Keyed by address alone, a named weaver behind an address
+    // someone else already wove from was dropped by INSERT OR IGNORE and never counted.
+    const pseudoTrace = p.authorId ?? `ip:${p.ip}`
     const bucket = await weaverBucket(p.ip, env.SESSION_SECRET)
     const selfWeave = Boolean(p.authorId) && source.author_id === p.authorId
     const roomId = source.room_id ?? null
