@@ -120,6 +120,16 @@ bun run deploy   # predeploy rebuilds renderer + ext-app automatically, then wra
 
 `bun run deploy` from the repo root (not `worker/`) delegates to the same `cd worker && bun run deploy`.
 
+**`bun run deploy` is guarded** (`scripts/deploy.ts`). It fetches `origin` and refuses to deploy when:
+
+- tracked files are modified, or untracked files exist (iCloud ` 2` duplicates outside shipped paths are ignored);
+- `HEAD` does not contain `origin/main` (deploying it would roll production back);
+- `HEAD` is on no remote branch (production would run code GitHub does not have).
+
+It then runs `predeploy` and `wrangler deploy --message "<version> <short sha> <subject>"`, so `wrangler deployments list` names the commit behind every deploy. Extra arguments pass through to wrangler. Do not call `wrangler deploy` directly. `DEPLOY_FORCE=1` overrides the guard for a real emergency and marks the deploy message `[forced, tree not clean]`.
+
+Why: the 2026-09-30 deploy came from a checkout nine commits behind `origin/main` with uncommitted changes. It rolled 0.2.1 back to 0.2.0 unnoticed for seven weeks.
+
 ## 6. Post-deploy smoke
 
 Beyond the existing `bun run smoke` (see `docs/OBSERVABILITY.md` — unchanged by this arc, still
