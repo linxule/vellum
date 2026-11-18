@@ -2,9 +2,9 @@ import { aperture } from '../aperture.js'
 import { threadColor } from '../color.js'
 import { depthLerp, frameMix } from '../math.js'
 import { drivePhantomHover, resolvePhantomTarget } from '../phantom.js'
-import { computePath } from '../path.js'
+import { computePath, pathXAtY } from '../path.js'
 import { loomState } from '../state.js'
-import { DEFAULT_COLOR, DEPTH_BRIGHTNESS, FRAME_TIME, WARMTH_EASE_K, type MouseState } from '../types.js'
+import { DEFAULT_COLOR, DEPTH_BRIGHTNESS, FRAME_TIME, LENS_STILL_ALPHA, WARMTH_EASE_K, type MouseState } from '../types.js'
 import { renderLoomTree } from '../loom-view.js'
 import { renderThread } from './thread.js'
 
@@ -325,6 +325,27 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
   bgGrad.addColorStop(1, `rgba(${botR},${botG},${botB},.18)`)
   ctx.fillStyle = bgGrad
   ctx.fillRect(0, 0, vw, vh)
+
+  // The water stills where you look. The .18 clear above leaves an 82% trail
+  // each frame — the ocean's soft smear — but under the dive lens the magnified
+  // text is the fastest-moving text on screen, and its trail prints an offset
+  // second copy over the lines being read. A stronger, local clear around the
+  // lens lets trails die fast there while the rest of the ocean keeps its smear.
+  const lensThread = loomState.touchedThread
+  if (lensThread && lensThread.proximity > 0.05 && mouse.x > -1000) {
+    const lx = pathXAtY(lensThread._path, mouse.y)
+    const lr = Math.min(ac.openWidth * 0.75, vh * 0.6)
+    const midR = Math.round((topR + botR) / 2)
+    const midG = Math.round((topG + botG) / 2)
+    const midB = Math.round((topB + botB) / 2)
+    const la = LENS_STILL_ALPHA * lensThread.proximity
+    const still = ctx.createRadialGradient(lx, mouse.y, 0, lx, mouse.y, lr)
+    still.addColorStop(0, `rgba(${midR},${midG},${midB},${la})`)
+    still.addColorStop(0.55, `rgba(${midR},${midG},${midB},${la * 0.6})`)
+    still.addColorStop(1, `rgba(${midR},${midG},${midB},0)`)
+    ctx.fillStyle = still
+    ctx.fillRect(lx - lr, mouse.y - lr, lr * 2, lr * 2)
+  }
 
   // Scale ocean thread alpha during loom view transition
   const oceanAlpha = 1 - loomState.loomViewTransition

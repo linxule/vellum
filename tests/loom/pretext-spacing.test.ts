@@ -52,3 +52,27 @@ test('loom paints equally measured letters at equal advances, not cumulative wid
     expect(calls[i]!.x - calls[i - 1]!.x).toBeCloseTo(fontSize * 0.62)
   }
 })
+
+test('LOD: settled far texture lines paint whole words; magnified lines paint per letter', () => {
+  initLoom()
+  const thread = getThreads()[0]!
+  const segmentIndex = thread.prepared.segments.indexOf(word)
+  const start = { segmentIndex, graphemeIndex: 0 }
+  const end = { segmentIndex: segmentIndex + 1, graphemeIndex: 0 }
+  const draw = (proximity: number, diveT: number) => {
+    const ctx = createCanvasContext()
+    drawLineSegmented(ctx, thread, start, end, word,
+      300, 320, 400, glyphWidth * word.length, 1, proximity, 0, 1, 3, false, true, -9999,
+      200, 200, 1, 0, diveT)
+    return (ctx as unknown as CanvasContextStub).fillTextCalls
+  }
+  // Settled lens (proximity 1 → shimmer damped to sub-pixel), line not magnified.
+  const far = draw(1, 0)
+  expect(far.map(c => c.text)).toEqual([word])
+  // Same line inside the magnified band keeps per-letter painting.
+  const near = draw(1, 0.8)
+  expect(near.map(c => c.text).join('')).toBe(word)
+  expect(near.length).toBe(word.length)
+  // Lens still opening (low proximity → visible shimmer) keeps per-letter painting.
+  expect(draw(0.2, 0).length).toBe(word.length)
+})

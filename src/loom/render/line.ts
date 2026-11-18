@@ -4,6 +4,30 @@ import { loomState } from '../state.js'
 import { graphemeSegmenter } from '../text.js'
 import { DEPTH_BRIGHTNESS, SCRIPT_SHIMMER, SPARSE_EDGE_FADE_PX, type Thread } from '../types.js'
 
+// Per-letter painting LOD (see drawLineSegmented). A line paints letter by letter
+// only while it is magnified, or while the lens is still opening and the shimmer
+// is large enough to see; otherwise word by word.
+export const LOD_LETTER_DIVE_T = 0.15
+
+// Native (unspaced) width of a word at the context's current font. Cached by
+// font + text: texture lines reuse a handful of sizes, so this is paid once per
+// word per size. Bounded by a blunt clear.
+const nativeWidthCache = new Map<string, number>()
+function nativeWidth(ctx: CanvasRenderingContext2D, text: string): number {
+  const key = ctx.font + '|' + text
+  let w = nativeWidthCache.get(key)
+  if (w === undefined) {
+    const prior = (ctx as any).letterSpacing
+    if (prior && prior !== '0px') (ctx as any).letterSpacing = '0px'
+    w = ctx.measureText(text).width
+    if (prior && prior !== '0px') (ctx as any).letterSpacing = prior
+    if (nativeWidthCache.size > 20000) nativeWidthCache.clear()
+    nativeWidthCache.set(key, w)
+  }
+  return w
+}
+export const LOD_LETTER_SHIMMER_PX = 0.6
+
 export function drawLine(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -84,6 +108,7 @@ export function drawLineSegmented(
   openW: number,
   fontRatio: number,
   now: number,
+  diveT = 1,
 ) {
   if (width < 12) return
 
@@ -113,6 +138,9 @@ export function drawLineSegmented(
   }
 
   const breakableW = thread.prepared.breakableFitAdvances
+  let curSpacing = 0
+  let base: DOMMatrix | null = null
+  let transformed = false
   let xPos = rtl ? x + contentWidth * fontRatio / 2 : x - contentWidth * fontRatio / 2
   let prevFill = ''
 
@@ -132,6 +160,67 @@ export function drawLineSegmented(
     const [scFreq, scAmp, scSway] = SCRIPT_SHIMMER[sc]!
     if (bw && bw.length > 1 && graphemes.length === bw.length) {
       for (let gi = 0; gi < gStart; gi++) xPos += rtl ? -bw[gi]! * fontRatio : bw[gi]! * fontRatio
+
+      // Level of detail. Per-letter painting is what makes magnified text ripple,
+      // but the whole primary column takes this path — including the far, texture-
+      // scale lines, where the per-letter shimmer is sub-pixel once the lens has
+      // settled (it damps to 20% at full proximity). There a word painted rigidly at
+      // its own centre's shimmer + glow is indistinguishable, and costs one fillText
+      // instead of one per letter (~5.5k → ~2.6k calls/frame at 1440w with the lens open).
+      const shimmerDampenLod = 1 - proximity * 0.8
+      const shimmerAmpPx = (2.1 * scAmp + scSway) * shimmerDampenLod
+      const wholeWord = gStart === 0 && gEnd === graphemes.length
+      if (wholeWord && diveT <= LOD_LETTER_DIVE_T && shimmerAmpPx <= LOD_LETTER_SHIMMER_PX) {
+        let wordW = 0
+        for (let gi = gStart; gi < gEnd; gi++) wordW += bw[gi]!
+        wordW *= fontRatio
+        // Layout advances are measured at 15px and scaled; at texture size the
+        // browser renders a word natively ~5-11% narrower (hinted metrics). Per-
+        // letter placement hides that by spreading letters out. Spread the same
+        // surplus as letter spacing so each glyph lands where per-letter mode would
+        // put it — without it the surplus collects after each word as uneven gaps.
+        const surplus = (wordW - nativeWidth(ctx, segText)) / graphemes.length
+        const spacing = surplus > 0.02 ? Math.round(surplus * 20) / 20 : 0
+        if (spacing !== curSpacing) { (ctx as any).letterSpacing = `${spacing}px`; curSpacing = spacing }
+        const wCenter = xPos + (rtl ? -wordW / 2 : wordW / 2)
+        const cursorGlow = Math.max(0, 1 - Math.abs(mouseX - wCenter) / 25) * proximity * 0.45
+        const glowVal = Math.min(1, msgSpot + cursorGlow)
+        const [cr, cg, cb] = threadColor(thread._frameColor, brightness + cursorGlow * 0.25, glowVal)
+        const wordAlpha = Math.min(1, baseAlpha * edgeFade * msgDim + glowVal * 0.35)
+        if (wordAlpha >= 0.02) {
+          // The per-letter shimmer is a continuous wave along the line. Sampling it
+          // once per word would turn it into a staircase (words hop up and down and
+          // the baseline reads as ragged), so the word rides the wave's TANGENT at
+          // its centre: positioned at the wave height, rotated by the local slope.
+          const shimmerPhase = wCenter * 0.09 + now * thread.breathRate * 1.8 * scFreq + thread.pathSeed
+          const ampY = scAmp * shimmerDampenLod
+          const shimmerY = (Math.sin(shimmerPhase) * 1.5 + Math.sin(shimmerPhase * 1.7 + 2.3) * 0.6) * ampY
+          const slope = (Math.cos(shimmerPhase) * 1.5 + Math.cos(shimmerPhase * 1.7 + 2.3) * 1.02) * 0.09 * ampY
+          const shimmerX = scSway > 0 ? Math.sin(shimmerPhase * 0.6 + 1.1) * scSway * shimmerDampenLod : 0
+          const fill = `rgba(${cr},${cg},${cb},${wordAlpha})`
+          if (fill !== prevFill) { ctx.fillStyle = fill; prevFill = fill }
+          if (base === null) base = ctx.getTransform()
+          // base · translate(centre) · rotate(atan(slope)) — small angle, so
+          // cos ≈ 1/√(1+m²), sin ≈ m/√(1+m²) exactly for θ = atan(m).
+          const inv = 1 / Math.sqrt(1 + slope * slope)
+          const co = inv
+          const si = slope * inv
+          const tx = wCenter + shimmerX
+          const ty = y + shimmerY
+          ctx.setTransform(
+            base.a * co + base.c * si, base.b * co + base.d * si,
+            base.c * co - base.a * si, base.d * co - base.b * si,
+            base.a * tx + base.c * ty + base.e, base.b * tx + base.d * ty + base.f,
+          )
+          ctx.fillText(segText, -wordW / 2, 0)
+          transformed = true
+        }
+        xPos += rtl ? -wordW : wordW
+        continue
+      }
+
+      if (curSpacing !== 0) { (ctx as any).letterSpacing = '0px'; curSpacing = 0 }
+      if (transformed) { ctx.setTransform(base!); transformed = false }
       for (let gi = gStart; gi < gEnd; gi++) {
         const gw = bw[gi]! * fontRatio
         const gCenter = xPos + (rtl ? -gw / 2 : gw / 2)
@@ -152,6 +241,8 @@ export function drawLineSegmented(
       continue
     }
 
+    if (curSpacing !== 0) { (ctx as any).letterSpacing = '0px'; curSpacing = 0 }
+    if (transformed) { ctx.setTransform(base!); transformed = false }
     const sliceText = graphemes.slice(gStart, gEnd).join('')
     const prefixText = gStart > 0 ? graphemes.slice(0, gStart).join('') : ''
     const renderedW = ctx.measureText(sliceText).width
@@ -172,4 +263,6 @@ export function drawLineSegmented(
     ctx.fillText(sliceText, xPos + shimmerX - (rtl ? renderedW : 0), y + shimmerY)
     xPos += rtl ? -renderedW : renderedW
   }
+  if (curSpacing !== 0) (ctx as any).letterSpacing = '0px'
+  if (transformed) ctx.setTransform(base!)
 }
