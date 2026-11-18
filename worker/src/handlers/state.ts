@@ -74,7 +74,8 @@ export async function handleState(request: Request, env: Env, ctx: ExecutionCont
   const cacheControl = forceRefresh
     ? 'no-store'
     : 'public, max-age=10'
-  return Response.json(projection ?? defaultProjection, {
-    headers: { 'Cache-Control': cacheControl, 'Access-Control-Allow-Origin': '*' },
-  })
+  // Which commit is serving: scripts/production-watch.ts compares it with origin/main daily.
+  const headers: Record<string, string> = { 'Cache-Control': cacheControl, 'Access-Control-Allow-Origin': '*' }
+  if (env.BUILD_SHA) headers['X-Vellum-Build'] = env.BUILD_SHA
+  return Response.json(projection ?? defaultProjection, { headers })
 }

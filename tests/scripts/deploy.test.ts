@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { deployMessage, preflight, type DeployFacts } from '../../scripts/deploy'
+import { configDrift, deployMessage, parseJsonc, preflight, type DeployFacts } from '../../scripts/deploy'
 
 const clean: DeployFacts = { fetched: true, dirty: [], behindMain: 0, remoteBranches: ['origin/main'] }
 
@@ -42,4 +42,18 @@ test('any other untracked or modified file blocks', () => {
 test('the deploy message names the version and commit', () => {
   expect(deployMessage('0.2.1', 'abc1234', 'fix: a thing')).toBe('0.2.1 abc1234 fix: a thing')
   expect(deployMessage('0.2.1', 'abc1234', 'x'.repeat(200)).length).toBe(100)
+})
+
+test('a local config that differs from the tracked example is refused', () => {
+  const example = parseJsonc(`{
+    // comment with "quotes" and a // inside
+    "compatibility_date": "2025-04-01", /* block */
+    "vars": { "SPAM_FILTER": "on", "URL": "https://example.com/a", },
+  }`)
+  expect(example).toEqual({ compatibility_date: '2025-04-01', vars: { SPAM_FILTER: 'on', URL: 'https://example.com/a' } })
+  expect(configDrift(example, example)).toEqual([])
+  const local = { compatibility_date: '2025-04-01', vars: { SPAM_FILTER: 'off', EXTRA: '1', URL: 'https://example.com/a' }, d1_databases: [{ database_id: 'local-only' }] }
+  expect(configDrift(local, example)).toEqual(['vars.EXTRA', 'vars.SPAM_FILTER'])
+  expect(preflight({ ...clean, configDrift: ['vars.SPAM_FILTER'] }).join('\n')).toContain('vars.SPAM_FILTER')
+  expect(preflight({ ...clean, configDrift: [] })).toEqual([])
 })
