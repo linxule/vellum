@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { doorEnv, post, voice } from './door-mocks'
+import { weaverBucket } from '../src/levee-permanence'
 import { admitWrite, checkRequestAdmission, _resetLeveeCaches } from '../src/levee-admission'
 import { contentHash } from '../src/levee-content'
 
@@ -58,9 +59,10 @@ test('admitWrite charges nothing when an earlier stage rejects (REPEATED_WRITE d
   const t = doorEnv(); t.env.LEVEE_DEDUPE = 'on'
   const now = Date.now()
   const hash = await contentHash('repeat me')
+  const net = await weaverBucket('1.2.3.4', t.env.SESSION_SECRET)
   t.db.voices.push(
-    voice('v:a', 'repeat me', { content_hash: hash, trace_id: 'ip:1.2.3.4', created_at: now - 1000 }),
-    voice('v:b', 'repeat me', { content_hash: hash, trace_id: 'ip:1.2.3.4', created_at: now - 500 }),
+    voice('v:a', 'repeat me', { content_hash: hash, writer_bucket: net, created_at: now - 1000 }),
+    voice('v:b', 'repeat me', { content_hash: hash, writer_bucket: net, created_at: now - 500 }),
   )
   const before = t.db.rateLimits.find(r => r.key === 'rest_write:1.2.3.4')?.count ?? 0
   const r = await t.fetch(post('/api/imprint', { text: 'repeat me', families: ['attention'] }))
