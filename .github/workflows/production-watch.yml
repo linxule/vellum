@@ -1,0 +1,27 @@
+name: Production watch
+# Once a day: is vellum.linxule.com healthy, and is it running what is on main?
+# A failure emails the repository owner. GitHub pauses scheduled workflows after
+# 60 days without repository activity; re-enable it from the Actions tab.
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The watch compares the live build's commit with origin/main.
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Smoke production (read-only; also compares the served version with main)
+        run: bun run smoke
+      - name: Compare the live build with main
+        if: always()
+        run: bun scripts/production-watch.ts

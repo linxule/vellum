@@ -24,6 +24,8 @@ export type Env = {
    * D3. Unset/anything but '1' → creation returns 403 OCEAN_CREATION_DISABLED. Rooms are unaffected
    * (additive from their own first deploy). */
   SURFACES_OPEN?: string
+  /** Commit the running build was deployed from; set per deploy by scripts/deploy.ts (--var). */
+  BUILD_SHA?: string
   /** Content filter: defaults on; shadow measures only, off is emergency rollback. */
   SPAM_FILTER?: LeveeMode
 }
