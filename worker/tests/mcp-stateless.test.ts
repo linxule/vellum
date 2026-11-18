@@ -44,7 +44,7 @@ function withToolReads(t: ReturnType<typeof doorEnv>) {
   const inCurrent = (family: unknown, surface: unknown) => db.voices.filter((v: any) => !v.is_hidden && (v.surface_id ?? 'vellum') === surface
     && db.voiceFamilies.some((f: any) => f.voice_id === v.id && f.family === family && f.ordinal === 0))
   const batch = db.batch.bind(db), first = db.first.bind(db)
-  db.batch = async (statements: any[]) => norm(statements[0]?.sql ?? '').startsWith('SELECT v.id, v.text, v.language, v.weave_count, v.unique_weavers, v.created_at FROM voices v JOIN voice_families vf')
+  db.batch = async (statements: any[]) => /^SELECT v\.id, v\.text, v\.language, v\.weave_count, v\.unique_weavers, .*v\.created_at FROM voices v JOIN voice_families vf/.test(norm(statements[0]?.sql ?? ''))
     ? statements.map(st => ({ results: inCurrent(st._boundArgs()[0], st._boundArgs()[1]) }))
     : batch(statements)
   db.first = async (sql: string, args: unknown[]) => {
@@ -322,13 +322,14 @@ test('a stateless weave inserts a weave_log row under the ip: stand-in REST uses
 
 test('a named weaver behind an address that already wove gets its own weave_log row, on both transports', async () => {
   const t = doorEnv([voice()]); const id = await deriveAgentId(SECRET); const other = await deriveAgentId(SECRET + '-second')
-  const rows = () => [...(t.db as unknown as { weaveLogRows: Map<string, { weaverKey: string }> }).weaveLogRows.entries()]
+  const rows = () => [...(t.db as unknown as { weaveLogRows: Map<string, { weaverId: string | null }> }).weaveLogRows.entries()]
   const weaveArgs = (n: number) => ({ source_id: 'v:source', text: `carried ${n}`, families: ['attention'] })
   // Anonymous first, then a named agent from the same address over stateless MCP.
   expect(((await (await t.fetch(call('weave', weaveArgs(1)))).json()) as any).result.isError).toBeUndefined()
   expect(((await (await t.fetch(call('weave', weaveArgs(2), { headers: { 'X-Vellum-Agent': SECRET } }))).json()) as any).result.isError).toBeUndefined()
   expect(rows().map(r => r[0]).sort()).toEqual([`v:source::${id}`, 'v:source::ip:1.2.3.4'].sort())
-  expect(rows().find(r => r[0] === `v:source::${id}`)![1].weaverKey).toBe(id)
+  expect(rows().find(r => r[0] === `v:source::${id}`)![1].weaverId).toBe(id)
+  expect(rows().find(r => r[0] === 'v:source::ip:1.2.3.4')![1].weaverId).toBeNull()
   // The same agent again is the same weaver: still two rows.
   await t.fetch(call('weave', weaveArgs(3), { headers: { 'X-Vellum-Agent': SECRET } }))
   expect(rows()).toHaveLength(2)
