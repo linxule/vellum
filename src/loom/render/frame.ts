@@ -314,6 +314,14 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
   loomState.lastFrameHitVoiceId = null
   loomState.lastFrameHitTargets.length = 0
 
+  // Motion scales with frame time (advanceLoom), so the clear has to as well. At
+  // 20fps text moves three 60fps frames' distance between paints; a fixed per-frame
+  // clear then leaves a trail three times as long, drawn as separate offset copies
+  // (doubled text on a slow phone). A slow frame clears as much as the 60fps frames
+  // it stands for. Frames at 60fps or faster keep the per-frame values they had.
+  const slow = Math.max(1, loomState.frameRatio * FRAME_TIME * 60)
+  const trailClear = (alpha: number) => slow < 1.02 ? alpha : 1 - Math.pow(1 - alpha, slow)
+  const seaClear = slow < 1.02 ? '.18' : trailClear(0.18).toFixed(3)
   const bgPhase = loomState.current * 0.5 + 0.5
   const bgGrad = ctx.createLinearGradient(0, 0, 0, vh)
   const topR = Math.round(12 + bgPhase * 6)
@@ -322,9 +330,9 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
   const botR = Math.round(5 + bgPhase * 3)
   const botG = Math.round(8 + bgPhase * 3)
   const botB = Math.round(16 + bgPhase * 5)
-  bgGrad.addColorStop(0, `rgba(${topR},${topG},${topB},.18)`)
-  bgGrad.addColorStop(0.6, `rgba(${Math.round((topR + botR) / 2)},${Math.round((topG + botG) / 2)},${Math.round((topB + botB) / 2)},.18)`)
-  bgGrad.addColorStop(1, `rgba(${botR},${botG},${botB},.18)`)
+  bgGrad.addColorStop(0, `rgba(${topR},${topG},${topB},${seaClear})`)
+  bgGrad.addColorStop(0.6, `rgba(${Math.round((topR + botR) / 2)},${Math.round((topG + botG) / 2)},${Math.round((topB + botB) / 2)},${seaClear})`)
+  bgGrad.addColorStop(1, `rgba(${botR},${botG},${botB},${seaClear})`)
   ctx.fillStyle = bgGrad
   ctx.fillRect(0, 0, vw, vh)
 
@@ -359,8 +367,8 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
       ctx.scale(1, lry / lr)
     }
     const still = tall ? ctx.createRadialGradient(0, 0, 0, 0, 0, lr) : ctx.createRadialGradient(lx, mouse.y, 0, lx, mouse.y, lr)
-    still.addColorStop(0, `rgba(${lensR},${lensG},${lensB},${la})`)
-    still.addColorStop(0.55, `rgba(${lensR},${lensG},${lensB},${la * (0.6 + 0.35 * opening)})`)
+    still.addColorStop(0, `rgba(${lensR},${lensG},${lensB},${trailClear(la)})`)
+    still.addColorStop(0.55, `rgba(${lensR},${lensG},${lensB},${trailClear(la * (0.6 + 0.35 * opening))})`)
     still.addColorStop(1, `rgba(${lensR},${lensG},${lensB},0)`)
     ctx.fillStyle = still
     if (tall) {

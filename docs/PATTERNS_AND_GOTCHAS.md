@@ -252,6 +252,10 @@ The 34px resting floor (`MIN_RESTING_WIDTH_PX`) holds a typical word, not a long
 
 The clear was a circle of radius `min(openWidth × 0.75, vh × 0.6)`. The lens opens by line count (`DIVE_SIGMA_LINES × diveLineH`, about 118px at 390w and 143px at 1280w), not by column width, so the same circle reached 2.8 of those falloffs on a desktop column and only 1.9 on a phone's 300px column: the top and bottom of the opened text kept their trail and read doubled. The clear now reaches `LENS_CLEAR_SIGMAS` (2.8) falloffs vertically, capped at `vh × 0.6` and never less than the old radius, drawn as the same radial gradient under a vertical `ctx.scale`. Desktop columns are unchanged (the circle already reached that far); `tests/loom/lens-settle.test.ts` pins both. Headless Chromium paints slow frames and shows heavier trails than a real browser, so judge this in WebKit or a real device.
 
+### The trail clear follows frame time (2026-11-19)
+
+`advanceLoom` moves everything by `frameRatio`, but `paintLoom` cleared by a fixed alpha per frame (.18 for the sea, the lens clear on top). At 20fps text moves three 60fps frames' distance between paints, so the trail was three times as long and printed as separate offset copies: doubled text, in the lens centre too. Measured 2026-11-19: headless Chromium paints this canvas at 20fps, headless Firefox at 30, WebKit at 45–59, and the doubling tracked those numbers. `paintLoom` now turns each clear into `1 − (1 − alpha)^slow`, where `slow = max(1, dt × 60)`: a slow frame clears as much as the 60fps frames it stands for. At 60fps and above the values are the old ones exactly (`.18` is still the literal string), so a 120Hz screen looks as it did.
+
 ## Renderer resonance (Phase 9.1 F6 → Phase 10 per-voice)
 
 ### Per-voice resonance with canonical voiceId (Phase 10)

@@ -113,3 +113,47 @@ test('the lens clear never reaches further than 0.6 of the screen height', async
   const { box } = await openLensAt(390, 400)
   expect(box.h).toBeLessThanOrEqual(400 * 0.6 * 2 + 1e-6)
 })
+
+// Alpha of the whole-canvas clear and of the lens clear's centre on one frame painted at `dt`.
+async function clearsAt(dt: number) {
+  resetLoomState()
+  installViewport(1440, 900)
+  await loadState(makeState([{ family: 'attention', voices: [
+    { id: 'a', text: 'Attention is not something you aim. It is what remains when you stop reaching.', depth: 0.3 },
+  ] }], 401))
+  withFixedRandom(0.5, () => initLoom())
+  const ctx = createCanvasContext()
+  const stub = ctx as unknown as { createLinearGradient: () => { stops: Stop[] } }
+  const original = stub.createLinearGradient.bind(stub)
+  let sea: { stops: Stop[] }[] = []
+  stub.createLinearGradient = () => { const g = original(); sea.push(g); return g }
+  const lensAlpha = lensClearAlphas(ctx)
+  const thread = getThreads()[0]!
+  const mouse = { x: thread.xCenter, y: 450, vx: 0, vy: 0, down: false, lastMoveTime: 0 }
+  // Settle the lens at 60fps so both cases start from the same resting state.
+  for (let i = 0; i < 900; i++) renderLoom(ctx, innerWidth, innerHeight, i * 16, 0.016, mouse)
+  sea = []; lensAlpha()
+  renderLoom(ctx, innerWidth, innerHeight, 900 * 16 + dt * 1000, dt, mouse)
+  const alphaOf = (color: string) => Number(/,([\d.e-]+)\)$/.exec(color)![1])
+  return { sea: alphaOf(sea[0]!.stops[0]!.color), seaText: sea[0]!.stops[0]!.color, lens: lensAlpha()!, prox: thread.proximity }
+}
+
+test('a 60fps frame clears exactly as before: .18 for the sea, the resting strength at the lens', async () => {
+  const at60 = await clearsAt(0.016)
+  expect(at60.seaText.endsWith(',.18)')).toBe(true)
+  expect(at60.lens).toBeGreaterThanOrEqual(LENS_STILL_ALPHA * at60.prox - 1e-9)
+  expect(at60.lens).toBeLessThan(LENS_STILL_ALPHA * at60.prox + 0.12)
+  const at120 = await clearsAt(0.008)
+  expect(at120.seaText.endsWith(',.18)')).toBe(true)
+})
+
+test('a slow frame clears as much as the 60fps frames it stands for, so trails do not lengthen', async () => {
+  const at60 = await clearsAt(0.016)
+  const at20 = await clearsAt(0.05)   // three 60fps frames
+  expect(at20.sea).toBeCloseTo(1 - Math.pow(1 - 0.18, 3), 3)
+  expect(at20.lens).toBeCloseTo(1 - Math.pow(1 - at60.lens, 3), 1)
+  expect(at20.lens).toBeGreaterThan(at60.lens + 0.2)
+  const at10 = await clearsAt(0.1)
+  expect(at10.sea).toBeCloseTo(1 - Math.pow(1 - 0.18, 6), 3)
+  expect(at10.sea).toBeLessThan(1)
+})
