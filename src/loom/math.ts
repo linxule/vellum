@@ -1,3 +1,5 @@
+import { SUNKEN_DEPTH } from './types.js'
+
 export function depthLerp(arr: number[] | readonly number[], d: number): number {
   const clamped = Math.max(0, Math.min(1.999, d))
   const lo = Math.floor(clamped)
@@ -27,4 +29,10 @@ export function clamp01(x: number): number {
 export function smoothstep(x: number): number {
   const t = Math.max(0, Math.min(1, x))
   return t * t * (3 - 2 * t)
+}
+
+/** How far past the sunken line a voice sits: 0 up to SUNKEN_DEPTH (and for a
+ * voice with no depth, i.e. the offline seed), 1 at depth 1 and beyond. */
+export function sunkenFade(depth: number | undefined): number {
+  return typeof depth === 'number' ? clamp01((depth - SUNKEN_DEPTH) / (1 - SUNKEN_DEPTH)) : 0
 }

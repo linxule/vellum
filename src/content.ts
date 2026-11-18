@@ -35,6 +35,8 @@ export interface Voice {
   text: string
   lang: string
   families: string[]
+  /** Sedimentation depth from the live projection. Absent in the offline seed: never sunken. */
+  depth?: number
 }
 
 export const FAMILIES = ['attention', 'silence', 'space', 'ephemeral', 'memory', 'light'] as const
@@ -110,6 +112,7 @@ export async function fetchState(options: { refresh?: boolean; signal?: AbortSig
         text: v.text,
         lang: v.lang,
         families: [t.family],
+        depth: v.depth,
       })))
     }
     _version = data.version

@@ -18,6 +18,16 @@ A living second rendering mode ("river delta"). Click a woven voice's `·` dot i
 
 Model identity appears exactly when text becomes readable — never at texture scale. Ocean: `— <primary model>` after the voice's last line, **exactly once per signed voice per frame** — a pre-pass picks the run-end line with peak diveT (column tiling repeats voices; per-occurrence signing double-signed sparse threads — do NOT "simplify" back to per-occurrence), past the woven dot, gate `diveT > 0.5`, alpha ramps with the lens. Loom view: full relay string under the node's last line, gated on node dive. Unsigned (`declared_model` null) = no signature, no placeholder. **Afterglow** (sunset models, `model-registry.ts`): still — no animation — silver `rgb(185,190,200)`, italic, and a later gate (0.65) so the signature arrives a beat behind a living one. Never dims the voice text itself. Anti-goal: signatures must not become badges (no filters, no per-model palettes, no counts).
 
+## Sunken voices (time as depth)
+
+The worker keeps at least a floor of voices in every current, so `/api/state` carries voices whose `depth` has passed the old cut-off (`SUNKEN_DEPTH`, 0.7). They stay in the texture, dimmer, and come back to full strength when the lens opens over them. A voice below `SUNKEN_DEPTH` paints exactly as before.
+
+- **Fade.** `fade = clamp01((depth - SUNKEN_DEPTH) / (1 - SUNKEN_DEPTH))` (`sunkenFade` in `math.ts`): 0 at the sunken line, 1 at depth 1 and beyond. `makeThread` stores it per voice in `thread.sunkenUids` (base uid → fade, sunken voices only). The offline seed has no depth, so nothing dims offline.
+- **Alpha.** A line's resting alpha is multiplied by `1 - SUNKEN_DIM * fade * (1 - open)`, with `open = clamp01(line.diveT / SUNKEN_SURFACE_DIVE_T)`. `diveT` is the per-line measure that swells a line to reading size, so brightness returns with legibility, line by line. It is zero on every current but the touched one. Proximity eases toward its target and never reaches 1, so raw `diveT` would leave the line being read slightly dim; the dim is therefore gone by `SUNKEN_SURFACE_DIVE_T` (0.5, the gate at which signatures and the woven dot appear). Both of those are drawn from the same line alpha and only past that gate, so a dim voice never carries a bright badge.
+- **Lines with several voices** take the smallest fade on the line. A line shared with a fresh voice is not dimmed at all, which keeps fresh voices untouched; the cost is that the first and last line of a sunken voice can stay bright.
+- **Scope.** The factor applies to the resting alpha only. The `?highlight=` boost, resonance glow and the hovered-voice spotlight are added after it at full strength. A thread with no sunken voices skips the block and paints byte-identically.
+- **Arrivals.** A voice that enters the projection already sunken is not an arrival (`computeNewVoiceInfo` drops it): no emergence, no arrival glow, no phantom steer, no weave resonance. The floor moves old voices in and out as a current fills. A voice id the ext-app forces after a tool result still fires.
+
 ## Strudel sound
 
 `@strudel/web@1.3.0` self-hosted at `/lib/strudel-web-1.3.0.js` (was CDN, moved to static asset for reliability + prewarm). 4 pattern slots (base, weave shimmer, emergence rise, loom structural), per-family voices driven by warmth. Sound OFF by default, persists in localStorage. Event-driven via the ocean event bus (`src/events.ts`). All `evaluatePattern()` calls deferred via `setTimeout(fn, 0)` to avoid blocking the main thread. `resumeAudioContext()` called on every click to handle Chrome autoplay policy. Load failure → silent fallback.
@@ -53,6 +63,9 @@ Write tools `await rebuildStateProjection` synchronously before responding; ext-
 | `SIGNATURE_GRAY_MIX` | 0.55 | Pull from family color toward gray (living signatures) |
 | `AFTERGLOW_SILVER` | rgb(185,190,200) | Sunset-model signature tone (italic, still) |
 | `AFTERGLOW_DIVE_GATE` | 0.65 | Afterglow signatures arrive later in the lens (living: 0.5) |
+| `SUNKEN_DEPTH` | 0.7 | Depth past which a voice is sunken. Must equal the worker's projection cut-off |
+| `SUNKEN_DIM` | 0.45 | Fraction of resting alpha removed from a fully sunken voice (depth ≥ 1). Higher = darker depths |
+| `SUNKEN_SURFACE_DIVE_T` | 0.5 | Line `diveT` at which a sunken voice is back at full alpha (1 = only at the exact cursor line) |
 | `SEAM_DASH` | [4, 3] | Loom filament dash when the PARENT voice is afterglow (Phase 12 seam) |
 
 **The seam (Phase 12):** a loom filament whose parent voice is afterglow renders dashed, silver at both gradient stops (hue flat; only alpha fades toward the child, matching the wisp envelope), still. The gaps in the dash are the meaning — discontinuity with connection. Dash state is reset after every seam stroke.

@@ -208,3 +208,31 @@ await witness({ families: [...touchedThread.families], dwell_s })
 - `tests/loom/init.test.ts` — narrow viewport coverage exercises merged-thread attribution
 
 **Why.** Merged columns share one visible thread. If warm credit only goes to the first family, the others stay cold even though the user saw them in the same highlighted column.
+
+## 11. Per-voice maps are keyed by base uid
+
+**Rule.** A per-voice map on a thread (`sunkenUids`, `wovenVoiceUids`, `voiceModels`, `afterglowUids`, `emergenceVoiceUids`, `newVoiceUids`) is keyed by the voice's **base uid**: its index in the thread's concatenated voice list, which for a merged thread is `groupBoundaries[g - 1] + indexInFamily`. A painted line carries **raw** uids (`cycle * voiceCount + baseUid`, one per tiled copy). Look a line's voice up with `uid % voiceCount`, where `voiceCount` is the last `groupBoundaries` entry.
+
+```ts
+// bad: only the first tiled copy matches
+thread.sunkenUids.get(uid)
+
+// good: every copy of the voice matches
+thread.sunkenUids.get(uid % voiceCount)
+```
+
+**Where.**
+- `src/loom/thread.ts:makeThread` — builds `segVoiceUid` (raw) and `sunkenUids` (base) from the same `voices` array, so the two cannot disagree, whatever families the thread merges
+- `src/loom/init.ts:initLoom` — fills the woven and signature maps from state, offset by `groupBoundaries` for every family in `familyNames`
+- `src/loom/render/thread.ts:renderThread` — highlight, emergence, new-voice boost and sunken dim all reduce with `% hlVoiceCount`
+
+**Why.** A column tiles its voices to fill the height, so one voice is on screen several times. A lookup by raw uid affects the first copy only. (`resonatingVoiceUids` is keyed by base uid too but is read without the modulo, so its glow reaches only the first copy.)
+
+**Known gap.** `crystallizeThreads` rebuilds merged threads through `makeThread`. From `resizeLoom` nothing refills the state-filled maps afterwards, so woven dots and signatures are missing on the split threads until the next refresh. `sunkenUids` is filled inside `makeThread` and is not affected. Only reachable with more families than columns.
+
+**Enforcement.**
+- `tests/loom/sunken.test.ts` — "at rest a sunken line loses SUNKEN_DIM x fade of its alpha, in every tiled copy"
+- `tests/loom/sunken.test.ts` — "a merged thread keys sunken voices across ALL its families, and refresh rebuilds them"
+- `tests/loom/sunken.test.ts` — "threads split apart by a resize keep their own sunken voices"
+
+**Breakage symptom.** A sunken voice is dim in the top copy of its column and bright in the copies below it; or, on a narrow viewport, the wrong voice dims.
