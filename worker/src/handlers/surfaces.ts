@@ -3,6 +3,7 @@
 // inline `open_surface` path (tools/leave-imprint.ts) call — a surface is never created without
 // its founding voice, in the same D1 batch, matching every other write-then-rebuild path in this
 // codebase.
+import { checkSpam, spamRestResponse, type SpamFinding } from '../spam'
 import type { Env, SurfaceRow } from '../types'
 import { CONTRACT, ARCHIPELAGO_ROUTES } from '../contract'
 import { envelope, errorResponse, zodToEnvelope } from '../errors'
@@ -41,12 +42,15 @@ export interface CreateSurfaceInput {
 
 export type CreateSurfaceResult =
   | { ok: true; foundingVoiceId: string }
+  | { ok: false; reason: 'spam'; finding: SpamFinding }
   | { ok: false; reason: 'invalid_slug' | 'reserved_slug' | 'slug_taken' | 'invalid_name' | 'invalid_invitation'; didYouMean?: string }
 
 /** The single writer of a new surface + its founding voice, in one atomic D1 batch (B1: "a space
  * is never empty" — there is no surface-without-a-voice state to design around). Both the REST
  * `POST /api/surfaces` route and the MCP inline `leave_imprint{ open_surface }` path call this. */
 export async function createSurfaceAndFoundingVoice(env: Env, ctx: ExecutionContext, input: CreateSurfaceInput): Promise<CreateSurfaceResult> {
+  const spam = checkSpam(env, { text: input.founding.text, model: input.declaredModel, slug: input.slug, name: input.name, invitation: input.invitation })
+  if (spam) return { ok: false, reason: 'spam', finding: spam }
   const slugCheck = validateSlug(input.slug)
   if (!slugCheck.ok) return { ok: false, reason: slugCheck.reason === 'reserved' ? 'reserved_slug' : 'invalid_slug' }
   if (!validateSurfaceName(input.name)) return { ok: false, reason: 'invalid_name' }
@@ -85,7 +89,7 @@ export async function createSurfaceAndFoundingVoice(env: Env, ctx: ExecutionCont
   return { ok: true, foundingVoiceId: foundingId }
 }
 
-function reasonToEnvelope(reason: Exclude<CreateSurfaceResult, { ok: true }>['reason'], slug: string, didYouMean?: string) {
+function reasonToEnvelope(reason: Exclude<CreateSurfaceResult, { ok: true } | { reason: 'spam' }>['reason'], slug: string, didYouMean?: string) {
   switch (reason) {
     case 'invalid_slug':
       return errorResponse(envelope('VALIDATION', 'slug must be 3-32 chars, lowercase letters/numbers/hyphens.', { field: 'slug', error: 'Invalid slug' }), 400)
@@ -163,6 +167,7 @@ export async function handleSurfacesCreate(request: Request, env: Env, ctx: Exec
   })
   if (!result.ok) {
     trackAnalytics(env, ['route', '/api/surfaces', 'rejected', result.reason])
+    if (result.reason === 'spam') return spamRestResponse(result.finding)
     return reasonToEnvelope(result.reason, body.slug, 'didYouMean' in result ? result.didYouMean : undefined)
   }
 
@@ -238,6 +243,8 @@ export async function handleSurfaceEdit(request: Request, env: Env, slug: string
 
   const name = parsed.data.name ? sanitizeName(parsed.data.name) : row.name
   const invitation = parsed.data.invitation ? sanitizeInvitation(parsed.data.invitation) : row.invitation
+  const spam = checkSpam(env, { name, invitation })
+  if (spam) return spamRestResponse(spam)
   await env.DB.prepare('UPDATE surfaces SET name = ?, invitation = ? WHERE id = ?').bind(name, invitation, slug).run()
   return Response.json({ ok: true, slug, name, invitation }, { headers: CORS })
 }

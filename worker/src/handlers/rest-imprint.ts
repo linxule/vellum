@@ -1,3 +1,4 @@
+import { checkSpam, voiceSpamFields, spamRestResponse } from '../spam'
 import { admitBody } from '../admission'
 import { CONTRACT, type WriteSuccess } from '../contract'
 import { envelope, errorResponse, nearMissNote, zodToEnvelope } from '../errors'
@@ -16,6 +17,7 @@ import { DEFAULT_SURFACE, surfaceUrlFor } from '../surfaces'
 const CORS = { 'Access-Control-Allow-Origin': '*' } as const
 
 function surfaceFailureResponse(result: Extract<CreateSurfaceResult, { ok: false }>, slug: string) {
+  if (result.reason === 'spam') return spamRestResponse(result.finding)
   switch (result.reason) {
     case 'invalid_slug':
       return errorResponse(envelope('VALIDATION', 'slug must be 3-32 chars, lowercase letters/numbers/hyphens.', { field: 'slug', error: 'Invalid slug' }), 400)
@@ -60,6 +62,9 @@ export async function handleRestImprint(request: Request, env: Env, ctx: Executi
     trackAnalytics(env, ['route', '/api/imprint', 'invalid_json'])
     return errorResponse(envelope('INVALID_JSON', 'The request body is not valid JSON.', { error: 'Invalid JSON', example: endpoint.example }), 400)
   }
+
+  const spam = checkSpam(env, voiceSpamFields(body))
+  if (spam) return spamRestResponse(spam)
 
   // Phase 17 Part A2: X-Vellum-Agent (or Authorization: Bearer alias) — malformed is the only way
   // a secret can fail (there is nothing to look up, nothing to be wrong against).

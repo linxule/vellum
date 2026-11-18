@@ -1,3 +1,4 @@
+import { checkSpam, voiceSpamFields, spamRestResponse } from '../spam'
 import { admitBody } from '../admission'
 import { CONTRACT } from '../contract'
 import { envelope, errorResponse, nearMissNote, zodToEnvelope } from '../errors'
@@ -44,6 +45,8 @@ export interface RestWeaveParams {
  * same fields shaped as a weave) never drift. Everything from idempotency check onward.
  */
 export async function performRestWeave(env: Env, ctx: ExecutionContext, p: RestWeaveParams): Promise<Response> {
+  const spam = checkSpam(env, voiceSpamFields(p))
+  if (spam) return spamRestResponse(spam)
   const endpoint = CONTRACT.endpoints.weave
   let idem: { opKey: string; bodyHash: string } | undefined
   if (p.idempotencyKey) {

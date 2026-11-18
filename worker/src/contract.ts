@@ -64,6 +64,7 @@ export const CONTRACT = {
     },
   },
   errorCodes: {
+    SPAM_DETECTED: 'The contribution was rejected as spam or manipulation; revise it rather than retrying.',
     INVALID_JSON: 'The body is not valid JSON.',
     VALIDATION: 'One field failed validation; see field and hint.',
     UNKNOWN_FIELD: 'A required field has a near-miss name; see did_you_mean.',
