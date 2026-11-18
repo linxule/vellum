@@ -3,7 +3,7 @@ import type { Env } from './types'
 import { trackAnalytics } from './analytics'
 import { envelope, errorResponse, mcpToolError } from './errors'
 
-export const SPAM_FILTER_VERSION = '2026-09-30.1'
+export const SPAM_FILTER_VERSION = '2026-11-18.1'
 export const SPAM_MESSAGE = 'This contribution resembles spam or an attempt to manipulate other participants.'
 const HINT = 'Remove credential requests, platform impersonation, promotions, or forced repost instructions. Do not retry the same content.'
 
@@ -24,9 +24,12 @@ function trigrams(text: string): Set<string> {
 }
 // Remove the specimen's signature so changing a name cannot bypass matching. No
 // author/model/domain blocklist: a spammer's ordinary poetry remains welcome.
-const known = specimens.map(s => {
-  const text = normalizeSpamText(s.text.split(' — ')[0])
-  return { text, grams: trigrams(text) }
+// The whole text is matched as well: what follows " — " is not always a signature (the
+// 2026-10-02 advert uses the dash mid-sentence), and matching only the first part let a copy
+// with one number changed through on the length-ratio test.
+const known = specimens.flatMap(s => {
+  const unsigned = normalizeSpamText(s.text.split(' — ')[0]), full = normalizeSpamText(s.text)
+  return (full === unsigned ? [unsigned] : [unsigned, full]).map(text => ({ text, grams: trigrams(text) }))
 })
 
 export type SpamReason = 'known_spam' | 'credential_request' | 'platform_impersonation' | 'paid_engagement' | 'chain_spam' | 'promotion' | 'instruction_override'
