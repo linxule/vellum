@@ -5,6 +5,8 @@
 ```bash
 bun run smoke
 bun run smoke https://vellum.linxule.workers.dev
+bun scripts/production-watch.ts          # which commit is live, and does it match origin/main?
+curl -sI https://vellum.linxule.com/api/state | grep -i x-vellum-build
 cd worker && bun run tail
 cd worker && bunx wrangler deployments list
 ```
@@ -55,16 +57,22 @@ The two ext-apps host channels only exist inside a real MCP client (standalone `
 
 - `bun run smoke` exits non-zero.
 - Voice count drops materially versus the last healthy smoke on the same day.
-- `dist/main.js` exceeds `84000` bytes.
+- `dist/main.js` exceeds `120000` bytes (`BUNDLE_LIMIT_BYTES` in `scripts/smoke.ts`; it was `84000` until Pretext 0.0.9).
 - Analytics Engine shows a 500 rate above the recent healthy baseline.
 - `/api/state` `computed_at` age stays above `STATE_CACHE_STALE_MS` (`10 min`) across repeated checks.
 - Phase 16 "The Levee" (`/api/admin/stats`'s `levee` block): `visibility_mirror_mismatches > 0` (ever); `fuse_engaged` true outside a real traffic spike; `settling_count` non-zero while `LEVEE_FUSE` is off; `projection_bytes` sitting near `LEVEE.projectionMaxBytes` (trimming becoming load-bearing rather than a backstop); a 429/`SURFACE_SATURATED` denial while `global_hour_count` reads under `LEVEE.ceiling.hour.all` (120) — the ceiling and the counter it reads have drifted.
 
 ## Alerting
 
-- No automated alerting is wired in 9.6.
-- Smoke remains a manual post-deploy step.
-- If automated post-deploy or recurring smoke is added later, treat it as follow-on work (possible Phase 9.7), not part of the 9.6 foundation.
+- **Production watch (since 2026-11-18).** `.github/workflows/production-watch.yml` runs daily at 06:17 UTC and on demand (`gh workflow run production-watch.yml`). It runs `bun run smoke`, then `scripts/production-watch.ts`, which reads the `X-Vellum-Build` header from `/api/state` (the commit `scripts/deploy.ts` deployed) and fails when:
+  - production sent no build id (it was deployed with a bare `wrangler deploy`);
+  - the build is a commit GitHub does not have, or a branch commit that differs from `main` in shipped files;
+  - `main` has had shipped changes for more than 24 hours that production does not run.
+  Docs, tests and CI changes never count as "behind". A failure emails the repository owner.
+- It exists because the 2026-09-30 deploy rolled production back to 0.2.0 for seven weeks with nothing to notice it.
+- GitHub pauses scheduled workflows after 60 days without repository activity; re-enable it from the Actions tab.
+- Smoke is still worth running by hand straight after a deploy.
+- No alerting on error rates or latency is wired; that still means the Workers dashboard.
 
 ## Phase 15 post-deploy smoke (not run during implementation)
 

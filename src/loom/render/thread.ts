@@ -7,7 +7,7 @@ import { resolvePhantomTarget } from '../phantom.js'
 import { updateResonances } from '../resonance.js'
 import { loomState } from '../state.js'
 import { copyCursor, isLineRTL, voiceGroupIndex, voiceSpanForLine, wholeWordWidth } from '../text.js'
-import { NEIGHBOR_LENS_FADE, AFTERGLOW_DIVE_GATE, AFTERGLOW_SILVER, BREATH_AMP, BREATH_SPATIAL, DEPTH_ALPHA, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, HL_FONT_BOOST, SIGNATURE_ALPHA, SIGNATURE_GRAY_MIX, SIGNATURE_RATIO, SPARSE_EDGE_FADE_PX, WARM_BASE_ALPHA, WARM_DIVE_BOOST, ZERO_CURSOR, type ApertureConfig, type Thread } from '../types.js'
+import { NEIGHBOR_LENS_FADE, AFTERGLOW_DIVE_GATE, AFTERGLOW_SILVER, BREATH_AMP, BREATH_SPATIAL, DEPTH_ALPHA, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, HL_FONT_BOOST, SIGNATURE_ALPHA, SIGNATURE_GRAY_MIX, SIGNATURE_RATIO, SPARSE_EDGE_FADE_PX, SUNKEN_DIM, SUNKEN_SURFACE_DIVE_T, WARM_BASE_ALPHA, WARM_DIVE_BOOST, ZERO_CURSOR, type ApertureConfig, type Thread } from '../types.js'
 import { depthColor, signatureGray, threadColor } from '../color.js'
 import { drawLine, drawLineSegmented } from './line.js'
 
@@ -329,7 +329,21 @@ export function renderThread(
       prevFontSize = drawFontSize
     }
 
-    let lineAlpha = (hlActive ? baseAlpha + 0.25 : baseAlpha) * line.neighborFade
+    // Sunken voices rest dimmer and surface as the lens opens over the line
+    // (diveT: the same per-line measure that swells it to reading size). A line
+    // takes the LEAST sunken of its voices, so a line shared with a fresh voice is
+    // never dimmed; `% hlVoiceCount` reaches every tiled copy. The whole block is
+    // skipped for a thread with no sunken voices, which then paints as before.
+    let restAlpha = baseAlpha
+    if (thread.sunkenUids.size > 0 && hlVoiceCount > 0 && line.diveT < SUNKEN_SURFACE_DIVE_T) {
+      let fade = line.lineVoiceUids.length > 0 ? 1 : 0
+      for (const u of line.lineVoiceUids) {
+        const f = thread.sunkenUids.get(u % hlVoiceCount) ?? 0
+        if (f < fade) fade = f
+      }
+      if (fade > 0) restAlpha *= 1 - SUNKEN_DIM * fade * (1 - line.diveT / SUNKEN_SURFACE_DIVE_T)
+    }
+    let lineAlpha = (hlActive ? restAlpha + 0.25 : restAlpha) * line.neighborFade
     if (thread.emergenceStart > 0) {
       const lineIsEmerging = thread.emergenceVoiceUids.size === 0 || (hlVoiceCount > 0 && line.lineVoiceUids.some(u => thread.emergenceVoiceUids.has(u % hlVoiceCount)))
       if (lineIsEmerging) {

@@ -52,6 +52,9 @@ bun run verify                        # root tsc + loom/script tests + ext-app b
 # Deploy (guarded: scripts/deploy.ts refuses a dirty tree, a HEAD missing origin/main, or an
 # unpushed HEAD; then rebuilds renderer + ext-app and labels the deploy "<version> <sha> <subject>")
 bun run deploy                        # delegates to cd worker && bun run deploy. Never `wrangler deploy` directly.
+# The guard also refuses when worker/wrangler.jsonc differs from the example (vars, compatibility
+# settings, rules), and stamps the commit as BUILD_SHA, served as X-Vellum-Build on /api/state.
+# .github/workflows/production-watch.yml compares that with origin/main daily (docs/OBSERVABILITY.md).
 
 # Worker dev / logs / migrations
 cd worker

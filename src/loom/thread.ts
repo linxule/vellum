@@ -1,6 +1,6 @@
 import { prepareWithSegments } from '@chenglou/pretext'
 import { THREADS, type Family, type Voice, getState } from '../content.js'
-import { fontRatioForScale } from './math.js'
+import { fontRatioForScale, sunkenFade } from './math.js'
 import { computeBalancedWidth } from './path.js'
 import { loomState } from './state.js'
 import { containsRTL, graphemeSegmenter, lineEndsWholeWords, scriptClass } from './text.js'
@@ -51,6 +51,14 @@ export function makeThread(
     }
     segVoiceUid.push(cycle * voices.length + vIdx)
     segCharPos += segment.length
+  }
+
+  // Keyed like segVoiceUid's base uid (index into `voices`), so a merged thread
+  // covers every family it carries and each tiled copy resolves via `uid % count`.
+  const sunkenUids = new Map<number, number>()
+  for (let v = 0; v < voices.length; v++) {
+    const fade = sunkenFade(voices[v]!.depth)
+    if (fade > 0) sunkenUids.set(v, fade)
   }
 
   const families = new Set<Family>()
@@ -129,6 +137,7 @@ export function makeThread(
     wovenVoiceUids: new Set(),
     voiceModels: new Map(),
     afterglowUids: new Set(),
+    sunkenUids,
     emergenceVoiceUids: new Set(),
     newVoiceIds: new Set(),
     newVoiceUids: new Set(),

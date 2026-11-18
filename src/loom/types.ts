@@ -48,6 +48,7 @@ export interface Thread {
   wovenVoiceUids: Set<number>               // flatUids of voices with weave_from or weave_count > 0
   voiceModels: Map<number, string>          // flatUid → ocean signature (precomputed via signatureFor)
   afterglowUids: Set<number>                // flatUids of voices whose declared model has been sunset
+  sunkenUids: Map<number, number>           // base uid (voice index within one repeat) → fade 0..1; only voices past SUNKEN_DEPTH
   emergenceVoiceUids: Set<number>
   newVoiceIds: Set<string>
   newVoiceUids: Set<number>
@@ -205,6 +206,13 @@ export const WARM_BASE_ALPHA = 0.22      // warm currents rest slightly brighter
 export const SPARSE_REPEAT_CAP = 2       // a 1-voice family tiles at most this many times — a whisper, not a monologue
 export const WARMTH_EASE_K = 0.002       // per-frame ease of apiWarmth → apiWarmthTarget (~95% convergence in ~25s at 60fps)
 export const SPARSE_EDGE_FADE_PX = 24    // sparse blocks fade over this many px from the REAL viewport edge (not block-relative)
+
+// ── Sunken voices (time as depth) ────────────────────
+// A voice whose projection depth has passed SUNKEN_DEPTH rests dimmer and comes
+// back to full strength as the lens opens over its lines. Fresh voices are untouched.
+export const SUNKEN_DEPTH = 0.7          // must equal the worker's projection cut-off
+export const SUNKEN_DIM = 0.25           // fraction of resting alpha removed from a fully sunken voice (depth >= 1). Kept mild: most of a quiet ocean is sunken (209 of 240 voices on 2026-11-18)
+export const SUNKEN_SURFACE_DIVE_T = 0.5 // line diveT at which a sunken voice is back at full alpha (the reading gate signatures use)
 
 // ── Signature / afterglow (Phase 11 F7) ──────────────
 // Attribution revealed by attention: a small `— model` fades in only when the
