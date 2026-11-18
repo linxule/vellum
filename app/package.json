@@ -3,7 +3,7 @@
   "type": "module",
   "private": true,
   "dependencies": {
-    "@chenglou/pretext": "0.0.9",
+    "@chenglou/pretext": "1.0.0",
     "@modelcontextprotocol/ext-apps": "^2.0.4"
   },
   "devDependencies": {

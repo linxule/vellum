@@ -25,7 +25,7 @@ test('ocean paints per-grapheme advances and public layout agrees on narrow brea
   const segmentIndex = thread.prepared.segments.indexOf(word)
   expect(segmentIndex).toBeGreaterThanOrEqual(0)
   const start = { segmentIndex, graphemeIndex: 0 }
-  const line = layoutNextLine(thread.prepared, start, glyphWidth * 3 + 0.01)!
+  const line = layoutNextLine(thread.prepared, glyphWidth * 3 + 0.01, start)!
   expect(line.text).toBe('ABC')
   expect(line.width).toBeCloseTo(glyphWidth * 3)
   expect(line.end).toEqual({ segmentIndex, graphemeIndex: 3 })

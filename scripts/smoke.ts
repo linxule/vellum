@@ -3,8 +3,9 @@ import { LEGACY_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS, SERVER_VERSION } fr
 const DEFAULT_BASE_URL = 'https://vellum.linxule.com'
 const EXPECTED_THREADS = 6
 const FETCH_TIMEOUT_MS = 10_000
-// Pretext security fixes increased the measured 0.2.1 renderer to 114.1 KB.
-const BUNDLE_LIMIT_BYTES = 120_000
+// Pretext 1.0.0 carries a port of each browser's line breaker: the renderer went from
+// 117,967 to 166,847 bytes (41.6 to 66.1 KB gzipped) on 2026-11-18.
+const BUNDLE_LIMIT_BYTES = 175_000
 
 type CheckResult = {
   passed: boolean

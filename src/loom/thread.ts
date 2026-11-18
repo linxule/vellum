@@ -3,7 +3,7 @@ import { THREADS, type Family, type Voice, getState } from '../content.js'
 import { fontRatioForScale, sunkenFade } from './math.js'
 import { computeBalancedWidth } from './path.js'
 import { loomState } from './state.js'
-import { containsRTL, graphemeSegmenter, lineEndsWholeWords, scriptClass } from './text.js'
+import { containsRTL, graphemeSegmenter, letterAdvances, lineEndsWholeWords, scriptClass } from './text.js'
 import { DEFAULT_COLOR, FAMILY_COLOR, FONT, PATH_POINTS, SPARSE_REPEAT_CAP, type ApertureConfig, type Thread } from './types.js'
 
 export function makeThread(
@@ -98,7 +98,7 @@ export function makeThread(
   const currentResponse = 0.3 + (Math.sin(s * 3.7) + 1) * 0.35
   const breathRate = 0.0002 + (Math.sin(s * 5.9) + 1) * 0.0002
 
-  const breakableWidths = prepared.breakableFitAdvances
+  const breakableWidths = letterAdvances(prepared)
   const segGraphemes = new Map<number, string[]>()
   const segScript = new Uint8Array(prepared.segments.length)
   for (let si = 0; si < prepared.segments.length; si++) {

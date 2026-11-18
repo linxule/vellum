@@ -200,7 +200,7 @@ export function renderThread(
     const lineFontRatio = lineFontSize / 15
     const layoutWidth = Math.max(width / lineFontRatio, 20)
     let lineStart = copyCursor(cursor)
-    let ln = layoutNextLine(thread.prepared, cursor, layoutWidth)
+    let ln = layoutNextLine(thread.prepared, layoutWidth, cursor)
     if (!ln) {
       // End of the prepared text. A sparse thread that began at the top (scroll
       // offset 0) or has already wrapped once has now shown its whole whisper —
@@ -210,13 +210,13 @@ export function renderThread(
       cursor = copyCursor(ZERO_CURSOR)
       lineStart = copyCursor(ZERO_CURSOR)
       if (thread.sparse) sparseWrapped = true
-      ln = layoutNextLine(thread.prepared, cursor, layoutWidth)
+      ln = layoutNextLine(thread.prepared, layoutWidth, cursor)
       if (!ln) break
     }
     // A long word alone on a narrow line would be split mid-word; re-lay that
     // line at the word's width and let it run wider than the column.
     const wordW = wholeWordWidth(thread.prepared, lineStart, ln.end, layoutWidth)
-    if (wordW > 0) ln = layoutNextLine(thread.prepared, copyCursor(lineStart), wordW) ?? ln
+    if (wordW > 0) ln = layoutNextLine(thread.prepared, wordW, copyCursor(lineStart)) ?? ln
     cursor = ln.end
     const rtl = thread.hasRTL && isLineRTL(thread.prepared, lineStart, ln.end)
     const lineVoice = voiceSpanForLine(thread, lineStart, cursor)

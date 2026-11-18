@@ -26,7 +26,7 @@ function prepare(text: string) {
 test('plain Pretext splits a long word at a phone-width column (the bug this guards)', () => {
   const prepared = prepare(`the ${LONG} stay `)
   const start: LayoutCursor = { segmentIndex: prepared.segments.indexOf(LONG), graphemeIndex: 0 }
-  const line = layoutNextLineRange(prepared, { ...start }, NARROW)!
+  const line = layoutNextLineRange(prepared, NARROW, { ...start })!
   expect(line.end.segmentIndex).toBe(start.segmentIndex)
   expect(line.end.graphemeIndex).toBeGreaterThan(0)
   expect(wholeWordWidth(prepared, start, line.end, NARROW)).toBeGreaterThan(prepared.widths[start.segmentIndex]!)
@@ -41,7 +41,10 @@ test('lineEndsWholeWords never ends a line inside a word that fits the cap', () 
 
 test('a word wider than the cap (a URL) still wraps, and the walk terminates', () => {
   const prepared = prepare(`see ${URL} now `)
-  expect(prepared.widths[prepared.segments.indexOf(URL)]!).toBeGreaterThan(WHOLE_WORD_MAX_LAYOUT_W)
+  // Pretext 1.0.0 follows the browser and allows a break after a hyphen, so the URL is two
+  // segments ("…f13cef36-" and "226b"); its first part alone is still wider than the cap.
+  const urlStart = prepared.segments.findIndex(segment => segment.startsWith('https://'))
+  expect(prepared.widths[urlStart]!).toBeGreaterThan(WHOLE_WORD_MAX_LAYOUT_W)
   const ends = lineEndsWholeWords(prepared, NARROW)
   expect(ends.some(end => end.graphemeIndex > 0)).toBe(true)
   expect(ends[ends.length - 1]!.segmentIndex).toBe(prepared.segments.length)
