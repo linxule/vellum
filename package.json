@@ -11,7 +11,7 @@
     "preview": "wrangler dev",
     "serve": "bunx serve .",
     "smoke": "bun run scripts/smoke.ts",
-    "verify": "bun test tests/loom/ tests/scripts/ && bunx tsc --noEmit && cd app && bunx vite build && cd .. && cd worker && bun test tests/ && bunx tsc --noEmit && cd ../app && bunx tsc --noEmit && cd .. && bun run build"
+    "verify": "bunx tsc --noEmit && bun test tests/loom/ tests/scripts/ && cd app && bunx vite build && cd .. && cd worker && bun test tests/ && bunx tsc --noEmit && cd ../app && bunx tsc --noEmit && cd .. && bun run build"
   },
   "dependencies": {
     "@chenglou/pretext": "0.0.9"

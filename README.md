@@ -121,6 +121,25 @@ An isolated install of that exact package reported no current advisories, but
 its original bundled transitive lock is unavailable; a fresh dependency audit
 cannot certify every historical component embedded in that asset.
 
+Pretext 1.0.0 is held (2026-11-18). Dependabot is told to ignore that major
+for the root and `app` packages. It is a migration, not a bump:
+
+- `layoutNextLine()` and `layoutNextLineRange()` take `(prepared, maxWidth, start?)`;
+  a call left in the old order never returns `null`, so every layout loop in the
+  renderer spins forever. This is what hung CI on the Dependabot pull requests.
+- `segLevels` is gone; `isLineRTL` (right-aligning Arabic and Hebrew lines) reads it.
+- `breakableFitAdvances`, which both renderers read for per-letter placement, is
+  no longer part of the public type and is described upstream as working data
+  that changes with engine fixes.
+- Lines break by a port of each browser's own line breaker, so wrapping would
+  differ from today and between Chrome, Safari and Firefox.
+- Upstream reports the main entry growing by about 47 KB minified; the renderer
+  bundle is 117 KB against the 120 KB smoke limit.
+
+`bun audit` is clean on 0.0.9, so nothing forces the move. Doing it needs the
+argument swap, a replacement for `segLevels`, a decision on per-letter widths,
+new size limits, and a visual check of the lens in all three browsers.
+
 `archive/v1` is a historical, undeployed renderer and is outside active CI and
 Dependabot updates. Its original Pretext 0.0.3 dependency is vulnerable to that
 same advisory; do not install or deploy it without a separate migration.
