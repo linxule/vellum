@@ -1,0 +1,11 @@
+-- Repair the visibility mirror for voices hidden before `visibility` existed.
+--
+-- `voices.is_hidden` must equal (visibility != 'surfaced'); worker/src/visibility.ts is the only
+-- writer of either column. Voices hidden before migration 0007 added `visibility` kept its default,
+-- 'surfaced'. They stayed off the canvas (every listing reads is_hidden), but the weave paths look
+-- a source up by `visibility != 'hidden'`, so such a voice could still be woven from by id, and
+-- /api/admin/stats reported them under visibility_mirror_mismatches, which must read 0.
+-- Production held six such rows on 2026-11-18, all test strings from April 2026.
+--
+-- Idempotent: a second run matches nothing.
+UPDATE voices SET visibility = 'hidden' WHERE is_hidden = 1 AND visibility = 'surfaced';
