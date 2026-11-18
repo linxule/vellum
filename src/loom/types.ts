@@ -234,6 +234,12 @@ export const LENS_STILL_ALPHA = 0.5
 // (>= LENS_SETTLE_STEP per frame) and relaxes to LENS_STILL_ALPHA once it rests.
 export const LENS_OPENING_ALPHA = 0.94
 export const LENS_SETTLE_STEP = 0.0012
+// How far the clear reaches up and down, in units of the dive's own vertical
+// falloff (DIVE_SIGMA_LINES lines). The lens opens by line count, not by column
+// width: a desktop column is wide enough that a circle sized to it already
+// reaches this far (2.8 at 1280px), but a phone column is 300px, the circle
+// stopped at 1.9, and the top and bottom of the opened text kept their trail.
+export const LENS_CLEAR_SIGMAS = 2.8
 
 // How far a neighbouring current recedes where it runs inside the opened dive
 // lens (0 = untouched, 1 = vanishes). Leaves a trace so the ocean never blanks.
