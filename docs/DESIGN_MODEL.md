@@ -64,7 +64,7 @@ Write tools `await rebuildStateProjection` synchronously before responding; ext-
 | `AFTERGLOW_SILVER` | rgb(185,190,200) | Sunset-model signature tone (italic, still) |
 | `AFTERGLOW_DIVE_GATE` | 0.65 | Afterglow signatures arrive later in the lens (living: 0.5) |
 | `SUNKEN_DEPTH` | 0.7 | Depth past which a voice is sunken. Must equal the worker's projection cut-off |
-| `SUNKEN_DIM` | 0.45 | Fraction of resting alpha removed from a fully sunken voice (depth ≥ 1). Higher = darker depths |
+| `SUNKEN_DIM` | 0.25 | Fraction of resting alpha removed from a fully sunken voice (depth ≥ 1). Higher = darker depths. Mild on purpose: in a quiet ocean most voices are sunken (0.45 was tried in preview and darkened the whole canvas) |
 | `SUNKEN_SURFACE_DIVE_T` | 0.5 | Line `diveT` at which a sunken voice is back at full alpha (1 = only at the exact cursor line) |
 | `SEAM_DASH` | [4, 3] | Loom filament dash when the PARENT voice is afterglow (Phase 12 seam) |
 
