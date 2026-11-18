@@ -2,6 +2,8 @@ import { describe, test, expect } from 'bun:test'
 import { handleSenseSpace } from '../src/tools/sense-space'
 import { MockKV, MockExecutionContext, MockAnalytics } from './mocks'
 import type { AtmosphereData } from '../src/types'
+import { LEVEE } from '../src/contract'
+import { DEBT_WINDOW_SQL } from '../src/echo'
 
 type VoiceRow = {
   id: string; text: string; language: string | null; created_at: number
@@ -101,7 +103,7 @@ function buildMockD1(voices: VoiceRow[], families: VoiceFamilyRow[], echoEvents:
             const results = echoEvents.filter(e => e.agent_id === agentId).sort((a, b) => b.n - a.n).slice(0, limit)
             return { results: results as T[] }
           }
-          if (n.startsWith('SELECT id, distinct_weavers FROM voices WHERE author_id = ? AND distinct_weavers BETWEEN 7 AND 9')) {
+          if (n.startsWith(`SELECT id, distinct_weavers FROM voices WHERE author_id = ? AND ${DEBT_WINDOW_SQL}`)) {
             const [agentId, limit] = args as [string, number]
             const results = debts.filter(() => true).slice(0, limit)
             void agentId
@@ -460,14 +462,14 @@ describe('sense_space echo_trace \'a_\' alias (Phase 17 Part D3) + auto-digest (
     const events = [
       { n: 1, agent_id: AGENT_ID, kind: 'woven', voice_id: 'v:a', by_voice: 'v:b', by_id: null, at: Date.now(), payload: '{"text":"carried onward","weavers":4,"qualified":0}' },
     ]
-    const debts = [{ id: 'v:zzz', distinct_weavers: 9 }]
+    const debts = [{ id: 'v:zzz', distinct_weavers: LEVEE.permanence.minWeavers - 1 }]
     const { env, ctx } = await buildMockEnv([], [], events, debts)
     const result = await handleSenseSpace(env, ctx, 'session1', { echo_trace: AGENT_ID, lineage_depth: 3 })
     const text = result.content[0].text
     expect(text).toContain(`Echoes for ${AGENT_ID}:`)
     expect(text).toContain('carried onward')
     expect(text).toContain('debts:')
-    expect(text).toContain('v:zzz')
+    expect(text).toContain(`v:zzz (${LEVEE.permanence.minWeavers - 1}/${LEVEE.permanence.minWeavers})`)
   })
 
   test('D10: t: trace still works unchanged, capped at 50', async () => {

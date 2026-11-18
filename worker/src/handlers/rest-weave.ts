@@ -5,7 +5,7 @@ import { envelope, errorResponse, nearMissNote, zodToEnvelope } from '../errors'
 import { resolveSource } from '../tools/weave'
 import type { Env } from '../types'
 import { checkRequestAdmission, admitWrite, denialToRestResponse, modeOf } from '../levee-admission'
-import { computeQualifiedWeavers, computeDistinctWeavers, hourBucketOf, weaverBucket } from '../levee-permanence'
+import { computeQualifiedWeavers, computeDistinctWeavers, weaverRowsSql, toWeaveLogRows, weaverBucket } from '../levee-permanence'
 import { setVisibilityStatement } from '../visibility'
 import { LEVEE } from '../contract'
 import { trackAnalytics } from '../analytics'
@@ -141,13 +141,10 @@ export async function performRestWeave(env: Env, ctx: ExecutionContext, p: RestW
     let qualifiedAfter = source.qualified_weavers ?? 0
     let distinctAfter = source.distinct_weavers ?? 0
     try {
-      // Post-review fix (item 3) — see tools/weave.ts's identical query for the rationale.
-      const rows = await env.DB.prepare(
-        `SELECT COALESCE(wl.weaver_id, wl.weaver_bucket) as weaver_key, wl.created_at
-         FROM weave_log wl JOIN voices v ON v.id = wl.weaver_voice_id
-         WHERE wl.source_voice_id = ? AND v.visibility = 'surfaced'`,
-      ).bind(source.id).all<{ weaver_key: string | null; created_at: number }>()
-      const weaverRows = (rows.results ?? []).filter(r => r.weaver_key).map(r => ({ weaverKey: r.weaver_key as string, hourBucket: hourBucketOf(r.created_at) }))
+      // Same shared query as tools/weave.ts (levee-permanence.ts's weaverRowsSql) — rationale there.
+      const rows = await env.DB.prepare(weaverRowsSql(LEVEE.permanence.legacyWeaveCutoffMs))
+        .bind(source.id).all<{ weaver_key: string | null; created_at: number }>()
+      const weaverRows = toWeaveLogRows(rows.results ?? [])
       qualifiedAfter = computeQualifiedWeavers(weaverRows, LEVEE.permanence.minWeavers, LEVEE.permanence.minHourBuckets)
       distinctAfter = computeDistinctWeavers(weaverRows)
       await env.DB.prepare('UPDATE voices SET qualified_weavers = ?, distinct_weavers = ? WHERE id = ?').bind(qualifiedAfter, distinctAfter, source.id).run()

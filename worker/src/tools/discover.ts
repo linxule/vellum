@@ -26,7 +26,8 @@ export async function handleDiscover(
   }
 
   // Build query
-  let sql = `SELECT v.id, v.text, v.language, v.weave_count, v.unique_weavers, v.created_at, vf.family
+  let sql = `SELECT v.id, v.text, v.language, v.weave_count, v.unique_weavers, v.qualified_weavers,
+      v.permanence_source, v.created_at, vf.family
     FROM voices v JOIN voice_families vf ON v.id = vf.voice_id
     WHERE vf.ordinal = 0 AND v.is_hidden = FALSE AND v.surface_id = ?`
   const binds: (string | number)[] = [surface]

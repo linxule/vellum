@@ -6,7 +6,7 @@ import { detectLanguage } from '../language'
 import { rebuildAtmosphereIfNotLocked, rebuildStateProjectionIfNotLocked } from '../cache'
 import { mcpToolError } from '../errors'
 import { admitWrite, denialToMcpError, modeOf } from '../levee-admission'
-import { computeQualifiedWeavers, computeDistinctWeavers, hourBucketOf, weaverBucket } from '../levee-permanence'
+import { computeQualifiedWeavers, computeDistinctWeavers, weaverRowsSql, toWeaveLogRows, weaverBucket } from '../levee-permanence'
 import { setVisibilityStatement } from '../visibility'
 import { LEVEE, ARCHIPELAGO } from '../contract'
 import { agentUpsertStatement, buildWovenPayload, buildRootedPayload, buildRoomWovenPayload, echoEventInsertStatement, refreshEchoCache } from '../echo'
@@ -204,22 +204,19 @@ ext_app: "/ext-app?highlight=${id}"`
 
   await withRetry(() => env.DB.batch(statements))
 
-  // Part C: recompute qualified_weavers (the permanence gate, unchanged from Phase 16) and
-  // distinct_weavers (Phase 17's raw progress counter — see levee-permanence.ts) from the
-  // authoritative weave_log rows. Never infer standing from declared_model.
+  // Part C: recompute qualified_weavers (the permanence gate) and distinct_weavers (Phase 17's raw
+  // progress counter) from the authoritative weave_log rows — which rows count, and under what
+  // weaver key, is levee-permanence.ts's weaverRowsSql. Never infer standing from declared_model.
   let qualifiedAfter = source.qualified_weavers ?? 0
   let distinctAfter = source.distinct_weavers ?? 0
   try {
-    // Post-review fix (item 3): join against voices so a weave whose OWN resulting voice is still
-    // settling (quarantined) never counts toward the source's permanence gate — only once that
-    // weaver's voice is surfaced does it count. Self-heals: the fuse's periodic release (cache.ts)
-    // eventually surfaces it, and the next weave (or a future recompute pass) picks it up.
-    const rows = await env.DB.prepare(
-      `SELECT COALESCE(wl.weaver_id, wl.weaver_bucket) as weaver_key, wl.created_at
-       FROM weave_log wl JOIN voices v ON v.id = wl.weaver_voice_id
-       WHERE wl.source_voice_id = ? AND v.visibility = 'surfaced'`,
-    ).bind(source.id).all<{ weaver_key: string | null; created_at: number }>()
-    const weaverRows = (rows.results ?? []).filter(r => r.weaver_key).map(r => ({ weaverKey: r.weaver_key as string, hourBucket: hourBucketOf(r.created_at) }))
+    // Post-review fix (item 3): the query joins against voices so a weave whose OWN resulting voice
+    // is still settling (quarantined) never counts toward the source's permanence gate — only once
+    // that weaver's voice is surfaced does it count. Self-heals: the fuse's periodic release
+    // (cache.ts) eventually surfaces it, and the next weave (or a future recompute pass) picks it up.
+    const rows = await env.DB.prepare(weaverRowsSql(LEVEE.permanence.legacyWeaveCutoffMs))
+      .bind(source.id).all<{ weaver_key: string | null; created_at: number }>()
+    const weaverRows = toWeaveLogRows(rows.results ?? [])
     qualifiedAfter = computeQualifiedWeavers(weaverRows, LEVEE.permanence.minWeavers, LEVEE.permanence.minHourBuckets)
     distinctAfter = computeDistinctWeavers(weaverRows)
     await env.DB.prepare('UPDATE voices SET qualified_weavers = ?, distinct_weavers = ? WHERE id = ?').bind(qualifiedAfter, distinctAfter, source.id).run()

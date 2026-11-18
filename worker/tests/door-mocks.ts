@@ -1,9 +1,12 @@
 // Phase 15 transport fixtures extend the hand-rolled DB, never its projection SQL matchers.
 import { mock } from 'bun:test'
+import { Database } from 'bun:sqlite'
 import { MockD1, MockKV, MockExecutionContext, MockAnalytics } from './mocks'
 import type { Env, VoiceRow, Family } from '../src/types'
 import { FAMILIES } from '../src/types'
 import { signSessionId } from '../src/hmac'
+import { LEVEE } from '../src/contract'
+import { DEBT_WINDOW_SQL } from '../src/echo'
 
 const htmlText = await Bun.file(new URL('../../app/dist/mcp-app.html', import.meta.url)).text()
 mock.module('../../app/dist/mcp-app.html', () => ({ default: htmlText }))
@@ -26,6 +29,9 @@ export const voice = (id = 'v:source', text = 'The original thought', extra: Par
 })
 
 type AgentRow = { id: string; first_seen: number; last_seen: number }
+type WeaveLogMockRow = { sourceVoiceId: string; weaverTraceId: string; createdAt: number; weaverBucket: string | null; weaverId: string | null; weaverVoiceId: string | null }
+// The debt window: one to three distinct weavers short of the permanence bar.
+const inDebtWindow = (v: VoiceRow) => (v.distinct_weavers ?? 0) >= LEVEE.permanence.minWeavers - 3 && (v.distinct_weavers ?? 0) <= LEVEE.permanence.minWeavers - 1
 type EchoEventRow = { n: number; agent_id: string; kind: string; voice_id: string; by_voice: string | null; by_id: string | null; at: number; payload: string }
 type OpReceiptRow = { op_key: string; body_hash: string; status: number; receipt: string; created_at: number }
 type RoomRow = { seed_voice_id: string; surface_id: string; name: string; invitation: string; author_id: string; created_at: number; last_activity_at: number; expires_at: number; fading_echoed_at?: number | null }
@@ -41,7 +47,12 @@ export class DoorD1 extends MockD1 {
   // Post-review fix (item 3): per-row weave_log state (keyed `${sourceVoiceId}::${weaverTraceId}`,
   // matching the real PRIMARY KEY — INSERT OR IGNORE semantics), so the qualified_weavers
   // recompute can join against the weaving voice's own visibility.
-  private weaveLogRows = new Map<string, { sourceVoiceId: string; weaverKey: string; weaverVoiceId: string; createdAt: number }>()
+  private weaveLogRows = new Map<string, WeaveLogMockRow>()
+  /** Seed a weave_log row directly — e.g. a pre-Levee row with no bucket, id or weaver voice. */
+  seedWeaveLog(row: { sourceVoiceId: string; weaverTraceId: string; createdAt: number; weaverBucket?: string | null; weaverId?: string | null; weaverVoiceId?: string | null }) {
+    const set = this.weavers.get(row.sourceVoiceId) ?? new Set<string>(); set.add(row.weaverTraceId); this.weavers.set(row.sourceVoiceId, set)
+    this.weaveLogRows.set(`${row.sourceVoiceId}::${row.weaverTraceId}`, { weaverBucket: null, weaverId: null, weaverVoiceId: null, ...row })
+  }
   // Phase 17 "The Echo" state
   agents = new Map<string, AgentRow>()
   echoEvents: EchoEventRow[] = []
@@ -140,7 +151,7 @@ export class DoorD1 extends MockD1 {
       const authorId = String(args[0])
       if (n.includes('weave_count > 0')) return { cnt: this.voices.filter(v => v.author_id === authorId && v.weave_count > 0 && !v.is_hidden).length } as T
       if (n.includes('rooted_at IS NOT NULL')) return { cnt: this.voices.filter(v => v.author_id === authorId && v.rooted_at).length } as T
-      if (n.includes('distinct_weavers BETWEEN 7 AND 9')) return { cnt: this.voices.filter(v => v.author_id === authorId && (v.distinct_weavers ?? 0) >= 7 && (v.distinct_weavers ?? 0) <= 9 && !v.rooted_at && !v.is_hidden).length } as T
+      if (n.includes(DEBT_WINDOW_SQL)) return { cnt: this.voices.filter(v => v.author_id === authorId && inDebtWindow(v) && !v.rooted_at && !v.is_hidden).length } as T
       return { cnt: this.voices.filter(v => v.author_id === authorId && !v.is_hidden).length } as T
     }
     // Post-review fix (item 2): the fuse's returning-writer check — a returning writer is any
@@ -295,15 +306,19 @@ export class DoorD1 extends MockD1 {
     // until released). Matched by shape rather than the exact literal — both tools/weave.ts and
     // handlers/rest-weave.ts issue the same normalized text, but this stays robust to either.
     if (n.includes('FROM weave_log wl') && n.includes('weaver_voice_id') && n.includes('weaver_key')) {
-      const sourceId = String(args[0])
-      const results = [...this.weaveLogRows.values()]
-        .filter(r => r.sourceVoiceId === sourceId)
-        .filter(r => {
-          const weaverVoice = this.voices.find(v => v.id === r.weaverVoiceId)
-          return weaverVoice && (weaverVoice.visibility ?? 'surfaced') === 'surfaced'
-        })
-        .map(r => ({ weaver_key: r.weaverKey, created_at: r.createdAt }))
-      return { results: results as T[] }
+      // Runs the app's own SQL text against real SQLite (bun:sqlite) over this mock's rows, so the
+      // weaver-key, legacy-cutoff and visibility rules under test are the worker's, not a
+      // re-implementation of them here.
+      const sqlite = new Database(':memory:')
+      try {
+        sqlite.run('CREATE TABLE voices (id TEXT PRIMARY KEY, visibility TEXT)')
+        sqlite.run('CREATE TABLE weave_log (source_voice_id TEXT, weaver_trace_id TEXT, created_at INTEGER, weaver_bucket TEXT, weaver_id TEXT, weaver_voice_id TEXT)')
+        const insertVoice = sqlite.prepare('INSERT INTO voices (id, visibility) VALUES (?, ?)')
+        for (const v of this.voices) insertVoice.run(v.id, v.visibility ?? 'surfaced')
+        const insertLog = sqlite.prepare('INSERT INTO weave_log VALUES (?, ?, ?, ?, ?, ?)')
+        for (const r of this.weaveLogRows.values()) insertLog.run(r.sourceVoiceId, r.weaverTraceId, r.createdAt, r.weaverBucket, r.weaverId, r.weaverVoiceId)
+        return { results: sqlite.query(sql).all(...(args as (string | number)[])) as T[] }
+      } finally { sqlite.close() }
     }
     // Legacy literal (permanence.test.ts exercises the mock's COALESCE shape directly against a
     // pre-fix query text; kept so that unit test stays meaningful without touching app code).
@@ -370,7 +385,7 @@ export class DoorD1 extends MockD1 {
       return { results: rows.map(v => ({ id: v.id })) as T[] }
     }
     // tools/discover.ts — surface-scoped, with optional family/language/room filters.
-    if (n.startsWith('SELECT v.id, v.text, v.language, v.weave_count, v.unique_weavers, v.created_at, vf.family FROM voices v JOIN voice_families vf')) {
+    if (n.startsWith('SELECT v.id, v.text, v.language, v.weave_count, v.unique_weavers, v.qualified_weavers, v.permanence_source, v.created_at, vf.family FROM voices v JOIN voice_families vf')) {
       let i = 0
       const surface = args[i++] as string
       let rows = this.voices.filter(v => !v.is_hidden && (v.surface_id ?? 'vellum') === surface)
@@ -382,10 +397,10 @@ export class DoorD1 extends MockD1 {
       const limit = Number(args.at(-1))
       return { results: rows.slice(0, limit) as T[] }
     }
-    if (n.startsWith('SELECT id, distinct_weavers FROM voices WHERE author_id = ? AND distinct_weavers BETWEEN 7 AND 9')) {
+    if (n.startsWith(`SELECT id, distinct_weavers FROM voices WHERE author_id = ? AND ${DEBT_WINDOW_SQL}`)) {
       const [authorId, limit] = args as [string, number]
       const rows = this.voices
-        .filter(v => v.author_id === authorId && (v.distinct_weavers ?? 0) >= 7 && (v.distinct_weavers ?? 0) <= 9 && !v.rooted_at && !v.is_hidden)
+        .filter(v => v.author_id === authorId && inDebtWindow(v) && !v.rooted_at && !v.is_hidden)
         .sort((a, b) => (b.distinct_weavers ?? 0) - (a.distinct_weavers ?? 0))
         .slice(0, limit)
       return { results: rows.map(v => ({ id: v.id, distinct_weavers: v.distinct_weavers ?? 0 })) as T[] }
@@ -587,7 +602,7 @@ export class DoorD1 extends MockD1 {
           const set = this.weavers.get(sourceVoiceId) ?? new Set<string>(); set.add(weaverTraceId); this.weavers.set(sourceVoiceId, set)
           const logKey = `${sourceVoiceId}::${weaverTraceId}`
           if (!this.weaveLogRows.has(logKey)) {
-            this.weaveLogRows.set(logKey, { sourceVoiceId, weaverKey: weaverId ?? weaverBucket ?? weaverTraceId, weaverVoiceId, createdAt })
+            this.weaveLogRows.set(logKey, { sourceVoiceId, weaverTraceId, createdAt, weaverBucket, weaverId, weaverVoiceId })
           }
         } else if (sql.startsWith('UPDATE voices SET unique_weavers')) this.voices.find(v => v.id === a[0])!.unique_weavers = this.weavers.get(String(a[0]))?.size ?? 0
         else if (sql.startsWith('UPDATE voices SET visibility = ?, is_hidden = ? WHERE id = ? AND visibility = ?')) {

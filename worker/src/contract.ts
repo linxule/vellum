@@ -249,7 +249,10 @@ export const LEVEE = {
   ceiling: { hour: { all: 120, imprint: 90, window: 3600 }, minute: { all: 8, imprint: 6, window: 60 } },
   overload: { attemptsPerHourTrip: 360, durationS: 15 * 60 },
   duplicate: { hammingMax: 6, recentWindowMs: 86_400_000, recentLimit: 500, repeatedCount: 3, repeatedWindowS: 60 },
-  permanence: { minWeavers: 10, minHourBuckets: 6 },
+  // Earned permanence (2026-11-18): 5 distinct weavers across 4 distinct clock hours. A weave_log
+  // row from before legacyWeaveCutoffMs (the 0007 migration moment, 2026-09-05T13:00:00Z) has no
+  // weaver id or network bucket, so it counts once per weaving session instead.
+  permanence: { minWeavers: 5, minHourBuckets: 4, legacyWeaveCutoffMs: 1_788_613_200_000 },
   fuse: { engageHour: 60, engageMinute: 6, disengageHour: 30, quarantineMaxAgeMs: 60 * 60 * 1000 },
   foundationCap: 40,
   projectionMaxBytes: 512_000,

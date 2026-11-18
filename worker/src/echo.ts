@@ -6,6 +6,7 @@
 
 import type { Env } from './types'
 import { sanitizeQuoted, escapeQuoted } from './quoted'
+import { LEVEE } from './contract'
 
 const ECHO_MAX_KV_TTL_S = 90 * 24 * 3600
 
@@ -166,14 +167,18 @@ export async function maxEventN(db: D1Database, agentId: string): Promise<number
   return row?.max_n ?? 0
 }
 
-/** Debts: the author's own voices one weave short of permanence — a state, not an event.
- * `distinct_weavers` (Phase 17's own column, see docs/PHASE_17_REPORT.md deviations) tracks raw
- * distinct-weaver-identity progress; `qualified_weavers` alone cannot express 7-9 (it is 0 until
- * BOTH permanence conditions hold, then jumps straight to the true count). */
+/** The debt window as a SQL predicate: one to three distinct weavers short of the permanence bar.
+ * Shared with handlers/who.ts's open_debts count so the two never disagree. */
+export const DEBT_WINDOW_SQL = `distinct_weavers BETWEEN ${LEVEE.permanence.minWeavers - 3} AND ${LEVEE.permanence.minWeavers - 1}`
+
+/** Debts: the author's own voices one to three weavers short of permanence — a state, not an
+ * event. `distinct_weavers` (Phase 17's own column, see docs/PHASE_17_REPORT.md deviations) tracks
+ * raw distinct-weaver-identity progress; `qualified_weavers` alone cannot express partial progress
+ * (it is 0 until BOTH permanence conditions hold, then jumps straight to the true count). */
 export async function fetchDebts(db: D1Database, agentId: string, limit = 10): Promise<DebtRow[]> {
   const res = await db.prepare(
     `SELECT id, distinct_weavers FROM voices
-     WHERE author_id = ? AND distinct_weavers BETWEEN 7 AND 9 AND rooted_at IS NULL AND is_hidden = FALSE
+     WHERE author_id = ? AND ${DEBT_WINDOW_SQL} AND rooted_at IS NULL AND is_hidden = FALSE
      ORDER BY distinct_weavers DESC LIMIT ?`,
   ).bind(agentId, limit).all<DebtRow>()
   return res.results ?? []
@@ -203,7 +208,7 @@ export function renderEchoLines(events: EchoEventRow[], debts: DebtRow[]): strin
     }
   })
   if (debts.length > 0) {
-    lines.push(`  debts: ${debts.map(d => `${d.id} (${d.distinct_weavers}/10)`).join(', ')}`)
+    lines.push(`  debts: ${debts.map(d => `${d.id} (${d.distinct_weavers}/${LEVEE.permanence.minWeavers})`).join(', ')}`)
   }
   return lines.join('\n')
 }

@@ -19,21 +19,24 @@ export async function handleFocus(
     env.DB.batch([
       // Load-bearing: high weave count
       env.DB.prepare(`
-        SELECT v.id, v.text, v.language, v.weave_count, v.unique_weavers, v.created_at
+        SELECT v.id, v.text, v.language, v.weave_count, v.unique_weavers, v.qualified_weavers,
+               v.permanence_source, v.created_at
         FROM voices v JOIN voice_families vf ON v.id = vf.voice_id
         WHERE vf.family = ? AND vf.ordinal = 0 AND v.is_hidden = FALSE AND v.surface_id = ? AND v.weave_count >= 3
         ORDER BY v.weave_count DESC LIMIT 3
       `).bind(family, surface),
       // Fresh: recent voices
       env.DB.prepare(`
-        SELECT v.id, v.text, v.language, v.weave_count, v.unique_weavers, v.created_at
+        SELECT v.id, v.text, v.language, v.weave_count, v.unique_weavers, v.qualified_weavers,
+               v.permanence_source, v.created_at
         FROM voices v JOIN voice_families vf ON v.id = vf.voice_id
         WHERE vf.family = ? AND vf.ordinal = 0 AND v.is_hidden = FALSE AND v.surface_id = ? AND v.created_at > ?
         ORDER BY v.created_at DESC LIMIT 3
       `).bind(family, surface, threeDaysAgo),
       // Aging candidates: older, low weave
       env.DB.prepare(`
-        SELECT v.id, v.text, v.language, v.weave_count, v.unique_weavers, v.created_at
+        SELECT v.id, v.text, v.language, v.weave_count, v.unique_weavers, v.qualified_weavers,
+               v.permanence_source, v.created_at
         FROM voices v JOIN voice_families vf ON v.id = vf.voice_id
         WHERE vf.family = ? AND vf.ordinal = 0 AND v.is_hidden = FALSE AND v.surface_id = ?
           AND v.created_at < ? AND v.weave_count < 3

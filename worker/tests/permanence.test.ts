@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test'
 import { computeQualifiedWeavers, hourBucketOf, isPermanent, weaverBucket } from '../src/levee-permanence'
+import { LEVEE } from '../src/contract'
+import { DEBT_WINDOW_SQL } from '../src/echo'
 import { computeDepth } from '../src/sedimentation'
 import { rebuildStateProjection, readProjectionCache } from '../src/cache'
 import { doorEnv, post, voice } from './door-mocks'
@@ -7,27 +9,36 @@ import { doorEnv, post, voice } from './door-mocks'
 const hourMs = 3_600_000
 const dayMs = 24 * hourMs
 
-test('permanence: 10 weaves from 1 bucket in 1 hour is false (condition 1 fails)', () => {
-  const rows = Array.from({ length: 10 }, () => ({ weaverKey: 'bucket-a', hourBucket: 100 }))
-  expect(computeQualifiedWeavers(rows)).toBe(0)
+const { minWeavers, minHourBuckets } = LEVEE.permanence
+const qualified = (rows: { weaverKey: string; hourBucket: number }[]) => computeQualifiedWeavers(rows, minWeavers, minHourBuckets)
+
+test('permanence: the bar is 5 distinct weavers across 4 distinct clock hours (decided 2026-11-18)', () => {
+  // The one place the numbers are pinned as literals; every other test reads LEVEE.permanence.
+  expect(LEVEE.permanence).toEqual({ minWeavers: 5, minHourBuckets: 4, legacyWeaveCutoffMs: Date.UTC(2026, 8, 5, 13) })
+  expect(DEBT_WINDOW_SQL).toBe('distinct_weavers BETWEEN 2 AND 4')
 })
 
-test('permanence: 10 distinct buckets across only 2 distinct hours is false (condition 2 fails)', () => {
-  const rows = Array.from({ length: 10 }, (_, i) => ({ weaverKey: `bucket-${i}`, hourBucket: i % 2 }))
-  expect(computeQualifiedWeavers(rows)).toBe(0)
+test('permanence: many weaves from 1 bucket in 1 hour is false (condition 1 fails)', () => {
+  const rows = Array.from({ length: minWeavers }, () => ({ weaverKey: 'bucket-a', hourBucket: 100 }))
+  expect(qualified(rows)).toBe(0)
 })
 
-test('permanence: 10 distinct buckets across 6+ distinct hours is true', () => {
-  const rows = Array.from({ length: 10 }, (_, i) => ({ weaverKey: `bucket-${i}`, hourBucket: i % 6 }))
-  expect(computeQualifiedWeavers(rows)).toBe(10)
+test('permanence: enough distinct buckets across too few distinct hours is false (condition 2 fails)', () => {
+  const rows = Array.from({ length: minWeavers }, (_, i) => ({ weaverKey: `bucket-${i}`, hourBucket: i % (minHourBuckets - 1) }))
+  expect(qualified(rows)).toBe(0)
+})
+
+test('permanence: enough distinct buckets across enough distinct hours is true', () => {
+  const rows = Array.from({ length: minWeavers }, (_, i) => ({ weaverKey: `bucket-${i}`, hourBucket: i % minHourBuckets }))
+  expect(qualified(rows)).toBe(minWeavers)
 })
 
 test('permanence: settling weavers uncounted until released — caller must exclude quarantined rows', () => {
   // computeQualifiedWeavers only sees what the caller passes in; a settling weave_log row should
-  // never be included by the caller. Verified structurally: passing 9 legitimate + 1 excluded
-  // settling weaver still reads 0 (condition 1 needs 10).
-  const rows = Array.from({ length: 9 }, (_, i) => ({ weaverKey: `bucket-${i}`, hourBucket: i % 6 }))
-  expect(computeQualifiedWeavers(rows)).toBe(0)
+  // never be included by the caller. Verified structurally: one short of the bar (the legitimate
+  // weavers, with the settling one excluded) still reads 0.
+  const rows = Array.from({ length: minWeavers - 1 }, (_, i) => ({ weaverKey: `bucket-${i}`, hourBucket: i % minHourBuckets }))
+  expect(qualified(rows)).toBe(0)
 })
 
 test('permanence: COALESCE prefers a present weaver_id over weaver_bucket (Phase 17 seam, tested now, unused now)', async () => {
@@ -42,9 +53,10 @@ test('permanence: COALESCE prefers a present weaver_id over weaver_bucket (Phase
 })
 
 test('permanence: legacy keeps permanence regardless of qualified_weavers', () => {
-  expect(isPermanent({ qualified_weavers: 0, permanence_source: 'legacy' })).toBe(true)
-  expect(isPermanent({ qualified_weavers: 0, permanence_source: 'earned' })).toBe(false)
-  expect(isPermanent({ qualified_weavers: 10, permanence_source: 'earned' })).toBe(true)
+  expect(isPermanent({ qualified_weavers: 0, permanence_source: 'legacy' }, minWeavers)).toBe(true)
+  expect(isPermanent({ qualified_weavers: 0, permanence_source: 'earned' }, minWeavers)).toBe(false)
+  expect(isPermanent({ qualified_weavers: minWeavers - 1, permanence_source: 'earned' }, minWeavers)).toBe(false)
+  expect(isPermanent({ qualified_weavers: minWeavers, permanence_source: 'earned' }, minWeavers)).toBe(true)
 })
 
 test('permanence: declared_model never appears in this module', () => {
@@ -80,7 +92,8 @@ test('permanence.10 sessions/1 IP/5 min/1 voice: not permanent — 1 bucket, 1 h
     await t.fetch(post('/api/weave', { source_id: 'v:source', text: `response ${i}`, families: ['attention'] }))
   }
   const source = t.db.voices.find(v => v.id === 'v:source')!
-  expect(source.qualified_weavers ?? 0).toBeLessThan(10)
+  expect(source.qualified_weavers ?? 0).toBe(0)
+  expect(source.distinct_weavers ?? 0).toBe(1)
 })
 
 // Post-review fix (item 4): LEVEE_PERMANENCE was declared in Env and threaded into modeOf()'s
@@ -90,15 +103,15 @@ test('permanence.10 sessions/1 IP/5 min/1 voice: not permanent — 1 bucket, 1 h
 // foundation filter) only reads qualified_weavers/permanence_source when the flag is 'on'; 'off'
 // (the default) and 'shadow' both fall back to the pre-Phase-16 unique_weavers >= 10 rule, so
 // the flag actually gates something.
-test('computeDepth: LEVEE_PERMANENCE off ignores qualified_weavers, uses legacy unique_weavers >= 10', () => {
+test('computeDepth: LEVEE_PERMANENCE off ignores qualified_weavers, uses the legacy unique_weavers rule', () => {
   const now = Date.now()
   const aged = now - 30 * dayMs
   // Weighted rule says NOT permanent (qualified_weavers 0, no legacy grandfathering) but the
-  // legacy rule says permanent (unique_weavers >= 10) — the two disagree, so this voice is the
+  // legacy rule says permanent (unique_weavers at the bar) — the two disagree, so this voice is the
   // one that actually exercises the gate.
   const v = { created_at: aged, weave_count: 12, unique_weavers: 12, qualified_weavers: 0, permanence_source: 'earned' as const }
   const depthOff = computeDepth(v, 0, now, 'off')
-  expect(depthOff).toBeLessThanOrEqual(0.1) // legacy rule: unique_weavers 12 >= 10 -> foundation
+  expect(depthOff).toBeLessThanOrEqual(0.1) // legacy rule: unique_weavers 12 >= the bar -> foundation
 })
 
 test('computeDepth: LEVEE_PERMANENCE on uses the weighted qualified_weavers/permanence_source rule', () => {
@@ -111,11 +124,20 @@ test('computeDepth: LEVEE_PERMANENCE on uses the weighted qualified_weavers/perm
   expect(depthOn).toBeGreaterThan(0.1)
 })
 
-test('computeDepth: LEVEE_PERMANENCE on still honors qualified_weavers >= 10 (earned) as foundation', () => {
+test('computeDepth: LEVEE_PERMANENCE on honors qualified_weavers at the bar (earned) as foundation, not one below', () => {
   const now = Date.now()
   const aged = now - 30 * dayMs
-  const v = { created_at: aged, weave_count: 12, unique_weavers: 12, qualified_weavers: 10, permanence_source: 'earned' as const }
+  const v = { created_at: aged, weave_count: 12, unique_weavers: 12, qualified_weavers: minWeavers, permanence_source: 'earned' as const }
   expect(computeDepth(v, 0, now, 'on')).toBeLessThanOrEqual(0.1)
+  expect(computeDepth({ ...v, qualified_weavers: minWeavers - 1 }, 0, now, 'on')).toBeGreaterThan(0.1)
+})
+
+test('computeDepth: LEVEE_PERMANENCE off puts the legacy unique_weavers rule at the same bar', () => {
+  const now = Date.now()
+  const aged = now - 30 * dayMs
+  const v = { created_at: aged, weave_count: 1, unique_weavers: minWeavers, qualified_weavers: 0, permanence_source: 'earned' as const }
+  expect(computeDepth(v, 0, now, 'off')).toBeLessThanOrEqual(0.1)
+  expect(computeDepth({ ...v, unique_weavers: minWeavers - 1 }, 0, now, 'off')).toBeGreaterThan(0.1)
 })
 
 test('computeDepth: default permanenceMode (unspecified) behaves as off', () => {
@@ -173,4 +195,20 @@ test('rebuildStateProjection: the foundation read site flips with LEVEE_PERMANEN
   const onProjection = await readProjectionCache(t.kv)
   const onVoice = onProjection!.threads.flatMap(th => th.voices).find(vd => vd.id === 'v:legacy-unique')!
   expect(onVoice.depth).toBeGreaterThan(0.1)
+})
+
+test('rebuildStateProjection: the foundation query admits a voice at the bar and not one below it', async () => {
+  const now = Date.now()
+  const aged = now - 90 * dayMs
+  // Behind 150 newer voices and woven fewer than 3 times, an old voice can reach the projection
+  // only through the foundation query, so this exercises the bar written into that SQL.
+  const crowd = Array.from({ length: 150 }, (_, i) => voice(`v:fresh-${i}`, `a fresh thought ${i}`, { created_at: now - i * 1000 }))
+  const atBar = voice('v:at-bar', 'carried by just enough distinct minds', { created_at: aged, weave_count: 2, qualified_weavers: minWeavers })
+  const below = voice('v:below-bar', 'carried by one mind too few', { created_at: aged, weave_count: 2, qualified_weavers: minWeavers - 1 })
+  const t = doorEnv([...crowd, atBar, below])
+
+  await rebuildStateProjection(t.env.DB, t.kv, 'off', 'vellum', 'on')
+  const projected = (await readProjectionCache(t.kv))!.threads.flatMap(th => th.voices)
+  expect(projected.find(vd => vd.id === 'v:at-bar')?.depth).toBeLessThanOrEqual(0.1)
+  expect(projected.find(vd => vd.id === 'v:below-bar')).toBeUndefined()
 })

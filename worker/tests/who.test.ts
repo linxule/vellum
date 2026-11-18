@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test'
 import { doorEnv, voice } from './door-mocks'
+import { LEVEE } from '../src/contract'
 
 function get(path: string) {
   return new Request(`https://vellum.test${path}`, { method: 'GET', headers: { 'cf-connecting-ip': '1.2.3.4' } })
@@ -10,8 +11,9 @@ describe('D9: GET /who/{id}', () => {
     const id = 'a_' + 'k'.repeat(43)
     const otherId = 'a_' + 'm'.repeat(43)
     const voices = [
-      voice('v:1', 'first voice', { author_id: id, weave_count: 2, distinct_weavers: 8, declared_model: 'some-model' }),
-      voice('v:2', 'second voice', { author_id: id, weave_count: 0 }),
+      voice('v:1', 'first voice', { author_id: id, weave_count: 2, distinct_weavers: LEVEE.permanence.minWeavers - 1, declared_model: 'some-model' }),
+      // Four or more short of the bar: outside the debt window, so not an open debt.
+      voice('v:2', 'second voice', { author_id: id, weave_count: 0, distinct_weavers: LEVEE.permanence.minWeavers - 4 }),
       voice('v:3', 'rooted voice', { author_id: id, rooted_at: Date.now() }),
     ]
     const t = doorEnv(voices)
