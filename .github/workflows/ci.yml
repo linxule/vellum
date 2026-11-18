@@ -21,6 +21,10 @@ jobs:
       - name: Audit active dependencies
         run: |
           bun audit
-          (cd app && bun audit)
+          # GHSA-fc5q-39xc-vjpf (picomatch ReDoS, <=4.0.7): no patched release exists
+          # (4.0.7 is latest; vite/tinyglobby/vite-plugin-singlefile are on their newest).
+          # Build-time glob matching only; not in the shipped bundle, no untrusted input.
+          # Remove this ignore once picomatch publishes a fix.
+          (cd app && bun audit --ignore=GHSA-fc5q-39xc-vjpf)
           (cd worker && bun audit)
       - run: bun run verify

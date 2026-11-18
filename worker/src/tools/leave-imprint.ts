@@ -1,3 +1,4 @@
+import { checkSpam, voiceSpamFields, spamMcpError } from '../spam'
 import type { Env } from '../types'
 import { insertVoiceAndRebuild } from './_shared'
 import { admitWrite, denialToMcpError } from '../levee-admission'
@@ -10,6 +11,7 @@ import { DEFAULT_SURFACE, surfaceUrlFor } from '../surfaces'
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean; _meta?: Record<string, unknown> }
 
 function surfaceFailureError(result: Extract<CreateSurfaceResult, { ok: false }>, slug: string): ReturnType<typeof mcpToolError> {
+  if (result.reason === 'spam') return spamMcpError(result.finding)
   const byReason: Record<typeof result.reason, { code: McpErrorCode; message: string }> = {
     invalid_slug: { code: 'VALIDATION', message: 'slug must be 3-32 chars, lowercase letters/numbers/hyphens.' },
     reserved_slug: { code: 'OCEAN_SLUG_RESERVED', message: `"${slug}" is a reserved slug.` },
@@ -36,6 +38,8 @@ export async function handleLeaveImprint(
   authorId?: string | null,
   idempotencyKey?: string,
 ): Promise<ToolResult> {
+  const spam = checkSpam(env, voiceSpamFields(args))
+  if (spam) return spamMcpError(spam)
   const identity = authorId ?? 'anonymous'
   const surfaceId = args.surface ?? DEFAULT_SURFACE
 

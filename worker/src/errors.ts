@@ -118,7 +118,7 @@ export function zodToEnvelope(issues: ZodIssue[], endpoint?: EndpointExample, ra
 }
 
 export type McpErrorCode =
-  | 'VALIDATION' | 'SESSION_QUOTA' | 'SOURCE_NOT_FOUND' | 'INTERNAL'
+  | 'SPAM_DETECTED' | 'VALIDATION' | 'SESSION_QUOTA' | 'SOURCE_NOT_FOUND' | 'INTERNAL'
   | 'SURFACE_SATURATED' | 'SURFACE_CLOSED' | 'REPEATED_WRITE' | 'RATE_LIMITED'
   | 'AGENT_AUTH_FAILED' | 'IDEMPOTENCY_CONFLICT'
   // Phase 18 "The Archipelago" — reachable from any tool's `surface` param (OCEAN_NOT_FOUND),

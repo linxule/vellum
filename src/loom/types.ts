@@ -211,6 +211,15 @@ export const SIGNATURE_GRAY_MIX = 0.55   // pull the family color toward its own
 export const AFTERGLOW_SILVER: readonly [number, number, number] = [185, 190, 200]
 export const AFTERGLOW_DIVE_GATE = 0.65  // sunset signatures arrive later in the lens (living: 0.5)
 
+// Extra background clear at the dive lens (alpha at its centre, scaled by
+// proximity). Shortens the frame trail where text is being read; the global
+// .18 clear keeps the ocean's smear everywhere else.
+export const LENS_STILL_ALPHA = 0.5
+
+// How far a neighbouring current recedes where it runs inside the opened dive
+// lens (0 = untouched, 1 = vanishes). Leaves a trace so the ocean never blanks.
+export const NEIGHBOR_LENS_FADE = 0.82
+
 export const SCRIPT_SHIMMER: [number, number, number][] = [
   [1, 1, 0],
   [0.45, 1.5, 0],

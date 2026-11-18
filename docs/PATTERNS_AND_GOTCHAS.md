@@ -223,6 +223,23 @@ Write tools (`leave_imprint`, `weave`) wrap `rebuildStateProjection` in try/catc
 
 ---
 
+### Voice separator (2026-11-18)
+
+`makeThread` joins voice texts with `' '` (it was `''`, gluing every boundary: "outline.And"). The separator belongs to the voice BEFORE it — `voiceEnds` accumulates `text.length + 1` and `baseLen = baseText.length + 1` (the `+1` is the repeat's trailing space). `regressions.test.ts` pins both the space and the uid map across a cycle.
+
+### Lens painting LOD (2026-11-18)
+
+When a thread is primary, `drawLineSegmented` paints its WHOLE column, not just the lens band — and Pretext gives every multi-letter word per-grapheme advances, so that used to mean one `fillText` per letter (~5.4k calls/frame at 1440w). Now a line paints per letter only when `diveT > LOD_LETTER_DIVE_T` (magnified) or the shimmer amplitude exceeds `LOD_LETTER_SHIMMER_PX` (lens still opening); otherwise per word. Two details make word mode visually equivalent — both were found by looking, and both are needed:
+
+- **Letter-spacing compensation.** Layout advances are measured at 15px and scaled; at texture size the browser renders a word natively ~5–11% narrower (hinted metrics). Per-letter placement hides that by spreading letters. Word mode sets `ctx.letterSpacing` to `(layoutWidth − nativeWidth) / graphemes` (native width cached per font+word). Without it the surplus pools after each word as ragged gaps.
+- **Tangent ride.** The shimmer is a continuous wave along the line; sampling it once per word makes a staircase baseline. Word mode positions the word at the wave height at its centre and rotates it by the local slope via `setTransform` (restored before any per-letter or fallback paint, and at function end).
+
+Comparing these modes by screenshot needs care: the animation isn't frame-deterministic even under Playwright's frozen clock, so diff numbers are noise — compare crops by eye at 2× DPR.
+
+### Lens legibility: stilling the water + receding neighbours (2026-11-18)
+
+`paintLoom` clears at alpha .18 — an 82% trail per frame is the ocean's smear. Under the lens, magnified text is the fastest-moving text on screen and its trail printed an offset ghost copy over the lines being read. A second radial clear (`LENS_STILL_ALPHA` × proximity) centred on the lens shortens trails there only. Separately, a non-primary line whose spine runs inside the primary's opened span fades by `NEIGHBOR_LENS_FADE` × depth-inside (the pre-existing width squeeze floors at resting width, so it never cleared crossings or a voice shared by two families).
+
 ## Renderer resonance (Phase 9.1 F6 → Phase 10 per-voice)
 
 ### Per-voice resonance with canonical voiceId (Phase 10)

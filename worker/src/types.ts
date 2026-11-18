@@ -24,6 +24,8 @@ export type Env = {
    * D3. Unset/anything but '1' → creation returns 403 OCEAN_CREATION_DISABLED. Rooms are unaffected
    * (additive from their own first deploy). */
   SURFACES_OPEN?: string
+  /** Content filter: defaults on; shadow measures only, off is emergency rollback. */
+  SPAM_FILTER?: LeveeMode
 }
 
 export const FAMILIES = ['attention', 'silence', 'space', 'ephemeral', 'memory', 'light'] as const

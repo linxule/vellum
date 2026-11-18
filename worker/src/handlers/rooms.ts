@@ -3,6 +3,7 @@
 // explicit extend (`POST /api/rooms/:seed/extend`). Opening a room INLINE on a write
 // (`leave_imprint`/`weave`'s `open_room`) lives in tools/_shared.ts instead — this file is only
 // the standalone promotion path and the read/extend routes.
+import { checkSpam, spamRestResponse } from '../spam'
 import type { Env } from '../types'
 import { envelope, errorResponse, zodToEnvelope } from '../errors'
 import { REST_ROOMS_BODY_SCHEMA, ROOMS_LIST_QUERY_SCHEMA } from '../schemas'
@@ -27,6 +28,8 @@ export async function handleRoomsCreate(request: Request, env: Env): Promise<Res
   const parsed = REST_ROOMS_BODY_SCHEMA.safeParse(raw)
   if (!parsed.success) return errorResponse(zodToEnvelope(parsed.error.issues), 400)
   const body = parsed.data
+  const spam = checkSpam(env, { name: body.name, invitation: body.invitation })
+  if (spam) return spamRestResponse(spam)
 
   const secretResult = readAgentSecret(request)
   if (!secretResult || 'error' in secretResult) {

@@ -56,8 +56,18 @@ export class CanvasContextStub {
   arc() {}
   fill() {}
 
+  // Minimal affine transform so word-mode painting (which rides the shimmer's
+  // tangent via setTransform) records the same page coordinates a real canvas
+  // would draw at.
+  private m = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
+  getTransform() { return { ...this.m } }
+  setTransform(a: number | { a: number, b: number, c: number, d: number, e: number, f: number }, b?: number, c?: number, d?: number, e?: number, f?: number) {
+    this.m = typeof a === 'number' ? { a, b: b!, c: c!, d: d!, e: e!, f: f! } : { a: a.a, b: a.b, c: a.c, d: a.d, e: a.e, f: a.f }
+  }
+
   fillText(text: string, x: number, y: number) {
-    this.fillTextCalls.push({ text, x, y, font: this.font, fillStyle: this.fillStyle })
+    const m = this.m
+    this.fillTextCalls.push({ text, x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f, font: this.font, fillStyle: this.fillStyle })
   }
 
   measureText(text: string) {

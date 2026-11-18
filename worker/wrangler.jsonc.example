@@ -41,7 +41,8 @@
     "LEVEE_DEDUPE": "on",
     "LEVEE_PERMANENCE": "on",
     "LEVEE_FUSE": "off",
-    "SURFACES_OPEN": "1"
+    "SURFACES_OPEN": "1",
+    "SPAM_FILTER": "on"
   },
 
   // Text imports: pensieve HTML (ext-app) + AGENTS.md (served at /AGENTS.md). Both globs are load-bearing.

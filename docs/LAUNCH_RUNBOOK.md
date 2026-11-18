@@ -29,6 +29,7 @@ agent does not have).
 | `LEVEE_PERMANENCE` | var (`LeveeMode`) | `on` **after `0013` is applied** | **Final-fix-batch update: now wired.** `modeOf(env, 'LEVEE_PERMANENCE')` gates the two foundation read sites (`sedimentation.ts`'s `computeDepth` depth floor and `cache.ts`'s identical foundation/non-foundation split inside `rebuildStateProjection`) — `'on'` reads the weighted `qualified_weavers`/`permanence_source` rule (`isPermanent`), while `'off'`/`'shadow'` fall back to the pre-Phase-16 `unique_weavers >= 10` rule. The write side (`qualified_weavers`/`distinct_weavers` recompute in `tools/weave.ts`/`handlers/rest-weave.ts`) is unaffected by the flag and always runs — that's the "shadow, compute and count" half of the rollout the spec describes; only the *read* side needed flipping. Threaded through every `rebuildStateProjection`/`rebuildStateProjectionIfNotLocked`/`rebuildAll` call site and through `tools/focus.ts` + `tools/discover.ts`'s own `computeDepth` calls. See `worker/tests/permanence.test.ts` for both-mode coverage. **Hotfix 1**: `0007` added `qualified_weavers` with `DEFAULT 0` and never backfilled it for voices that already existed — every pre-existing voice read `qualified_weavers = 0` regardless of real weave history, so flipping this flag to `'on'` before `0013` runs silently strips permanence from any legacy voice below the `unique_weavers >= 10` grandfather bar. `0013_qualified_backfill.sql` (§2) is the one-shot fix; **do not set this flag to `'on'` in an environment that hasn't applied `0013` yet**. | no |
 | `LEVEE_FUSE` | var (`LeveeMode`), **with a KV override** | `off` (var), and leave `levee:fuse` KV key **unset** at deploy | the quarantine fuse — `readFuseMode()` checks KV key `levee:fuse` first (10s isolate-cache), falling back to the `env.LEVEE_FUSE` var only when the KV key is absent/invalid | **yes** — `POST /api/admin/fuse {mode}` (`setFuseMode`, admin-key gated) writes `levee:fuse` with no TTL and takes effect on the next request past the 10s cache |
 | `SURFACES_OPEN` | var | `1` | gates `POST /api/surfaces` (surface *creation* only — entering/reading an existing surface never needs this) | no |
+| `SPAM_FILTER` | var (`LeveeMode`) | `on` | the content filter (`worker/src/spam.ts`, `checkSpam`) on every voice and room/surface metadata write. `on` rejects a match with 422 `SPAM_DETECTED` (MCP: `isError` + `_meta.vellum.error_code`); `shadow` logs the aggregate reason to analytics and accepts the write; `off` disables the check and its metrics — emergency rollback only. **Unset defaults to `on`.** See `docs/SPAM_FILTER.md`. | no — plain `env` read, needs a redeploy to flip |
 
 Two related **KV-only** runtime toggles exist alongside the `Env` vars above (not in `Env` at all
 — set directly in KV, never a wrangler var):
@@ -48,7 +49,8 @@ alongside the `LEVEE_PERMANENCE` wiring above) — copy it into the real (gitign
   "LEVEE_DEDUPE": "on",
   "LEVEE_PERMANENCE": "on",
   "LEVEE_FUSE": "off",
-  "SURFACES_OPEN": "1"
+  "SURFACES_OPEN": "1",
+  "SPAM_FILTER": "on"
 }
 ```
 

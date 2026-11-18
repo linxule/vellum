@@ -7,7 +7,7 @@ import { resolvePhantomTarget } from '../phantom.js'
 import { updateResonances } from '../resonance.js'
 import { loomState } from '../state.js'
 import { copyCursor, isLineRTL, voiceGroupIndex, voiceSpanForLine } from '../text.js'
-import { AFTERGLOW_DIVE_GATE, AFTERGLOW_SILVER, BREATH_AMP, BREATH_SPATIAL, DEPTH_ALPHA, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, HL_FONT_BOOST, SIGNATURE_ALPHA, SIGNATURE_GRAY_MIX, SIGNATURE_RATIO, SPARSE_EDGE_FADE_PX, WARM_BASE_ALPHA, WARM_DIVE_BOOST, ZERO_CURSOR, type ApertureConfig, type Thread } from '../types.js'
+import { NEIGHBOR_LENS_FADE, AFTERGLOW_DIVE_GATE, AFTERGLOW_SILVER, BREATH_AMP, BREATH_SPATIAL, DEPTH_ALPHA, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, HL_FONT_BOOST, SIGNATURE_ALPHA, SIGNATURE_GRAY_MIX, SIGNATURE_RATIO, SPARSE_EDGE_FADE_PX, WARM_BASE_ALPHA, WARM_DIVE_BOOST, ZERO_CURSOR, type ApertureConfig, type Thread } from '../types.js'
 import { depthColor, signatureGray, threadColor } from '../color.js'
 import { drawLine, drawLineSegmented } from './line.js'
 
@@ -27,6 +27,7 @@ type LaidOutLine = {
   fontScale: number
   fontRatio: number
   diveT: number
+  neighborFade: number
 }
 
 function resolveVoiceIdForAnchor(thread: Thread, anchorUid: number): string | null {
@@ -174,6 +175,7 @@ export function renderThread(
     const breathRestW = ac.restingWidth * (1 + BREATH_AMP * (1 - prox) * Math.sin(now * thread.breathRate + thread.pathSeed + y * BREATH_SPATIAL))
     let width = widthAtY(y, mouse.y, prox, openW, breathRestW)
 
+    let neighborFade = 1
     if (!isPrimary && loomState.touchedThread && loomState.touchedThread._path.length > 0 && loomState.touchedThread.proximity > 0.1) {
       const primaryX = pathXAtY(loomState.touchedThread._path, y)
       const primaryOpenW = Math.min(loomState.touchedThread.balancedWidth, ac.openWidth)
@@ -182,6 +184,16 @@ export function renderThread(
       const primaryW = widthAtY(y, mouse.y, loomState.touchedThread.proximity, primaryOpenW, ac.restingWidth * primaryBreathMod)
       const maxWidth = 2 * Math.max(0, Math.abs(primaryX - x) - primaryW / 2 - 15)
       if (maxWidth < width) width = Math.max(breathRestW, maxWidth)
+      // The squeeze above floors at the resting width, so a neighbour whose spine
+      // runs INSIDE the opened lens still paints full-strength over the text being
+      // read (crossing currents; a voice shared by two families shows as a doubled
+      // ghost). Recede instead: fade by how deep this line sits inside the
+      // primary's opened span — 0 at its edge, full at its spine.
+      const inside = primaryW / 2 + width / 2 + 10 - Math.abs(primaryX - x)
+      if (inside > 0) {
+        const depthIn = Math.min(1, inside / (width / 2 + 10 + Math.min(primaryW, 120) / 2))
+        neighborFade = 1 - NEIGHBOR_LENS_FADE * loomState.touchedThread.proximity * depthIn
+      }
     }
 
     const lineFontSize = fontSizeForScale(lineFontScale)
@@ -230,6 +242,7 @@ export function renderThread(
       fontScale: lineFontScale,
       fontRatio: lineFontRatio,
       diveT,
+      neighborFade,
     })
 
     if (isPrimary && prox > 0.2) {
@@ -311,7 +324,7 @@ export function renderThread(
       prevFontSize = drawFontSize
     }
 
-    let lineAlpha = hlActive ? baseAlpha + 0.25 : baseAlpha
+    let lineAlpha = (hlActive ? baseAlpha + 0.25 : baseAlpha) * line.neighborFade
     if (thread.emergenceStart > 0) {
       const lineIsEmerging = thread.emergenceVoiceUids.size === 0 || (hlVoiceCount > 0 && line.lineVoiceUids.some(u => thread.emergenceVoiceUids.has(u % hlVoiceCount)))
       if (lineIsEmerging) {
@@ -334,7 +347,7 @@ export function renderThread(
     }
 
     if (isPrimary && prox > 0.2) {
-      drawLineSegmented(ctx, thread, line.lineStart, line.lineEnd, line.text, drawX, line.y, line.width, line.contentWidth, lineAlpha, prox, rel, i, laidOutLines.length, line.rtl, voiceActive || hlActive, mouse.x, restW, openW, drawFontRatio, now)
+      drawLineSegmented(ctx, thread, line.lineStart, line.lineEnd, line.text, drawX, line.y, line.width, line.contentWidth, lineAlpha, prox, rel, i, laidOutLines.length, line.rtl, voiceActive || hlActive, mouse.x, restW, openW, drawFontRatio, now, line.diveT)
     } else {
       drawLine(ctx, line.text, drawX, line.y, line.width, line.contentWidth, lineAlpha, prox, rel, thread, i, laidOutLines.length, line.rtl, voiceActive || hlActive, restW, openW, drawFontRatio)
     }

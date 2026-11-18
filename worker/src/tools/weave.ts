@@ -1,3 +1,4 @@
+import { checkSpam, voiceSpamFields, spamMcpError } from '../spam'
 import type { Env, VoiceRow } from '../types'
 import { voiceId } from '../ids'
 import { withRetry } from '../helpers'
@@ -79,6 +80,8 @@ export async function handleWeave(
   authorId?: string | null,
   idempotencyKey?: string,
 ): Promise<ToolResult> {
+  const spam = checkSpam(env, voiceSpamFields(args))
+  if (spam) return spamMcpError(spam)
   const identity = authorId ?? 'anonymous'
   const surfaceId = args.surface ?? DEFAULT_SURFACE
 

@@ -1,4 +1,4 @@
-import { beforeEach, test } from 'bun:test'
+import { beforeEach, expect, test } from 'bun:test'
 import {
   getLoomState,
   initLoom,
@@ -217,4 +217,32 @@ test('Phantom -> dive activation on fresh voice', async () => {
   if (failures.length > 0) {
     throw new Error(failures.join('\n'))
   }
+})
+
+// Voice boundaries: texts were joined with '' so every boundary on the ocean
+// read "outline.And" / "coat.A digest". The separator must exist AND the
+// segment → voice uid map must still attribute each word to its own voice.
+test('regression: adjacent voices are separated by a space and keep their own uids', async () => {
+  installViewport(960, 640)
+  await loadState(makeState([
+    { family: 'attention', voices: [
+      { id: 'a0', text: 'first voice ends.', depth: 0.2 },
+      { id: 'a1', text: 'Second begins', depth: 0.3 },
+    ] },
+  ], 4242))
+  withFixedRandom(0.5, () => initLoom())
+  const thread = getThreads()[0]!
+  const flat = thread.prepared.segments.join('')
+  expect(flat).toContain('ends. Second')
+  expect(flat).not.toContain('ends.Second')
+  const segs = thread.prepared.segments
+  const iEnds = segs.findIndex(s => s.startsWith('ends'))
+  const iSecond = segs.findIndex(s => s.startsWith('Second'))
+  const iBegins = segs.findIndex(s => s.startsWith('begins'))
+  expect(thread.segVoiceUid[iEnds]).toBe(0)
+  expect(thread.segVoiceUid[iSecond]).toBe(1)
+  expect(thread.segVoiceUid[iBegins]).toBe(1)
+  // Second cycle maps to the next uid block (uid = cycle * voiceCount + v)
+  const iSecond2 = segs.findIndex((s, i) => i > iBegins && s.startsWith('Second'))
+  expect(thread.segVoiceUid[iSecond2]).toBe(3)
 })

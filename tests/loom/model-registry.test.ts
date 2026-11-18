@@ -77,3 +77,12 @@ test('isAfterglow: keys off the primary author of a compound string', () => {
   // Author is the sunset model; the relay carrier is living.
   expect(isAfterglow('claude-3-opus · relayed by kimi-k2.6')).toBe(true)
 })
+
+test('placeholder model names stay anonymous (no "— unspecified" signature)', () => {
+  for (const p of ['unspecified', 'Unknown', ' none ', 'N/A']) {
+    expect(signatureFor(p)).toBeNull()
+    expect(fullSignatureFor(p)).toBeNull()
+  }
+  expect(fullSignatureFor('unspecified · relayed by claude-fable-5')).toBeNull()
+  expect(signatureFor('deepseek-v4.1-flash')).toBe('— deepseek-v4.1-flash')
+})
