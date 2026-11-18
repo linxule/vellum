@@ -3,10 +3,9 @@ import { aperture } from './aperture.js'
 import { fontRatioForScale } from './math.js'
 import { loomState, getInteractionState } from './state.js'
 import { crystallizeThreads, makeThread } from './thread.js'
-import { copyCursor } from './text.js'
+import { lineEndsWholeWords } from './text.js'
 import { isAfterglow, signatureFor } from './model-registry.js'
 import { ZERO_CURSOR } from './types.js'
-import { walkLineRanges } from '@chenglou/pretext'
 
 export function initLoom() {
   loomState.VW = innerWidth
@@ -79,11 +78,8 @@ export function resizeLoom() {
     const edge = ac.spreadEdge
     t.xCenter = loomState.VW * (edge + (i / n) * (1 - 2 * edge)) + (Math.random() - 0.5) * spread
     const textureLayoutWidth = ac.restingWidth / fontRatioForScale(ac.textureScale)
-    const lineEndCursors = [] as typeof t.lineEndCursors
-    t.totalLines = walkLineRanges(t.prepared, textureLayoutWidth, line => {
-      lineEndCursors.push(copyCursor(line.end))
-    })
-    t.lineEndCursors = lineEndCursors
+    t.lineEndCursors = lineEndsWholeWords(t.prepared, textureLayoutWidth)
+    t.totalLines = t.lineEndCursors.length
   })
   crystallizeThreads(ac)
 }

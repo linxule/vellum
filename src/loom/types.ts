@@ -56,6 +56,7 @@ export interface Thread {
   sparse: boolean                           // voices.length <= 1: paint one contiguous copy, don't re-tile (Phase 14 Part B)
   _frameColor: [number, number, number]
   _handDist: number
+  _proxStep: number                         // |proximity change| this frame at 60fps pace; > 0 while the lens opens or closes
   balancedWidth: number
   _path: PathPoint[]
   hasRTL: boolean
@@ -188,6 +189,10 @@ export const BREATH_AMP = 0
 export const BREATH_SPATIAL = 0.003
 export const TEXTURE_SCALE = 0.45
 export const TEXTURE_LINE_H = 8.5
+// Widest word (layout units = px at the 15px base font) a column will widen a
+// line to keep whole. Equals the resting column at 1440w, so wide viewports
+// lay out exactly as before; narrower ones stop splitting ordinary long words.
+export const WHOLE_WORD_MAX_LAYOUT_W = 123
 export const DIVE_SIGMA_LINES = 4
 export const HL_FONT_BOOST = 1.25
 
@@ -215,6 +220,12 @@ export const AFTERGLOW_DIVE_GATE = 0.65  // sunset signatures arrive later in th
 // proximity). Shortens the frame trail where text is being read; the global
 // .18 clear keeps the ocean's smear everywhere else.
 export const LENS_STILL_ALPHA = 0.5
+// While the lens is still opening every line re-wraps frame by frame, so the
+// trail is not a smear of moving text but stacked copies of different wraps.
+// The clear rises to this alpha for as long as proximity is still moving
+// (>= LENS_SETTLE_STEP per frame) and relaxes to LENS_STILL_ALPHA once it rests.
+export const LENS_OPENING_ALPHA = 0.94
+export const LENS_SETTLE_STEP = 0.0012
 
 // How far a neighbouring current recedes where it runs inside the opened dive
 // lens (0 = untouched, 1 = vanishes). Leaves a trace so the ocean never blanks.

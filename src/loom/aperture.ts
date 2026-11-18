@@ -11,6 +11,7 @@ export function aperture(vw: number): ApertureConfig {
     // Floor: below ~650px wide the proportional width drops under one word at
     // texture scale (22px at 390w), and Pretext splits words mid-glyph
     // ("questio / n"). 34px holds a typical word; wide viewports are unaffected.
+    // Longer words ("announcement") are kept whole per line — see wholeWordWidth.
     restingWidth: Math.max(MIN_RESTING_WIDTH_PX, vw * lerp(0.06, 0.04, t)),
     openWidth: Math.min(vw * lerp(0.85, 0.4, t), 700),
     touchRadius: vw * lerp(0.45, 0.14, t),

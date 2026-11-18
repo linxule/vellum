@@ -1,9 +1,9 @@
-import { prepareWithSegments, walkLineRanges } from '@chenglou/pretext'
+import { prepareWithSegments } from '@chenglou/pretext'
 import { THREADS, type Family, type Voice, getState } from '../content.js'
 import { fontRatioForScale } from './math.js'
 import { computeBalancedWidth } from './path.js'
 import { loomState } from './state.js'
-import { containsRTL, copyCursor, graphemeSegmenter, scriptClass } from './text.js'
+import { containsRTL, graphemeSegmenter, lineEndsWholeWords, scriptClass } from './text.js'
 import { DEFAULT_COLOR, FAMILY_COLOR, FONT, PATH_POINTS, SPARSE_REPEAT_CAP, type ApertureConfig, type Thread } from './types.js'
 
 export function makeThread(
@@ -32,10 +32,8 @@ export function makeThread(
   const text = (baseText + ' ').repeat(repeatCount)
   const prepared = prepareWithSegments(text, FONT, { whiteSpace: 'pre-wrap' })
   const textureLayoutWidth = ac.restingWidth / fontRatioForScale(ac.textureScale)
-  const lineEndCursors = [] as Thread['lineEndCursors']
-  const totalLines = walkLineRanges(prepared, textureLayoutWidth, line => {
-    lineEndCursors.push(copyCursor(line.end))
-  })
+  const lineEndCursors: Thread['lineEndCursors'] = lineEndsWholeWords(prepared, textureLayoutWidth)
+  const totalLines = lineEndCursors.length
 
   const voiceEnds: number[] = []
   let vOff = 0
@@ -139,6 +137,7 @@ export function makeThread(
     sparse,
     _frameColor: [baseColor[0], baseColor[1], baseColor[2]],
     _handDist: Infinity,
+    _proxStep: 0,
     balancedWidth: computeBalancedWidth(baseText, FONT, ac.openWidth),
     _path: Array.from({ length: PATH_POINTS + 1 }, () => ({ x: 0, y: 0 })),
     hasRTL: containsRTL(baseText),

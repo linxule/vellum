@@ -1,5 +1,5 @@
-import type { LayoutCursor, PreparedTextWithSegments } from '@chenglou/pretext'
-import type { Thread } from './types.js'
+import { layoutNextLineRange, type LayoutCursor, type PreparedTextWithSegments } from '@chenglou/pretext'
+import { WHOLE_WORD_MAX_LAYOUT_W, type Thread } from './types.js'
 
 export const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
@@ -36,6 +36,35 @@ export function isLineRTL(prepared: PreparedTextWithSegments, start: LayoutCurso
 
 export function copyCursor(cursor: LayoutCursor): LayoutCursor {
   return { segmentIndex: cursor.segmentIndex, graphemeIndex: cursor.graphemeIndex }
+}
+
+// Pretext splits a word only when it is wider than the whole line, and then
+// only at the start of a line ("documentat / ionx" in a phone-width column).
+// So a line that began on a word boundary and ended inside that same word is
+// exactly that case. Returns the width to re-lay that line at so the word stays
+// whole (the line then runs wider than its column), or 0 when the line stands.
+// Words past the cap (a URL) still wrap.
+export function wholeWordWidth(prepared: PreparedTextWithSegments, start: LayoutCursor, end: LayoutCursor, maxWidth: number): number {
+  if (end.graphemeIndex === 0 || start.graphemeIndex !== 0 || start.segmentIndex !== end.segmentIndex) return 0
+  const wordW = prepared.widths[end.segmentIndex] ?? 0
+  return wordW > maxWidth && wordW <= WHOLE_WORD_MAX_LAYOUT_W ? wordW + 0.01 : 0
+}
+
+/** Line-end cursors for the whole text, keeping words whole per `wholeWordWidth`. */
+export function lineEndsWholeWords(prepared: PreparedTextWithSegments, maxWidth: number): LayoutCursor[] {
+  const ends: LayoutCursor[] = []
+  let cursor: LayoutCursor = { segmentIndex: 0, graphemeIndex: 0 }
+  for (;;) {
+    let line = layoutNextLineRange(prepared, copyCursor(cursor), maxWidth)
+    if (!line) break
+    const wordW = wholeWordWidth(prepared, cursor, line.end, maxWidth)
+    if (wordW > 0) line = layoutNextLineRange(prepared, copyCursor(cursor), wordW) ?? line
+    const end = line.end
+    if (end.segmentIndex === cursor.segmentIndex && end.graphemeIndex === cursor.graphemeIndex) break
+    ends.push(copyCursor(end))
+    cursor = copyCursor(end)
+  }
+  return ends
 }
 
 export function voiceUidAtCursor(thread: Thread, cursor: LayoutCursor): number {
