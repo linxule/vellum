@@ -54,7 +54,7 @@ alongside the `LEVEE_PERMANENCE` wiring above) — copy it into the real (gitign
 }
 ```
 
-## 2. Migrations — apply in order, `0007` through `0014`
+## 2. Migrations — apply in order, `0007` through `0015`
 
 Production is on `0001`–`0006` only (pre-dates this feature arc). Apply the rest in filename
 order — D1 already enforces this, but the sequence below also matches the dependency order
@@ -64,7 +64,7 @@ column `0007` created):
 ```bash
 cd worker
 bun run migrate:local   # dry-run against local D1 first — verify no errors
-bun run migrate         # wrangler d1 migrations apply vellum (applies every unapplied 0001..0014 migration)
+bun run migrate         # wrangler d1 migrations apply vellum (applies every unapplied 0001..0015 migration)
 ```
 
 | Migration | Adds |
@@ -77,6 +77,7 @@ bun run migrate         # wrangler d1 migrations apply vellum (applies every una
 | `0012_echo_guards.sql` | Phase 17/18 post-review — partial `UNIQUE INDEX` on `echo_events` for `sinking` dedup; `rooms.fading_echoed_at`; `warmth_state.{checked_score, warmed_echoed_at}` |
 | `0013_qualified_backfill.sql` | **Hotfix 1** — one-shot `UPDATE` grandfathering `qualified_weavers` for every pre-existing voice `0007` left at its default `0` (see §1's `LEVEE_PERMANENCE` row). Must be applied before (or in the same deploy as) flipping `LEVEE_PERMANENCE` to `'on'` in an environment that has already been running with the flag `'off'`/`'shadow'` since `0007`. |
 | `0014_permanence_bar.sql` | **Permanence bar 5 (2026-11-18)** — one-shot, idempotent recompute of `voices.{distinct_weavers, qualified_weavers}` from `weave_log` under the new rule (5 distinct weavers across 4 clock hours; pre-`0007` rows count once per weaving session). Also resets the raw session counts `0013` left in `qualified_weavers`. **Apply before deploying the worker that reads the bar as 5** — that worker would otherwise honor stale `0013` counts of 5–9 without the clock-hour condition; the previous worker reads `>= 10`, which no recomputed value newly crosses, so migration-first is safe in both directions. Touches neither `permanence_source` nor `rooted_at`. |
+| `0015_visibility_mirror.sql` | **Mirror repair (2026-11-18)** — sets `visibility = 'hidden'` on voices with `is_hidden = 1` that kept the column default `'surfaced'` because they were hidden before `0007`. Six rows on production. Idempotent. |
 
 No down-migrations exist for any of these (D1's migration tool doesn't generate them, and none
 were hand-written) — a rollback that needs to undo schema is a forward-fix migration, not a
@@ -229,7 +230,7 @@ keys on the manifest version.
 
 - **Code**: `cd worker && bunx wrangler deployments list` to find the prior version id, then
   `bunx wrangler rollback [deployment-id]` (Cloudflare's built-in instant rollback — does not touch D1/KV).
-- **D1 migrations**: no down-migrations exist (§2). If `0007`–`0014` need to be undone after a bad
+- **D1 migrations**: no down-migrations exist (§2). If `0007`–`0015` need to be undone after a bad
   deploy, that is a **new forward migration** that drops/reverts the specific columns/tables/indexes,
   not a revert of the migration files already applied — D1 has already recorded them as applied and
   will not re-run or reverse them.

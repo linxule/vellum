@@ -262,3 +262,17 @@ test('an ocean opening counts toward the global write ceiling', async () => {
   expect(t.db.rateLimits.find(r => r.key === 'levee:hour:imprint')?.count).toBe(1)
   await t.ctx.drain()
 })
+
+// The inline paths used to open an ocean whatever SURFACES_OPEN said; only POST /api/surfaces checked.
+test('inline open_surface is ignored with a note while SURFACES_OPEN is unset, and the thought still lands', async () => {
+  const t = doorEnv()
+  const r = await t.fetch(post('/api/imprint', { text: 'a thought that wanted an ocean', families: ['space'], open_surface: opening(1) }, withAgent()))
+  expect(r.status).toBe(201)
+  expect(((await r.json()) as any).note).toContain('open_surface ignored')
+  const sid = await signSessionId('t:opener', t.env.SESSION_SECRET, await deriveAgentId(SECRET))
+  const m = await (await t.fetch(rpc('tools/call', { name: 'leave_imprint', arguments: { text: 'another that wanted one', families: ['space'], open_surface: opening(2) } }, sid, withAgent()))).json() as any
+  expect(m.result.isError).toBeUndefined(); expect(m.result.content[0].text).toContain('open_surface ignored')
+  expect(t.db.surfaces).toHaveLength(0)
+  expect(t.db.voices.map(v => v.surface_id)).toEqual(['vellum', 'vellum'])
+  await t.ctx.drain()
+})

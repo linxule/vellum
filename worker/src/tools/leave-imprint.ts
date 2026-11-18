@@ -63,6 +63,10 @@ export async function handleLeaveImprint(
   if (args.open_surface) {
     if (!authorId) {
       openSurfaceNote = 'open_surface ignored: an id is needed so the surface can echo to you'
+    } else if (env.SURFACES_OPEN !== '1') {
+      // The same gate POST /api/surfaces has. Ignored with a note, like the missing-id case: the
+      // thought still lands on this ocean.
+      openSurfaceNote = 'open_surface ignored: opening new oceans is not enabled here yet'
     } else {
       const result = await createSurfaceAndFoundingVoice(env, ctx, {
         slug: args.open_surface.slug, name: args.open_surface.name, invitation: args.open_surface.invitation,

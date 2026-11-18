@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import { normalizeForHash, contentHash, simhash, hammingDistance, classifyDuplicate } from '../src/levee-content'
 import { doorEnv, post, voice } from './door-mocks'
+import { weaverBucket } from '../src/levee-permanence'
 
 test('normalizeForHash folds case, punctuation, whitespace, and NFKC width', () => {
   expect(normalizeForHash('Hello,  World!!')).toBe('hello world')
@@ -83,9 +84,10 @@ test('REST /api/imprint: 3rd identical write in 60s from one source is REPEATED_
   const t = doorEnv(); t.env.LEVEE_DEDUPE = 'on'
   const hash = await contentHash('caught in a loop')
   const now = Date.now()
+  const net = await weaverBucket('1.2.3.4', t.env.SESSION_SECRET)
   t.db.voices.push(
-    voice('v:1', 'caught in a loop', { content_hash: hash, created_at: now - 2000, trace_id: 'ip:1.2.3.4' }),
-    voice('v:2', 'caught in a loop', { content_hash: hash, created_at: now - 1000, trace_id: 'ip:1.2.3.4' }),
+    voice('v:1', 'caught in a loop', { content_hash: hash, created_at: now - 2000, writer_bucket: net }),
+    voice('v:2', 'caught in a loop', { content_hash: hash, created_at: now - 1000, writer_bucket: net }),
   )
   const r = await t.fetch(post('/api/imprint', { text: 'caught in a loop', families: ['attention'] }))
   expect(r.status).toBe(429)
@@ -141,4 +143,40 @@ test('an ordinary write with no near neighbor is never damped', async () => {
   expect(r.status).toBe(201)
   const created = t.db.voices.find(v => v.text === 'a thought with nothing nearby at all')!
   expect(created.damped).toBe(0)
+})
+
+// 2026-11-18: sessionless voices are stored with trace_id NULL, and every such row used to be read
+// as the caller's own address, so unrelated anonymous writers were pooled into "one source".
+test('the same text from three different networks inside a minute is three successes, never REPEATED_WRITE', async () => {
+  const t = doorEnv(); t.env.LEVEE_DEDUPE = 'on'
+  for (const ip of ['1.2.3.4', '5.6.7.8', '9.10.11.12']) {
+    const r = await t.fetch(post('/api/imprint', { text: 'a thought three strangers share', families: ['attention'] }, { 'cf-connecting-ip': ip }))
+    expect(r.status).toBe(201)
+  }
+  expect(t.db.voices).toHaveLength(3)
+  await t.ctx.drain()
+})
+
+test('the same text three times from one network is still refused the third time, through real writes', async () => {
+  const t = doorEnv(); t.env.LEVEE_DEDUPE = 'on'
+  const send = () => t.fetch(post('/api/imprint', { text: 'caught in a real loop', families: ['attention'] }))
+  expect((await send()).status).toBe(201)
+  expect((await send()).status).toBe(201)
+  const third = await send()
+  expect(third.status).toBe(429); expect(((await third.json()) as any).error_code).toBe('REPEATED_WRITE')
+  expect(t.db.voices).toHaveLength(2)
+  await t.ctx.drain()
+})
+
+test('a voice with neither a session nor a network bucket is nobody else\'s repeat', async () => {
+  const hash = await contentHash('an old unkeyed line')
+  const t = doorEnv(); t.env.LEVEE_DEDUPE = 'on'
+  const now = Date.now()
+  t.db.voices.push(
+    voice('v:1', 'an old unkeyed line', { content_hash: hash, created_at: now - 2000 }),
+    voice('v:2', 'an old unkeyed line', { content_hash: hash, created_at: now - 1000 }),
+  )
+  const r = await t.fetch(post('/api/imprint', { text: 'an old unkeyed line', families: ['attention'] }))
+  expect(r.status).toBe(201)
+  await t.ctx.drain()
 })

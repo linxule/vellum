@@ -272,12 +272,16 @@ export async function admitWrite(env: Env, ctx: AdmitContext, text: string): Pro
       const newHash = await contentHash(text)
       const newSimhash = simhash(text)
       const since = Date.now() - LEVEE.duplicate.recentWindowMs
-      const source = ctx.sessionId ?? `ip:${ctx.ip}`
+      // "One source" is the MCP session, else the writer's coarse network bucket. A sessionless
+      // voice (REST, stateless MCP) is stored with trace_id NULL; until 2026-11-18 every such row
+      // was read as the CALLER's own address, so three unrelated anonymous writers posting the
+      // same text inside a minute had the third refused. A row with neither key is its own source.
+      const source = ctx.sessionId ?? `net:${await weaverBucket(ctx.ip, env.SESSION_SECRET)}`
       const recentRows = await env.DB.prepare(
-        `SELECT id, content_hash, simhash, created_at, COALESCE(trace_id, 'ip:' || ?) as source
+        `SELECT id, content_hash, simhash, created_at, COALESCE(trace_id, 'net:' || writer_bucket, 'voice:' || id) as source
          FROM voices WHERE created_at > ? AND content_hash IS NOT NULL AND is_hidden = FALSE
          ORDER BY created_at DESC LIMIT ?`,
-      ).bind(ctx.ip, since, LEVEE.duplicate.recentLimit).all<{ id: string; content_hash: string | null; simhash: string | null; created_at: number; source: string }>()
+      ).bind(since, LEVEE.duplicate.recentLimit).all<{ id: string; content_hash: string | null; simhash: string | null; created_at: number; source: string }>()
       const classification = classifyDuplicate(newHash, newSimhash, source, recentRows.results ?? [])
       if (classification.kind === 'repeated' && dedupeMode === 'on') {
         return { ok: false, code: 'REPEATED_WRITE', status: 429, message: 'The same text arrived repeatedly from one source. Nothing was lost — the earlier one is still here.', extra: { retry_after: LEVEE.duplicate.repeatedWindowS, source_id: classification.existingId } }

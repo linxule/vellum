@@ -328,12 +328,12 @@ export class DoorD1 extends MockD1 {
       return { results: [...weaverSet].map(w => ({ weaver_key: w, created_at: Date.now() })) as T[] }
     }
     if (n.includes('FROM voices WHERE created_at > ?') && n.includes('content_hash')) {
-      const ip = String(args[0]); const since = Number(args[1])
+      const since = Number(args[0])
       const rows = this.voices
         .filter(v => !v.is_hidden && v.content_hash && v.created_at > since)
         .sort((a, b) => b.created_at - a.created_at)
-        .slice(0, Number(args[2] ?? 500))
-        .map(v => ({ id: v.id, content_hash: v.content_hash, simhash: v.simhash, created_at: v.created_at, source: v.trace_id ?? `ip:${ip}` }))
+        .slice(0, Number(args[1] ?? 500))
+        .map(v => ({ id: v.id, content_hash: v.content_hash, simhash: v.simhash, created_at: v.created_at, source: v.trace_id ?? (v.writer_bucket ? `net:${v.writer_bucket}` : `voice:${v.id}`) }))
       return { results: rows as T[] }
     }
     // Phase 16 admin routes
@@ -577,6 +577,7 @@ export class DoorD1 extends MockD1 {
           this.voices.push(voice(String(a[0]), String(a[1]), {
             language: String(a[2]), created_at: Number(a[3]), trace_id: a[4] as string | null, model: a[5] as string | null,
             declared_model: a[6] as string | null, weave_from: a[7] as string ?? null,
+            content_hash: (a[8] as string | null | undefined) ?? null, simhash: (a[9] as string | null | undefined) ?? null,
             visibility: (a[10] as VoiceRow['visibility'] | undefined) ?? 'surfaced', is_hidden: Number(a[11] ?? 0),
             author_id: (a[12] as string | null | undefined) ?? null,
             writer_bucket: (a[13] as string | null | undefined) ?? null, damped: Number(a[14] ?? 0),
