@@ -47,7 +47,7 @@ bunx tsc --noEmit                     # TYPE-CHECK — bun build does NOT
 cd app && bunx vite build             # → app/dist/mcp-app.html (gitignored)
 
 # Pre-deploy gate (use this, not a bespoke chain)
-bun run verify                        # loom tests + root tsc + ext-app build + worker tests + worker/app tsc + renderer build
+bun run verify                        # root tsc + loom/script tests + ext-app build + worker tests + worker/app tsc + renderer build
 
 # Deploy (guarded: scripts/deploy.ts refuses a dirty tree, a HEAD missing origin/main, or an
 # unpushed HEAD; then rebuilds renderer + ext-app and labels the deploy "<version> <sha> <subject>")
@@ -230,6 +230,7 @@ Storage: **D1** (voices, voice_families, weave_log, warmth_state, rate_limits, a
 - `layoutNextLine(prepared, cursor, width)` → one line at a time, advances cursor
 - `walkLineRanges(prepared, width, callback)` → iterate all lines for cursor caching
 - **Cursor is `{ segmentIndex, graphemeIndex }` — MUST be copied (not shared) between uses.** This is the most common way to break layout without a type error.
+- **Pinned at 0.0.9; 1.0.0 is held** (Dependabot ignores the major). It swaps `layoutNextLine`'s arguments (old-order calls loop forever), removes `segLevels`, and makes `breakableFitAdvances` private. Migration list: README, "Pretext 1.0.0 is held".
 
 ## Design model
 

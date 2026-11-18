@@ -112,7 +112,7 @@ gitignored):
 
 ```bash
 cd /Users/xulelin/Documents/Apps/mcp/vellum
-bun run verify   # loom + root tsc + ext-app build + worker tests + worker/app tsc + renderer build — MUST be green
+bun run verify   # root tsc + loom/script tests + ext-app build + worker tests + worker/app tsc + renderer build — MUST be green
 cd worker
 bun run migrate  # §2 — before the code deploy, so new columns/tables exist when the new code runs
 bun run deploy   # predeploy rebuilds renderer + ext-app automatically, then wrangler deploy

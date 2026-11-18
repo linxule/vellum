@@ -8,6 +8,10 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    # The gate takes about 40 seconds. A synchronous infinite loop in a test
+    # (Pretext 1.0.0's swapped layoutNextLine arguments, 2026-11-18) cannot be
+    # stopped by bun's per-test timeout and otherwise runs to the 6-hour limit.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
