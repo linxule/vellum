@@ -16,7 +16,9 @@ export function makeThread(
   scroll: number,
   warmth: number,
 ): Thread {
-  const baseText = voices.map(v => v.text).join('')
+  // Voices are separated by a space. Joining with '' glued every boundary shut
+  // ("outline.And", "coat.A digest") — the separator belongs to the voice before it.
+  const baseText = voices.map(v => v.text).join(' ')
   const targetLength = 4000
   const fillRepeat = Math.min(200, Math.max(3, Math.ceil(targetLength / Math.max(1, baseText.length))))
   // Texture honesty (Phase 14): a lone voice tiled wall-to-wall reads as a glitch
@@ -37,8 +39,8 @@ export function makeThread(
 
   const voiceEnds: number[] = []
   let vOff = 0
-  for (const v of voices) { vOff += v.text.length; voiceEnds.push(vOff) }
-  const baseLen = vOff + 1
+  for (const v of voices) { vOff += v.text.length + 1; voiceEnds.push(vOff) }
+  const baseLen = baseText.length + 1
 
   const segVoiceUid: number[] = []
   let segCharPos = 0

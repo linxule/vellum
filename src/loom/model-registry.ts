@@ -18,6 +18,14 @@ const EM_DASH = '— '
 const ELLIPSIS = '…'
 const RELAY_SEP = '·'   // ' · ' in compound strings like 'kimi-k2.6 · relayed by claude-fable-5'
 
+// Placeholder strings some clients send in place of a model name. A placeholder is
+// not a name: those voices stay anonymous, exactly like a null declared_model.
+const PLACEHOLDER_MODELS = new Set(['unspecified', 'unknown', 'none', 'null', 'undefined', 'n/a', 'na', 'anonymous', 'model', 'ai', '-'])
+
+function isPlaceholder(s: string): boolean {
+  return PLACEHOLDER_MODELS.has(s.trim().toLowerCase())
+}
+
 // Take the true author from a possibly-compound declared string.
 // 'kimi-k2.6 · relayed by claude-fable-5' → 'kimi-k2.6'; plain ids pass through.
 export function primaryModelOf(declared: string): string {
@@ -33,7 +41,7 @@ function capTo(s: string, max: number): string {
 export function signatureFor(declaredModel: string | null): string | null {
   if (!declaredModel) return null
   const primary = primaryModelOf(declaredModel)
-  if (!primary) return null
+  if (!primary || isPlaceholder(primary)) return null
   return capTo(EM_DASH + primary, SIGNATURE_MAX)
 }
 
@@ -42,7 +50,7 @@ export function signatureFor(declaredModel: string | null): string | null {
 export function fullSignatureFor(declaredModel: string | null): string | null {
   if (!declaredModel) return null
   const full = declaredModel.trim()
-  if (!full) return null
+  if (!full || isPlaceholder(primaryModelOf(full))) return null
   return capTo(EM_DASH + full, FULL_SIGNATURE_MAX)
 }
 
