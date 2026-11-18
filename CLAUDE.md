@@ -39,6 +39,7 @@ Live at `vellum.linxule.com` (custom) and `vellum.linxule.workers.dev`. MCP endp
 ```bash
 # Tests (bun:test)
 bun test tests/loom/                  # renderer tests (under tests/loom/)
+bun test tests/scripts/               # deploy-guard tests
 cd worker && bun test tests/          # worker tests (under worker/tests/)
 bunx tsc --noEmit                     # TYPE-CHECK — bun build does NOT
 
@@ -48,8 +49,9 @@ cd app && bunx vite build             # → app/dist/mcp-app.html (gitignored)
 # Pre-deploy gate (use this, not a bespoke chain)
 bun run verify                        # loom tests + root tsc + ext-app build + worker tests + worker/app tsc + renderer build
 
-# Deploy (predeploy rebuilds renderer + ext-app automatically)
-bun run deploy                        # delegates to cd worker && bun run deploy
+# Deploy (guarded: scripts/deploy.ts refuses a dirty tree, a HEAD missing origin/main, or an
+# unpushed HEAD; then rebuilds renderer + ext-app and labels the deploy "<version> <sha> <subject>")
+bun run deploy                        # delegates to cd worker && bun run deploy. Never `wrangler deploy` directly.
 
 # Worker dev / logs / migrations
 cd worker

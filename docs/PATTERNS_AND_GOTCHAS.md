@@ -240,6 +240,14 @@ Comparing these modes by screenshot needs care: the animation isn't frame-determ
 
 `paintLoom` clears at alpha .18 — an 82% trail per frame is the ocean's smear. Under the lens, magnified text is the fastest-moving text on screen and its trail printed an offset ghost copy over the lines being read. A second radial clear (`LENS_STILL_ALPHA` × proximity) centred on the lens shortens trails there only. Separately, a non-primary line whose spine runs inside the primary's opened span fades by `NEIGHBOR_LENS_FADE` × depth-inside (the pre-existing width squeeze floors at resting width, so it never cleared crossings or a voice shared by two families).
 
+### Whole words in narrow columns (2026-11-18)
+
+The 34px resting floor (`MIN_RESTING_WIDTH_PX`) holds a typical word, not a long one: at 390w "announcement" and "documentation" still split, and at ~600w so did "Somewhere". Pretext splits a word only when it is wider than the whole line, and then only at the start of a line — so a line that starts on a word boundary and ends inside that same word (`end.graphemeIndex > 0`, same segment) is exactly that case. `wholeWordWidth` (`text.ts`) detects it and returns the word's width; the caller re-lays that one line at that width and lets it run wider than its column (centred on the spine). Both layout sites use it and must stay in step: `lineEndsWholeWords` (the `lineEndCursors` cache in `makeThread` / `resizeLoom`) and the line loop in `render/thread.ts`. A cache built without the rule hands the renderer a mid-word start cursor. Words wider than `WHOLE_WORD_MAX_LAYOUT_W` (123 layout units — the resting column at 1440w, so wide viewports are unchanged) still wrap: a URL must not widen a column to its own length.
+
+### Lens opening: the clear follows the motion (2026-11-18)
+
+`LENS_STILL_ALPHA` alone leaves a doubled copy for the 2–3 s the lens takes to open: while proximity eases, every line re-wraps frame by frame, so the trail is stacked copies of different wraps, not a smear. `advanceLoom` records `thread._proxStep` (|Δproximity| per 60fps frame); `paintLoom` raises the lens clear toward `LENS_OPENING_ALPHA` while that step is at or above `LENS_SETTLE_STEP`, and it relaxes to `LENS_STILL_ALPHA × proximity` as the lens settles. The clear uses the background's own colour at the lens's height (not the gradient midpoint), or at opening strength it would show as a disc. `_proxStep` never reaches exactly 0 under a still hand — the spine keeps swaying — so the settled clear sits slightly above its resting value. State is written in `advanceLoom` only; `paintLoom` stays draw-only.
+
 ## Renderer resonance (Phase 9.1 F6 → Phase 10 per-voice)
 
 ### Per-voice resonance with canonical voiceId (Phase 10)

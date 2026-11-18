@@ -6,7 +6,7 @@ import { diveGaussian, pathXAtY, widthAtY } from '../path.js'
 import { resolvePhantomTarget } from '../phantom.js'
 import { updateResonances } from '../resonance.js'
 import { loomState } from '../state.js'
-import { copyCursor, isLineRTL, voiceGroupIndex, voiceSpanForLine } from '../text.js'
+import { copyCursor, isLineRTL, voiceGroupIndex, voiceSpanForLine, wholeWordWidth } from '../text.js'
 import { NEIGHBOR_LENS_FADE, AFTERGLOW_DIVE_GATE, AFTERGLOW_SILVER, BREATH_AMP, BREATH_SPATIAL, DEPTH_ALPHA, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, HL_FONT_BOOST, SIGNATURE_ALPHA, SIGNATURE_GRAY_MIX, SIGNATURE_RATIO, SPARSE_EDGE_FADE_PX, WARM_BASE_ALPHA, WARM_DIVE_BOOST, ZERO_CURSOR, type ApertureConfig, type Thread } from '../types.js'
 import { depthColor, signatureGray, threadColor } from '../color.js'
 import { drawLine, drawLineSegmented } from './line.js'
@@ -213,6 +213,10 @@ export function renderThread(
       ln = layoutNextLine(thread.prepared, cursor, layoutWidth)
       if (!ln) break
     }
+    // A long word alone on a narrow line would be split mid-word; re-lay that
+    // line at the word's width and let it run wider than the column.
+    const wordW = wholeWordWidth(thread.prepared, lineStart, ln.end, layoutWidth)
+    if (wordW > 0) ln = layoutNextLine(thread.prepared, copyCursor(lineStart), wordW) ?? ln
     cursor = ln.end
     const rtl = thread.hasRTL && isLineRTL(thread.prepared, lineStart, ln.end)
     const lineVoice = voiceSpanForLine(thread, lineStart, cursor)
@@ -231,7 +235,8 @@ export function renderThread(
       x,
       y,
       lineH: lineLineH,
-      width,
+      // A widened line is centred on the spine, not hung off the column's left edge.
+      width: wordW > 0 ? Math.max(width, ln.width * lineFontRatio) : width,
       contentWidth: ln.width,
       lineStart,
       lineEnd: copyCursor(cursor),

@@ -2,7 +2,7 @@
 
 Implemented and deployed 2026-09-30 following Xule's request to use the first ten removed spam messages as specimens and prevent future spam, then explicit deployment approval. Production version: `287e2d46-c3ae-4f90-9a66-31628b9091f5`, with `SPAM_FILTER=on`.
 
-That deploy was built from an uncommitted working tree on a local `main` nine commits behind `origin/main`, so it also rolled production back from 0.2.1 to 0.2.0. The filter entered git on 2026-11-18 (PR #16), unchanged at version `2026-09-30.1`, on top of 0.2.1. Deploy from a clean tree that matches `origin`.
+That deploy was built from an uncommitted working tree on a local `main` nine commits behind `origin/main`, so it also rolled production back from 0.2.1 to 0.2.0. The filter entered git on 2026-11-18 (PR #16), unchanged at version `2026-09-30.1`, on top of 0.2.1. `bun run deploy` now refuses a tree that is dirty, behind `origin/main`, or unpushed (`scripts/deploy.ts`).
 
 ## Policy
 

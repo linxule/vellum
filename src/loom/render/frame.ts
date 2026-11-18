@@ -4,7 +4,7 @@ import { depthLerp, frameMix } from '../math.js'
 import { drivePhantomHover, resolvePhantomTarget } from '../phantom.js'
 import { computePath, pathXAtY } from '../path.js'
 import { loomState } from '../state.js'
-import { DEFAULT_COLOR, DEPTH_BRIGHTNESS, FRAME_TIME, LENS_STILL_ALPHA, WARMTH_EASE_K, type MouseState } from '../types.js'
+import { DEFAULT_COLOR, DEPTH_BRIGHTNESS, FRAME_TIME, LENS_OPENING_ALPHA, LENS_SETTLE_STEP, LENS_STILL_ALPHA, WARMTH_EASE_K, type MouseState } from '../types.js'
 import { renderLoomTree } from '../loom-view.js'
 import { renderThread } from './thread.js'
 
@@ -199,8 +199,10 @@ export function advanceLoom(vw: number, vh: number, now: number, dt: number, mou
     const target = thread === loomState.touchedThread
       ? Math.max(0, 1 - thread._handDist / ac.touchRadius)
       : Math.max(0, (1 - thread._handDist / (ac.touchRadius * 2)) * 0.25)
+    const proxBefore = thread.proximity
     thread.proximity += (target - thread.proximity) * frameMix(target > thread.proximity ? 0.022 : 0.015, frameRatio)
     if (thread.proximity < 0.005) thread.proximity = 0
+    thread._proxStep = Math.abs(thread.proximity - proxBefore) / Math.max(frameRatio, 0.001)
 
     let relTarget = 0
     if (loomState.touchedThread && thread !== loomState.touchedThread) {
@@ -335,14 +337,23 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
   if (lensThread && lensThread.proximity > 0.05 && mouse.x > -1000) {
     const lx = pathXAtY(lensThread._path, mouse.y)
     const lr = Math.min(ac.openWidth * 0.75, vh * 0.6)
+    // Clear with the background's own colour at the lens, not the column's
+    // midpoint: at opening strength a mismatched patch would show as a disc.
+    const gy = Math.max(0, Math.min(1, mouse.y / vh))
     const midR = Math.round((topR + botR) / 2)
     const midG = Math.round((topG + botG) / 2)
     const midB = Math.round((topB + botB) / 2)
-    const la = LENS_STILL_ALPHA * lensThread.proximity
+    const gt = gy < 0.6 ? gy / 0.6 : (gy - 0.6) / 0.4
+    const lensR = Math.round(gy < 0.6 ? topR + (midR - topR) * gt : midR + (botR - midR) * gt)
+    const lensG = Math.round(gy < 0.6 ? topG + (midG - topG) * gt : midG + (botG - midG) * gt)
+    const lensB = Math.round(gy < 0.6 ? topB + (midB - topB) * gt : midB + (botB - midB) * gt)
+    const prox = lensThread.proximity
+    const opening = Math.min(1, lensThread._proxStep / LENS_SETTLE_STEP) * Math.min(1, prox * 4)
+    const la = LENS_STILL_ALPHA * prox + (LENS_OPENING_ALPHA - LENS_STILL_ALPHA * prox) * opening
     const still = ctx.createRadialGradient(lx, mouse.y, 0, lx, mouse.y, lr)
-    still.addColorStop(0, `rgba(${midR},${midG},${midB},${la})`)
-    still.addColorStop(0.55, `rgba(${midR},${midG},${midB},${la * 0.6})`)
-    still.addColorStop(1, `rgba(${midR},${midG},${midB},0)`)
+    still.addColorStop(0, `rgba(${lensR},${lensG},${lensB},${la})`)
+    still.addColorStop(0.55, `rgba(${lensR},${lensG},${lensB},${la * (0.6 + 0.35 * opening)})`)
+    still.addColorStop(1, `rgba(${lensR},${lensG},${lensB},0)`)
     ctx.fillStyle = still
     ctx.fillRect(lx - lr, mouse.y - lr, lr * 2, lr * 2)
   }
