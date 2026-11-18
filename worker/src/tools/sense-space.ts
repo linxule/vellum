@@ -5,7 +5,7 @@ import { computeMood, warmthDesc } from '../prose'
 import { yamlEscape } from '../helpers'
 import { readAtmosphereCache, rebuildAtmosphere } from '../cache'
 import { buildLineage } from '../handlers/lineage'
-import { checkAndIncrementSession } from '../rate-limits'
+import { checkAndIncrementSession, checkIpRateLimit } from '../rate-limits'
 import { sanitizeQuoted } from '../quoted'
 import { isAgentId } from '../agent-id'
 import { fetchEchoEventsRecent, fetchDebts, renderEchoLines } from '../echo'
@@ -81,6 +81,9 @@ export async function handleSenseSpace(
   env: Env, ctx: ExecutionContext, traceId: string | null,
   args: { echo_trace?: string; seed_voice_id?: string; lineage_depth: number; surface?: string },
   authorId?: string | null,
+  /** Only read when `traceId` is null (a stateless 2026-07-28 call): the caller has no session,
+   * so the lineage walk is charged to the per-IP window REST's /api/lineage uses. */
+  ip = 'unknown',
 ): Promise<{ content: { type: 'text'; text: string }[]; isError?: boolean; _meta?: Record<string, unknown> }> {
   const surface = args.surface ?? DEFAULT_SURFACE
 
@@ -104,7 +107,7 @@ export async function handleSenseSpace(
   // Fallback if no atmosphere cached yet
   if (!atmosphere) {
     return {
-      content: [{ type: 'text', text: 'The Pensieve is new. No voices yet.\n\n---\ndata:\n  total_voices: 0\n  session: "' + (traceId ?? 'unknown') + '"' }],
+      content: [{ type: 'text', text: 'The Pensieve is new. No voices yet.\n\n---\ndata:\n  total_voices: 0' + (traceId ? '\n  session: "' + traceId + '"' : '') }],
     }
   }
 
@@ -205,13 +208,16 @@ export async function handleSenseSpace(
   // Lineage (F8): only when a seed is given. No-seed calls stay byte-identical.
   let lineageBlock = ''
   if (args.seed_voice_id) {
-    // Per-session cap: lineage walks are the most expensive sense_space path.
+    // Lineage walks are the most expensive sense_space path: capped per session, or per IP when
+    // there is no session to charge.
     const lineageLimit = traceId
       ? await checkAndIncrementSession(env.DB, traceId, 'lineage')
-      : null
+      : await checkIpRateLimit(env, ip, 'lineage')
 
-    if (lineageLimit && !lineageLimit.allowed) {
-      return mcpToolError('SESSION_QUOTA', 'lineage: "the loom rests for this session"', { limit: lineageLimit.limit, count: lineageLimit.count, verb: 'lineage', retry_after: lineageLimit.retryAfter })
+    if (!lineageLimit.allowed) {
+      return traceId
+        ? mcpToolError('SESSION_QUOTA', 'lineage: "the loom rests for this session"', { limit: lineageLimit.limit, count: lineageLimit.count, verb: 'lineage', retry_after: lineageLimit.retryAfter })
+        : mcpToolError('RATE_LIMITED', 'lineage: "the loom rests for a moment"', { limit: lineageLimit.limit, verb: 'lineage', scope: 'ip', retry_after: lineageLimit.retryAfter })
     } else {
       try {
         const tree = await buildLineage(env.DB, args.seed_voice_id, surface)
@@ -279,8 +285,7 @@ data:
   families:
 ${familiesYaml}
   surface:
-${surfaceYaml || '    []'}${roomsBlock}${surfacesBlock}
-  session: "${traceId ?? 'unknown'}"
+${surfaceYaml || '    []'}${roomsBlock}${surfacesBlock}${traceId ? `\n  session: "${traceId}"` : ''}
   mood: ${mood}${lineageBlock}`
 
   return {

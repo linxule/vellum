@@ -20,7 +20,7 @@ Snapshot refreshed during Phase 9.6 against live version `e2ccf9eb-80e0-471b-92b
 - Worker upload: keep dry-run total upload within `395-405 KiB`; current baseline is `399.72 KiB` total and about `98.8 KiB` gzip.
 - Worker startup time: no repo-local metric is wired yet; use the Workers dashboard and treat the normal band as low double-digit milliseconds. Sustained movement into `100ms+` territory is a red flag.
 - Expected smoke output:
-  `6/6 passed`, `/api/state` shows `6 threads`, `/ext-app` shows `0 sentinels`, `/mcp` ping succeeds, malformed `/mcp` returns `400 + -32700`, malformed `/api/witness` returns `400`, and the bundle check reports `80198 bytes ≤ 82000`.
+  `7/7 passed`, `/api/state` shows `6 threads`, `/ext-app` shows `0 sentinels`, `/mcp` ping succeeds, stateless `/mcp` `server/discover` returns `200`, malformed `/mcp` returns `400 + -32700`, malformed `/api/witness` returns `400`, and the bundle check reports `80198 bytes ≤ 82000`.
 
 ## Observability surfaces
 
@@ -38,7 +38,8 @@ Snapshot refreshed during Phase 9.6 against live version `e2ccf9eb-80e0-471b-92b
 - Checks, in order:
   `/api/state` returns `200`, parses, exposes `6` threads, and contains at least one voice across those threads.
   `/ext-app` returns `200`, contains zero `__VELLUM_BASE_URL__` sentinels, and includes the target hostname at least once.
-  `/mcp` ping returns `200` with a valid JSON-RPC `result`.
+  `/mcp` ping returns `200` with a valid JSON-RPC `result` (session path: `initialize` under the newest legacy revision, then `ping`).
+  `/mcp` stateless `server/discover` (revision `2026-07-28`, no session) returns `200` with `supportedVersions` containing `2026-07-28`, `resultType: "complete"`, and no `Mcp-Session-Id` header.
   `/mcp` malformed body returns `400` with `error.code === -32700`.
   `/api/witness` malformed body returns `400` with `error === 'Invalid witness event'`.
   `dist/main.js` stays at or below `84000` bytes locally.

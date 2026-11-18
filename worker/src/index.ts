@@ -28,8 +28,9 @@ function handleCors(): Response {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
       // X-Vellum-Agent (Phase 17 identity) and Idempotency-Key (Phase 17 Part B) join the
-      // Phase 16 CORS allow-list.
-      'Access-Control-Allow-Headers': 'Content-Type, Mcp-Session-Id, MCP-Protocol-Version, X-Admin-Key, X-Vellum-Agent, Authorization, Idempotency-Key',
+      // Phase 16 CORS allow-list. Mcp-Method and Mcp-Name are the request-metadata headers MCP
+      // revision 2026-07-28 requires on every POST.
+      'Access-Control-Allow-Headers': 'Content-Type, Mcp-Session-Id, MCP-Protocol-Version, Mcp-Method, Mcp-Name, X-Admin-Key, X-Vellum-Agent, Authorization, Idempotency-Key',
       'Access-Control-Max-Age': '86400',
     },
   })
@@ -43,6 +44,8 @@ function withCdnRevalidate(response: Response): Response {
 
 // --- Security posture ---
 // POST /mcp         : HMAC session (45min), 20 init/hr per IP, 7 imprints + 5 weaves + 15 witnesses per session
+//                     (revisions up to 2025-11-25); 2026-07-28 requests are stateless and share REST's
+//                     per-IP / per-id buckets below
 // GET  /api/state   : public, 60/60s per IP, ?refresh=1 gated behind X-Admin-Key, 10min KV cache
 // GET  /api/lineage : public, 20/60s per IP, 60s cache-control
 // GET  /api/voices  : public, 30/60s per IP, 30s cache-control
@@ -53,7 +56,9 @@ function withCdnRevalidate(response: Response): Response {
 // *    /api/admin/* : X-Admin-Key required, no CORS (server-side only)
 
 // POST admission   : 4096 bytes (MCP 16384), header cap + counting stream before JSON parsing
-// MCP transport    : every post-init method verifies session + protocol; Origin mismatches log only behind MCP_ORIGIN_LOG_ONLY
+// MCP transport    : every post-init method verifies session + protocol; a request with per-request _meta
+//                    protocolVersion skips the session and verifies version, clientCapabilities and the
+//                    Mcp-Method / Mcp-Name header mirror instead; Origin mismatches log only behind MCP_ORIGIN_LOG_ONLY
 // GET/HEAD         : discovery/docs + write schemas are public; known-route wrong methods return 405 (MCP GET unchanged)
 
 // --- Main router ---

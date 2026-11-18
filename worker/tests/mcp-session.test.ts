@@ -1,6 +1,6 @@
 import { expect, test, spyOn } from 'bun:test'
 import { doorEnv, rpc, session, voice } from './door-mocks'
-import { PROTOCOL_VERSIONS } from '../src/contract'
+import { LEGACY_PROTOCOL_VERSIONS as PROTOCOL_VERSIONS } from '../src/contract'
 import { signSessionId, verifySessionId } from '../src/hmac'
 
 const methods=[['notifications/initialized',{}],['ping',{}],['tools/list',{}],['tools/call',{name:'leave_imprint',arguments:{text:' x ',families:['attention']}}],['resources/list',{}],['resources/templates/list',{}],['resources/read',{uri:'ui://vellum/pensieve.html'}]] as const
