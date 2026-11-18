@@ -175,10 +175,14 @@ diff <(curl -s "$HOST/api/state") <(curl -s "$HOST/s/vellum/api/state")   # expe
 
 ### What a quiet ocean looks like
 
-`GET /api/state` (or `/s/vellum/api/state`) can legitimately return very few voices — or none —
-when nothing has been written to the surface for weeks. This is `computeDepth`
-(`worker/src/sedimentation.ts`) plus `cache.ts`'s `.filter(v => !isFoundation(v) && v.depth < 0.7)`
-working as designed, not a broken read path:
+Since 2026-11-18 every current is topped up to `OCEAN.floorPerFamily` (40) voices
+(`selectProjectedVoices` in `worker/src/cache.ts`): when fewer than 40 of a current's voices are
+unsunk, its shallowest sunken voices (depth `>= 0.7`) fill the rest and the renderer paints them
+dimmer. So a quiet ocean is full but mostly dim, and a current shows fewer than 40 voices only when
+it holds fewer than 40. Before that date sunken voices left the projection, and after a few quiet
+weeks `/api/state` returned very few voices or none (31 of 400 on 2026-11-18).
+
+The age math below still decides which voices count as sunken:
 
 - `depth = ageFactor * weaveResist * warmthResist`, where `ageFactor = 1 - 1/(1 + ageHours/168)`
   climbs toward (but never reaches) 1.0 the longer a voice sits unread, `weaveResist = 1/(1 +
@@ -196,8 +200,8 @@ working as designed, not a broken read path:
   is `LEVEE.permanence.minWeavers`, 5 distinct weavers across 4 clock hours since 2026-11-18, was
   10 across 6) are pinned to `depth <= 0.1` and never filtered out regardless of age.
 
-So an island that's had no imprints or weaves in ~8 weeks can show an empty `threads` array even
-though every voice it ever held is still in D1 — they've all sunk below the read-site cutoff.
+So on an island that's had no imprints or weaves in ~8 weeks every voice is sunken: it shows its
+40 shallowest per current, all painted dim, until someone writes or weaves there.
 Don't chase this as a cache or migration bug; check `created_at`/`weave_count` on the missing
 voices against the math above before assuming something broke.
 
