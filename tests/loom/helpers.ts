@@ -38,7 +38,18 @@ export class CanvasContextStub {
     return new GradientStub()
   }
 
-  fillRect() {}
+  // Page-space box of every fillRect, through the current transform.
+  fillRectCalls: { x: number, y: number, w: number, h: number, fillStyle: string | GradientStub }[] = []
+  fillRect(x: number, y: number, w: number, h: number) {
+    const m = this.m
+    this.fillRectCalls.push({ x: m.a * x + m.e, y: m.d * y + m.f, w: m.a * w, h: m.d * h, fillStyle: this.fillStyle })
+  }
+  private saved: { a: number, b: number, c: number, d: number, e: number, f: number }[] = []
+  save() { this.saved.push({ ...this.m }) }
+  restore() { const m = this.saved.pop(); if (m) this.m = m }
+  // Axis-aligned only: enough for the lens clear's translate + scale.
+  translate(x: number, y: number) { this.m = { ...this.m, e: this.m.a * x + this.m.e, f: this.m.d * y + this.m.f } }
+  scale(x: number, y: number) { this.m = { ...this.m, a: this.m.a * x, d: this.m.d * y } }
   beginPath() {}
   moveTo() {}
   lineTo() {}

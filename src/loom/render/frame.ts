@@ -4,7 +4,7 @@ import { depthLerp, frameMix } from '../math.js'
 import { drivePhantomHover, resolvePhantomTarget } from '../phantom.js'
 import { computePath, pathXAtY } from '../path.js'
 import { loomState } from '../state.js'
-import { DEFAULT_COLOR, DEPTH_BRIGHTNESS, FRAME_TIME, LENS_OPENING_ALPHA, LENS_SETTLE_STEP, LENS_STILL_ALPHA, WARMTH_EASE_K, type MouseState } from '../types.js'
+import { DEFAULT_COLOR, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, FRAME_TIME, LENS_CLEAR_SIGMAS, LENS_OPENING_ALPHA, LENS_SETTLE_STEP, LENS_STILL_ALPHA, WARMTH_EASE_K, type MouseState } from '../types.js'
 import { renderLoomTree } from '../loom-view.js'
 import { renderThread } from './thread.js'
 
@@ -337,6 +337,9 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
   if (lensThread && lensThread.proximity > 0.05 && mouse.x > -1000) {
     const lx = pathXAtY(lensThread._path, mouse.y)
     const lr = Math.min(ac.openWidth * 0.75, vh * 0.6)
+    // Taller than wide where the column is narrow (see LENS_CLEAR_SIGMAS).
+    const lry = Math.max(lr, Math.min(vh * 0.6, LENS_CLEAR_SIGMAS * DIVE_SIGMA_LINES * ac.diveLineH))
+    const tall = lry > lr + 0.5
     // Clear with the background's own colour at the lens, not the column's
     // midpoint: at opening strength a mismatched patch would show as a disc.
     const gy = Math.max(0, Math.min(1, mouse.y / vh))
@@ -350,12 +353,22 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
     const prox = lensThread.proximity
     const opening = Math.min(1, lensThread._proxStep / LENS_SETTLE_STEP) * Math.min(1, prox * 4)
     const la = LENS_STILL_ALPHA * prox + (LENS_OPENING_ALPHA - LENS_STILL_ALPHA * prox) * opening
-    const still = ctx.createRadialGradient(lx, mouse.y, 0, lx, mouse.y, lr)
+    if (tall) {
+      ctx.save()
+      ctx.translate(lx, mouse.y)
+      ctx.scale(1, lry / lr)
+    }
+    const still = tall ? ctx.createRadialGradient(0, 0, 0, 0, 0, lr) : ctx.createRadialGradient(lx, mouse.y, 0, lx, mouse.y, lr)
     still.addColorStop(0, `rgba(${lensR},${lensG},${lensB},${la})`)
     still.addColorStop(0.55, `rgba(${lensR},${lensG},${lensB},${la * (0.6 + 0.35 * opening)})`)
     still.addColorStop(1, `rgba(${lensR},${lensG},${lensB},0)`)
     ctx.fillStyle = still
-    ctx.fillRect(lx - lr, mouse.y - lr, lr * 2, lr * 2)
+    if (tall) {
+      ctx.fillRect(-lr, -lr, lr * 2, lr * 2)
+      ctx.restore()
+    } else {
+      ctx.fillRect(lx - lr, mouse.y - lr, lr * 2, lr * 2)
+    }
   }
 
   // Scale ocean thread alpha during loom view transition

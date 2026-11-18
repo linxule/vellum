@@ -248,6 +248,10 @@ The 34px resting floor (`MIN_RESTING_WIDTH_PX`) holds a typical word, not a long
 
 `LENS_STILL_ALPHA` alone leaves a doubled copy for the 2–3 s the lens takes to open: while proximity eases, every line re-wraps frame by frame, so the trail is stacked copies of different wraps, not a smear. `advanceLoom` records `thread._proxStep` (|Δproximity| per 60fps frame); `paintLoom` raises the lens clear toward `LENS_OPENING_ALPHA` while that step is at or above `LENS_SETTLE_STEP`, and it relaxes to `LENS_STILL_ALPHA × proximity` as the lens settles. The clear uses the background's own colour at the lens's height (not the gradient midpoint), or at opening strength it would show as a disc. `_proxStep` never reaches exactly 0 under a still hand — the spine keeps swaying — so the settled clear sits slightly above its resting value. State is written in `advanceLoom` only; `paintLoom` stays draw-only.
 
+### Lens clear on narrow screens: taller than wide (2026-11-19)
+
+The clear was a circle of radius `min(openWidth × 0.75, vh × 0.6)`. The lens opens by line count (`DIVE_SIGMA_LINES × diveLineH`, about 118px at 390w and 143px at 1280w), not by column width, so the same circle reached 2.8 of those falloffs on a desktop column and only 1.9 on a phone's 300px column: the top and bottom of the opened text kept their trail and read doubled. The clear now reaches `LENS_CLEAR_SIGMAS` (2.8) falloffs vertically, capped at `vh × 0.6` and never less than the old radius, drawn as the same radial gradient under a vertical `ctx.scale`. Desktop columns are unchanged (the circle already reached that far); `tests/loom/lens-settle.test.ts` pins both. Headless Chromium paints slow frames and shows heavier trails than a real browser, so judge this in WebKit or a real device.
+
 ## Renderer resonance (Phase 9.1 F6 → Phase 10 per-voice)
 
 ### Per-voice resonance with canonical voiceId (Phase 10)
