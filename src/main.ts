@@ -93,10 +93,16 @@ async function handleSoundToggleGesture(e?: Event): Promise<void> {
 }
 
 soundEl.addEventListener('pointerdown', (e) => { void handleSoundToggleGesture(e) })
+// Keyboard activation (Enter/Space on the button) arrives as a click with detail 0;
+// pointer clicks are already handled on pointerdown above.
+soundEl.addEventListener('click', (e) => { if ((e as MouseEvent).detail === 0) void handleSoundToggleGesture(e) })
 
-// No auto-start — initStrudel() blocks the main thread for ~1s.
-// Sound starts only on explicit sound button gesture.
-setTimeout(preloadStrudelScript, 1500)
+// No auto-start. Prewarm on INTENT, not for every visitor: loading + initStrudel()
+// is ~214 KB gzipped and a long main-thread task (~90 ms measured on desktop, several
+// times that on phones) that used to land mid-fade-in for everyone, though sound
+// defaults off. Hover/focus gives the click a head start; click-time init is the fallback.
+soundEl.addEventListener('pointerenter', preloadStrudelScript, { once: true })
+soundEl.addEventListener('focus', preloadStrudelScript, { once: true })
 
 // ── Resize ────────────────────────────────────────────
 
