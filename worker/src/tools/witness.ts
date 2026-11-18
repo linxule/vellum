@@ -1,14 +1,17 @@
 import { mcpToolError } from '../errors'
 import type { Env } from '../types'
 import { FAMILIES } from '../types'
-import { checkAndIncrementSession } from '../rate-limits'
+import { checkAndIncrementSession, checkIpRateLimit } from '../rate-limits'
 import { updateWarmth } from '../warmth'
 import { rebuildStateProjectionIfNotLocked } from '../cache'
 import { modeOf } from '../levee-admission'
 
 export async function handleWitnessTool(
-  env: Env, ctx: ExecutionContext, traceId: string,
-  args: { voice_id?: string; family?: string; families?: string[]; dwell_s: number; surface?: string }
+  env: Env, ctx: ExecutionContext, traceId: string | null,
+  args: { voice_id?: string; family?: string; families?: string[]; dwell_s: number; surface?: string },
+  /** Only read when `traceId` is null (a stateless 2026-07-28 call): the witness is charged to the
+   * per-IP window REST's /api/witness uses instead of a session quota. */
+  ip = 'unknown',
 ): Promise<{ content: { type: 'text'; text: string }[]; isError?: boolean; _meta?: Record<string, unknown> }> {
   const surface = args.surface ?? 'vellum'
   // Resolve and validate target BEFORE spending session quota
@@ -40,10 +43,15 @@ export async function handleWitnessTool(
     return mcpToolError('VALIDATION', 'No valid families to witness. Provide voice_id, family, or families.', { field: 'families', valid_values: [...FAMILIES] })
   }
 
-  // Session rate limit (after validation — don't waste quota on bad input)
-  const limit = await checkAndIncrementSession(env.DB, traceId, 'witness')
+  // Rate limit (after validation — don't waste quota on bad input): per session, or per IP when
+  // there is no session to charge.
+  const limit = traceId
+    ? await checkAndIncrementSession(env.DB, traceId, 'witness')
+    : await checkIpRateLimit(env, ip, 'witness')
   if (!limit.allowed) {
-    return mcpToolError('SESSION_QUOTA', `You have reached the limit of ${limit.limit} witness events per session (${limit.count}/${limit.limit}).`, { limit: limit.limit, count: limit.count, verb: 'witness', retry_after: limit.retryAfter })
+    return traceId
+      ? mcpToolError('SESSION_QUOTA', `You have reached the limit of ${limit.limit} witness events per session (${limit.count}/${limit.limit}).`, { limit: limit.limit, count: limit.count, verb: 'witness', retry_after: limit.retryAfter })
+      : mcpToolError('RATE_LIMITED', `Witness events are limited to ${limit.limit} per minute from one address.`, { limit: limit.limit, verb: 'witness', scope: 'ip', retry_after: limit.retryAfter })
   }
 
   // Clamp dwell
@@ -75,7 +83,7 @@ export async function handleWitnessTool(
     args.voice_id ? `  voice_id: "${args.voice_id}"` : null,
     `  families: [${validFamilies.join(', ')}]`,
     `  dwell_s: ${dwell}`,
-    `  session_witnesses: ${limit.count}/${limit.limit}`,
+    traceId ? `  session_witnesses: ${limit.count}/${limit.limit}` : null,
   ].filter(Boolean).join('\n')
 
   return {

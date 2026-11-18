@@ -87,6 +87,17 @@ export async function checkRateLimitDO(
   return response.json()
 }
 
+// The per-IP window a REST route already uses (`witness`, `lineage`), for callers that have no
+// session to charge: a stateless MCP request shares the bucket with the same IP's REST calls.
+export async function checkIpRateLimit(
+  env: { DB: D1Database; RATE_LIMITER?: DurableObjectNamespace }, ip: string, name: 'witness' | 'lineage',
+): Promise<{ allowed: boolean; count: number; limit: number; retryAfter: number }> {
+  const { limit, window } = RATE_LIMITS[name]
+  return env.RATE_LIMITER
+    ? checkRateLimitDO(env.RATE_LIMITER, ip, name, limit, window)
+    : checkAndIncrementRateLimit(env.DB, `${name}:${ip}`, limit, window)
+}
+
 // Session rate limiting — Phase 16 "The Levee" Part A2: migrated off KV onto the same D1 atomic
 // UPSERT used everywhere else (`checkAndIncrementRateLimit`), keyed `sess:<traceId>:<type>`.
 // The old KV read-modify-write admitted the race its own comment described (concurrent requests

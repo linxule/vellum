@@ -1,6 +1,6 @@
 import { expect, test, spyOn } from 'bun:test'
 import { doorEnv, rpc, session } from './door-mocks'
-import { CONTRACT, PROTOCOL_VERSIONS } from '../src/contract'
+import { CONTRACT, LEGACY_PROTOCOL_VERSIONS as PROTOCOL_VERSIONS } from '../src/contract'
 
 test('H5 Q6: mismatched Origin logs behind the flag and never rejects', async () => {
   const t=doorEnv(); const warn=spyOn(console,'warn').mockImplementation(()=>{})

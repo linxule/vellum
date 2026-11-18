@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSIONS, SERVER_VERSION } from '../worker/src/contract'
+import { LEGACY_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS, SERVER_VERSION } from '../worker/src/contract'
 
 const DEFAULT_BASE_URL = 'https://vellum.linxule.com'
 const EXPECTED_THREADS = 6
@@ -90,7 +90,7 @@ async function checkPing(baseUrl: string): Promise<string> {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 0, method: 'initialize', params: {
-      protocolVersion: PROTOCOL_VERSIONS[0], capabilities: {},
+      protocolVersion: LEGACY_PROTOCOL_VERSIONS[0], capabilities: {},
       clientInfo: { name: 'vellum-release-smoke', version: SERVER_VERSION },
     } }),
   })
@@ -106,7 +106,7 @@ async function checkPing(baseUrl: string): Promise<string> {
       'content-type': 'application/json',
       accept: 'application/json',
       'mcp-session-id': session,
-      'mcp-protocol-version': PROTOCOL_VERSIONS[0],
+      'mcp-protocol-version': LEGACY_PROTOCOL_VERSIONS[0],
     },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' }),
   })
@@ -117,6 +117,36 @@ async function checkPing(baseUrl: string): Promise<string> {
     throw new Error('invalid JSON-RPC response')
   }
   return '/mcp ping returns 200 with valid JSON-RPC result'
+}
+
+// Read-only: revision 2026-07-28 needs no session, so one request shows the stateless path is up.
+async function checkStatelessDiscover(baseUrl: string): Promise<string> {
+  const version = MODERN_PROTOCOL_VERSIONS[0]
+  const response = await fetchWithTimeout(`${baseUrl}/mcp`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json, text/event-stream',
+      'mcp-protocol-version': version,
+      'mcp-method': 'server/discover',
+    },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'server/discover', params: { _meta: {
+      'io.modelcontextprotocol/protocolVersion': version,
+      'io.modelcontextprotocol/clientCapabilities': {},
+      'io.modelcontextprotocol/clientInfo': { name: 'vellum-release-smoke', version: SERVER_VERSION },
+    } } }),
+  })
+  if (response.status !== 200) throw new Error(`status ${response.status}`)
+  if (response.headers.get('mcp-session-id')) throw new Error('stateless response carried a session id')
+
+  const payload = await response.json()
+  const result = isRecord(payload) && isRecord(payload.result) ? payload.result : null
+  if (!result) throw new Error('invalid JSON-RPC response')
+  if (!Array.isArray(result.supportedVersions) || !result.supportedVersions.includes(version)) {
+    throw new Error(`supportedVersions lacks ${version}`)
+  }
+  if (result.resultType !== 'complete') throw new Error(`resultType ${String(result.resultType)}`)
+  return `/mcp stateless server/discover returns 200, ${version} supported`
 }
 
 async function checkMcpMalformed(baseUrl: string): Promise<string> {
@@ -169,6 +199,7 @@ async function main(): Promise<void> {
     await runCheck('/api/state returns 200 with 6 threads + voices', () => checkState(baseUrl)),
     await runCheck('/ext-app sentinel rewritten', () => checkExtApp(baseUrl)),
     await runCheck('/mcp ping returns 200 with valid JSON-RPC result', () => checkPing(baseUrl)),
+    await runCheck('/mcp stateless server/discover returns 200', () => checkStatelessDiscover(baseUrl)),
     await runCheck('/mcp malformed body returns 400 + -32700', () => checkMcpMalformed(baseUrl)),
     await runCheck('/api/witness malformed body returns 400', () => checkWitnessMalformed(baseUrl)),
     await runCheck('dist/main.js bundle size check', () => checkBundleSize()),

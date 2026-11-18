@@ -2,7 +2,12 @@ import { FAMILIES } from './types'
 import { RATE_LIMITS } from './rate-limits'
 
 export const SERVER_VERSION = '0.2.1'
-export const PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'] as const
+// Legacy revisions open with `initialize` and carry a signed Mcp-Session-Id. Modern revisions
+// (2026-07-28 onward) are stateless: version and capabilities travel in each request's `_meta`.
+export const LEGACY_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'] as const
+export const MODERN_PROTOCOL_VERSIONS = ['2026-07-28'] as const
+// Everything /mcp speaks, newest first — discovery cards, server/discover and -32022 `supported`.
+export const PROTOCOL_VERSIONS = [...MODERN_PROTOCOL_VERSIONS, ...LEGACY_PROTOCOL_VERSIONS] as const
 export const SORT_VALUES = ['age', 'weaves', 'warmth'] as const
 export const SESSION_MAX_AGE_S = 2700
 export { SESSION_WINDOW_S } from './rate-limits'

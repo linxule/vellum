@@ -89,7 +89,7 @@ export async function handleWeave(
   // before resolving the source, so a sequential retry costs nothing at all.
   let idem: { opKey: string; bodyHash: string } | undefined
   if (idempotencyKey) {
-    const scopeIdentity = authorId ?? traceId ?? 'unknown'
+    const scopeIdentity = authorId ?? traceId ?? `ip:${ip}`
     const opKey = await opKeyFor(scopeIdentity, idempotencyKey)
     const bodyHash = await bodyHashOf(args)
     const check = await checkIdempotency(env.DB, opKey, bodyHash)
@@ -139,8 +139,7 @@ Your response entered the ${primaryFamily} current:
 "${args.text}"${settlingLine}${duplicateLine}
 
 ---
-voice_id: "${id}"
-session: "${traceId ?? 'unknown'}"
+voice_id: "${id}"${traceId ? `\nsession: "${traceId}"` : ''}
 identity: "${identity}"
 source_id: "${source.id}"
 source_weave_count: ${weaveCount}
@@ -177,9 +176,11 @@ ext_app: "/ext-app?highlight=${id}"`
     // when present — COALESCE(weaver_id, weaver_bucket) then counts a named agent once however
     // many sessions/IPs it uses. weaver_voice_id (post-review fix, item 3) names the voice THIS
     // weave produced, so the qualified_weavers recompute below can require it to be surfaced.
+    // weaver_trace_id is NOT NULL and half the primary key: a call with no session (stateless
+    // MCP) uses the `ip:` stand-in REST uses.
     env.DB.prepare(
       'INSERT OR IGNORE INTO weave_log (source_voice_id, weaver_trace_id, created_at, weaver_bucket, weaver_id, weaver_voice_id) VALUES (?, ?, ?, ?, ?, ?)'
-    ).bind(source.id, traceId, now, bucket, authorId ?? null, id),
+    ).bind(source.id, traceId ?? `ip:${ip}`, now, bucket, authorId ?? null, id),
     // Derive unique_weavers from authoritative weave_log count (convergent under races)
     env.DB.prepare(`
       UPDATE voices SET unique_weavers = (

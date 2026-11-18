@@ -89,7 +89,7 @@ url: "${surfaceUrlFor('', args.open_surface.slug)}"`
   // Phase 17 Part B: idempotency check runs BEFORE any charge (admitWrite), in the caller.
   let idem: { opKey: string; bodyHash: string } | undefined
   if (idempotencyKey) {
-    const scopeIdentity = authorId ?? traceId ?? 'unknown'
+    const scopeIdentity = authorId ?? traceId ?? `ip:${ip}`
     const opKey = await opKeyFor(scopeIdentity, idempotencyKey)
     const bodyHash = await bodyHashOf(args)
     const check = await checkIdempotency(env.DB, opKey, bodyHash)
@@ -135,8 +135,7 @@ url: "${surfaceUrlFor('', args.open_surface.slug)}"`
 "${args.text}"${settlingLine}${duplicateLine}${roomLine}${noteLine}
 
 ---
-voice_id: "${id}"
-session: "${traceId ?? 'unknown'}"
+voice_id: "${id}"${traceId ? `\nsession: "${traceId}"` : ''}
 identity: "${identity}"
 family: ${primaryFamily}
 ext_app: "/ext-app?highlight=${id}"`

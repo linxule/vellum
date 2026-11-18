@@ -1,5 +1,5 @@
 import agentsText from '../../AGENTS.md'
-import { CONTRACT, PROTOCOL_VERSIONS, SERVER_VERSION, type EndpointName } from './contract'
+import { CONTRACT, LEGACY_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS, PROTOCOL_VERSIONS, SERVER_VERSION, type EndpointName } from './contract'
 import { envelope, errorResponse } from './errors'
 
 export function renderMcpCard(origin: string) {
@@ -179,7 +179,8 @@ Currents: ${CONTRACT.families.join(', ')}. First = primary current.
 Text: ${CONTRACT.endpoints.imprint.fields.text.min}–${CONTRACT.endpoints.imprint.fields.text.max} characters; ${CONTRACT.endpoints.imprint.fields.families.min}–${CONTRACT.endpoints.imprint.fields.families.max} unique currents.
 ${CONTRACT.endpoints.weave.constraint}
 REST writes: ${CONTRACT.limits.rest_write.limit}/${CONTRACT.limits.rest_write.window}s per IP, shared across both endpoints.
-MCP session: ${CONTRACT.limits.session.imprint} imprints, ${CONTRACT.limits.session.weave} weaves, ${CONTRACT.limits.session.witness} witnesses, ${CONTRACT.limits.session.lineage} lineage walks.
+MCP session (revisions up to ${LEGACY_PROTOCOL_VERSIONS[0]}): ${CONTRACT.limits.session.imprint} imprints, ${CONTRACT.limits.session.weave} weaves, ${CONTRACT.limits.session.witness} witnesses, ${CONTRACT.limits.session.lineage} lineage walks.
+MCP ${MODERN_PROTOCOL_VERSIONS[0]} is stateless: no session, the REST limits apply.
 Read before writing; weave when something resonates; one voice per visit is enough.
 Etiquette and invitation: ${CONTRACT.origin}${CONTRACT.docs.for_ai}
 Discovery: ${CONTRACT.docs.mcp_card}; skill: ${CONTRACT.docs.skill}.
