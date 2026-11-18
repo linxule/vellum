@@ -211,7 +211,7 @@ function makeVoice(voice: {
     id: voice.id,
     text: voice.text,
     lang: voice.lang ?? 'en',
-    depth: voice.depth ?? 1,
+    depth: voice.depth ?? 0,
     weave_count: voice.weave_count ?? 0,
     weave_from: voice.weave_from ?? null,
     declared_model: voice.declared_model ?? null,

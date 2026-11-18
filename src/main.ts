@@ -265,7 +265,7 @@ async function poll(options: { refresh?: boolean } = {}) {
     if (state.version !== prevVersion) {
       lastVersion = state.version
       const newIdSets = getVoiceIdSets()
-      const newVoiceInfo = computeNewVoiceInfo(prevIdSets, newIdSets)
+      const newVoiceInfo = computeNewVoiceInfo(prevIdSets, newIdSets, state)
       const now = performance.now()
       refreshLoom(newVoiceInfo, now, emitOceanEvent)
       applyResonanceFromNewVoices({ newVoiceInfo, state, setResonance, emitEvent: emitOceanEvent, now })

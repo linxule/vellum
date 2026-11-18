@@ -1,15 +1,26 @@
-import type { StateResponse } from '../content.js'
+import { getState, type StateResponse } from '../content.js'
 import type { OceanEvent } from '../events.js'
+import { SUNKEN_DEPTH } from '../loom/types.js'
 
 export interface NewVoiceInfo {
   hasNew: boolean
   newIds: Set<string>
 }
 
-/** Compute emergence diff. Pure function. Used by both entry points. */
+/**
+ * Compute emergence diff. Used by both entry points.
+ *
+ * A voice that enters the projection already sunken (depth >= SUNKEN_DEPTH) is
+ * not an arrival: the worker's per-current floor moves old voices in and out of
+ * the projection, and those must not emerge, glow or steer the phantom. Depth is
+ * read from `state` (the state the new id sets came from; defaults to the last
+ * fetched one). A caller that folds explicitly forced ids in afterwards still
+ * fires them, sunken or not.
+ */
 export function computeNewVoiceInfo(
   prevIdSets: Set<string>[],
   newIdSets: Set<string>[],
+  state: StateResponse | null = getState(),
 ): NewVoiceInfo[] {
   return newIdSets.map((newSet, i) => {
     const oldSet = prevIdSets[i]
@@ -19,6 +30,11 @@ export function computeNewVoiceInfo(
     } else {
       for (const id of newSet) {
         if (!oldSet.has(id)) newIds.add(id)
+      }
+    }
+    if (newIds.size > 0) {
+      for (const v of state?.threads[i]?.voices ?? []) {
+        if (v.depth >= SUNKEN_DEPTH) newIds.delete(v.id)
       }
     }
     return { hasNew: newIds.size > 0, newIds }
