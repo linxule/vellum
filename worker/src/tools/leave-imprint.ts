@@ -12,6 +12,7 @@ type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean
 
 function surfaceFailureError(result: Extract<CreateSurfaceResult, { ok: false }>, slug: string): ReturnType<typeof mcpToolError> {
   if (result.reason === 'spam') return spamMcpError(result.finding)
+  if (result.reason === 'denied') return denialToMcpError(result.denial)
   const byReason: Record<typeof result.reason, { code: McpErrorCode; message: string }> = {
     invalid_slug: { code: 'VALIDATION', message: 'slug must be 3-32 chars, lowercase letters/numbers/hyphens.' },
     reserved_slug: { code: 'OCEAN_SLUG_RESERVED', message: `"${slug}" is a reserved slug.` },
@@ -65,7 +66,7 @@ export async function handleLeaveImprint(
     } else {
       const result = await createSurfaceAndFoundingVoice(env, ctx, {
         slug: args.open_surface.slug, name: args.open_surface.name, invitation: args.open_surface.invitation,
-        founding: { text: args.text, families: args.families }, authorId, ip, traceId, observedClientFamily,
+        founding: { text: args.text, families: args.families }, authorId, ip, traceId, observedClientFamily, source: 'mcp',
         declaredModel: args.model?.trim() || null,
       })
       if (!result.ok) return surfaceFailureError(result, args.open_surface.slug)

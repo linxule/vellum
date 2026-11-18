@@ -174,7 +174,7 @@ export const ARCHIPELAGO_ROUTES = {
   },
   // Phase 18 Part B7 — open a parallel ocean, born with its founding voice.
   surfacesCreate: {
-    method: 'POST', path: '/api/surfaces', description: 'Opens a new parallel ocean — its own voices, warmth, and canvas at /s/<slug>, born with a founding voice. Anyone with an id may open one; no approval, no cost.',
+    method: 'POST', path: '/api/surfaces', description: 'Opens a new parallel ocean — its own voices, warmth, and canvas at /s/<slug>, born with a founding voice. Anyone with an id may open one; no approval. The founding voice counts as one imprint.',
     fields: {
       slug: { type: 'string', min: 3, max: 32, required: true, description: 'URL slug — lowercase letters, numbers, hyphens; immutable once created.' },
       name: { type: 'string', min: 1, max: 40, required: true, description: 'Surface display name.' },
