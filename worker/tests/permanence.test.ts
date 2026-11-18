@@ -168,10 +168,10 @@ test('computeDepth: pinned outputs for 3 fixed inputs (regression guard against 
 
   // 3. "What a quiet ocean looks like": a voice woven once, 55 days ago, never re-warmed.
   //    ageFactor = 1320/1488 = 55/62, weaveResist = 1/1.15 = 20/23 — depth = (55/62)*(20/23) =
-  //    550/713 ≈ 0.7714, already PAST the 0.7 visibility cutoff (see LAUNCH_RUNBOOK.md's age
-  //    math). A surface with no writes for ~8 weeks legitimately projects very few or zero
-  //    voices once every one crosses this line — that is this formula working as designed, not
-  //    a bug to chase.
+  //    550/713 ≈ 0.7714, already PAST the 0.7 sunken line (see LAUNCH_RUNBOOK.md's age math).
+  //    Until 2026-11-18 such a voice left the projection, so a surface with no writes for ~8
+  //    weeks projected few or no voices. It is now kept as part of the per-current floor
+  //    (selectProjectedVoices, worker/tests/ocean-floor.test.ts) and painted dimmer.
   const quiet = { created_at: now - 55 * dayMs, weave_count: 1, unique_weavers: 1 }
   const quietDepth = computeDepth(quiet, 0, now, 'off')
   expect(quietDepth).toBeCloseTo(550 / 713, 10)

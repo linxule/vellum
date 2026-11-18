@@ -241,6 +241,16 @@ export const ARCHIPELAGO = {
 } as const
 
 /**
+ * What a current shows (2026-11-18). A voice is "sunken" once its depth reaches `sunkenDepth`.
+ * Until then it is projected, up to `surfaceCap` per current. Sunken voices used to leave the
+ * projection altogether, which emptied the ocean whenever writes were slow (31 of 400 voices
+ * visible, two currents blank). Now each current is topped up with its shallowest sunken voices
+ * until it shows `floorPerFamily`; the renderer paints those dimmer (SUNKEN_DEPTH in
+ * src/loom/types.ts must equal `sunkenDepth`; tests/scripts/ocean-constants.test.ts pins it).
+ */
+export const OCEAN = { floorPerFamily: 40, surfaceCap: 60, sunkenDepth: 0.7 } as const
+
+/**
  * Phase 16 "The Levee" — infrastructure ceilings and thresholds, single source of truth.
  * Organic rate is 342 voices / ~150 days ≈ 0.095/hr; see docs/PHASE_16_SPEC.md Part A3.
  */

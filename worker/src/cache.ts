@@ -5,7 +5,7 @@ import { releaseQuarantineStatement } from './visibility'
 import { getWarmthMap, getWarmthCheckpoints } from './warmth'
 import { computeMood } from './prose'
 import { ATMOSPHERE_DATA_SCHEMA, STATE_RESPONSE_SCHEMA } from './schemas'
-import { LEVEE, ARCHIPELAGO } from './contract'
+import { LEVEE, ARCHIPELAGO, OCEAN } from './contract'
 import { nextSinkMark, SINK_THRESHOLDS } from './sinking'
 import { buildSinkingPayload, buildRoomFadingPayload, buildSurfaceWarmedPayload, echoEventInsertStatement, refreshEchoCache } from './echo'
 import { opReceiptSweepStatement } from './idempotency'
@@ -81,7 +81,8 @@ export async function readAtmosphereCache(kv: KVNamespace, surface: string = DEF
 /**
  * Phase 16 Part D2: drop the deepest non-foundation voices (highest depth = least resistant to
  * sinking) until the serialized payload is under budget. A foundation voice (depth floor 0.1) is
- * never dropped — its guaranteed slot is the one thing D2 protects.
+ * never dropped — its guaranteed slot is the one thing D2 protects. The sunken voices that
+ * selectProjectedVoices adds to reach the per-current floor are the deepest, so they go first.
  */
 export function trimProjectionToBudget(threads: ThreadData[], maxBytes: number): { threads: ThreadData[]; trimmed: number } {
   let trimmed = 0
@@ -101,6 +102,24 @@ export function trimProjectionToBudget(threads: ThreadData[], maxBytes: number):
     trimmed++
   }
   return { threads: working, trimmed }
+}
+
+/**
+ * Which of one current's candidate voices are projected:
+ *   1. every foundation (permanent) voice;
+ *   2. voices that have not sunk (depth < OCEAN.sunkenDepth), shallowest first, up to surfaceCap;
+ *   3. if that leaves the current under OCEAN.floorPerFamily, its shallowest sunken voices, until
+ *      the floor is met or the candidates run out.
+ * Step 3 is what keeps a quiet ocean populated: without it a current with no writes for a few
+ * weeks projects nothing. A busy current (40 or more unsunk voices) is unaffected.
+ */
+export function selectProjectedVoices<T extends { depth: number }>(withDepth: T[], isFoundation: (v: T) => boolean): T[] {
+  const foundation = withDepth.filter(isFoundation)
+  const rest = withDepth.filter(v => !isFoundation(v)).sort((a, b) => a.depth - b.depth)
+  const unsunk = rest.filter(v => v.depth < OCEAN.sunkenDepth).slice(0, OCEAN.surfaceCap)
+  const short = OCEAN.floorPerFamily - foundation.length - unsunk.length
+  const sunken = short > 0 ? rest.filter(v => v.depth >= OCEAN.sunkenDepth).slice(0, short) : []
+  return [...foundation, ...unsunk, ...sunken]
 }
 
 export async function rebuildStateProjection(db: D1Database, kv: KVNamespace, rebuildMode: LeveeMode = 'off', surface: string = DEFAULT_SURFACE, permanenceMode: LeveeMode = 'off'): Promise<void> {
@@ -215,7 +234,7 @@ export async function rebuildStateProjection(db: D1Database, kv: KVNamespace, re
       sinkCandidates.push({ id: v.id, authorId: v.author_id, sinkMark: v.sink_mark ?? 0, depth: v.depth, createdAt: v.created_at, uniqueWeavers: v.unique_weavers })
     }
 
-    // Foundation always included; non-foundation filtered + capped. Same LEVEE_PERMANENCE gate as
+    // Foundation always included; the rest chosen by selectProjectedVoices. Same LEVEE_PERMANENCE gate as
     // computeDepth above: 'on' reads the weighted qualified_weavers/permanence_source rule,
     // 'off'/'shadow' falls back to the pre-Phase-16 unique_weavers rule — kept consistent
     // with the depth floor computeDepth already applied to these same rows a few lines up.
@@ -223,15 +242,9 @@ export async function rebuildStateProjection(db: D1Database, kv: KVNamespace, re
       permanenceMode === 'on'
         ? isPermanent({ qualified_weavers: v.qualified_weavers ?? 0, permanence_source: v.permanence_source }, LEVEE.permanence.minWeavers)
         : v.unique_weavers >= LEVEE.permanence.minWeavers
-    const foundation = withDepth.filter(isFoundation)
-    const surface = withDepth
-      .filter(v => !isFoundation(v) && v.depth < 0.7)
-      .sort((a, b) => a.depth - b.depth)
-      .slice(0, 60)
-
     // Merge, deduplicate, project to VoiceData
     const merged = new Map<string, VoiceData>()
-    for (const v of [...foundation, ...surface]) {
+    for (const v of selectProjectedVoices(withDepth, isFoundation)) {
       if (!merged.has(v.id)) {
         merged.set(v.id, {
           id: v.id,
