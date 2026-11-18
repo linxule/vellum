@@ -3,6 +3,7 @@ import { doorEnv, rpc } from './door-mocks'
 import { signSessionId, verifySessionId } from '../src/hmac'
 import { deriveAgentId } from '../src/agent-id'
 import { computeQualifiedWeavers, computeDistinctWeavers } from '../src/levee-permanence'
+import { LEVEE } from '../src/contract'
 
 const SECRET_43 = 'b'.repeat(43)
 const OTHER_SECRET_43 = 'c'.repeat(43)
@@ -131,7 +132,7 @@ describe('A6-A8: MCP initialize binds author_id; tools/call requires the header 
       { weaverKey: authorId, hourBucket: 2 },
     ]
     expect(computeDistinctWeavers(rows)).toBe(1)
-    expect(computeQualifiedWeavers(rows)).toBe(0) // far short of the 10-distinct-weaver gate
+    expect(computeQualifiedWeavers(rows, LEVEE.permanence.minWeavers, LEVEE.permanence.minHourBuckets)).toBe(0) // one weaver, far short of the gate
   })
 
   test('instructions mention X-Vellum-Agent and stay under 2KB', async () => {

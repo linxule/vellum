@@ -156,23 +156,27 @@ export class MockD1 {
         .map(row => ({ count: row.count, expires_at: row.expires_at })) as T[]
     }
     // Phase 16 post-16 SQL (docs/PHASE_16_SPEC.md Part D3) — foundation is earned permanence
-    // (qualified_weavers >= 10) or grandfathered legacy voices, capped at 40/family. Phase 18
+    // (qualified_weavers >= the bar the SQL itself carries, LEVEE.permanence.minWeavers) or
+    // grandfathered legacy voices, capped at 40/family. The bar is read out of the statement, as
+    // a database would, so this mock never holds its own copy of the threshold. Phase 18
     // Part B3 added `AND v.surface_id = ?` (args[1]) — additive, no-op for single-surface tests.
-    if (normalized.includes('FROM voices v JOIN voice_families vf ON v.id = vf.voice_id') && normalized.includes("v.qualified_weavers >= 10 OR v.permanence_source = 'legacy'") && normalized.includes('LIMIT 40')) {
+    const permanenceBar = normalized.match(/v\.qualified_weavers >= (\d+) OR v\.permanence_source = 'legacy'/)
+    if (permanenceBar && normalized.includes('FROM voices v JOIN voice_families vf ON v.id = vf.voice_id')) {
       const [family, surface] = args as [string, string]
-      const isPermanent = (voice: VoiceRow) => (voice.qualified_weavers ?? 0) >= 10 || voice.permanence_source === 'legacy'
-      return this.visiblePrimaryVoices(family, surface)
-        .filter(isPermanent)
-        .sort((a, b) => (b.qualified_weavers ?? 0) - (a.qualified_weavers ?? 0) || b.created_at - a.created_at)
-        .slice(0, 40) as T[]
-    }
-    if (normalized.includes('FROM voices v JOIN voice_families vf ON v.id = vf.voice_id') && normalized.includes('v.weave_count >= 3') && normalized.includes("NOT (v.qualified_weavers >= 10 OR v.permanence_source = 'legacy')")) {
-      const [family, surface] = args as [string, string]
-      const isPermanent = (voice: VoiceRow) => (voice.qualified_weavers ?? 0) >= 10 || voice.permanence_source === 'legacy'
-      return this.visiblePrimaryVoices(family, surface)
-        .filter(voice => voice.weave_count >= 3 && !isPermanent(voice))
-        .sort((a, b) => b.weave_count - a.weave_count)
-        .slice(0, 20) as T[]
+      const bar = Number(permanenceBar[1])
+      const isPermanent = (voice: VoiceRow) => (voice.qualified_weavers ?? 0) >= bar || voice.permanence_source === 'legacy'
+      if (normalized.includes('LIMIT 40') && !normalized.includes('NOT (v.qualified_weavers')) {
+        return this.visiblePrimaryVoices(family, surface)
+          .filter(isPermanent)
+          .sort((a, b) => (b.qualified_weavers ?? 0) - (a.qualified_weavers ?? 0) || b.created_at - a.created_at)
+          .slice(0, 40) as T[]
+      }
+      if (normalized.includes('v.weave_count >= 3') && normalized.includes('NOT (v.qualified_weavers')) {
+        return this.visiblePrimaryVoices(family, surface)
+          .filter(voice => voice.weave_count >= 3 && !isPermanent(voice))
+          .sort((a, b) => b.weave_count - a.weave_count)
+          .slice(0, 20) as T[]
+      }
     }
     if (normalized.includes('FROM voices v JOIN voice_families vf ON v.id = vf.voice_id') && normalized.includes('ORDER BY v.created_at DESC LIMIT 150')) {
       const [family, surface] = args as [string, string]

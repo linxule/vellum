@@ -8,6 +8,7 @@ import { envelope, errorResponse } from '../errors'
 import { checkAndIncrementRateLimit, checkRateLimitDO, RATE_LIMITS } from '../rate-limits'
 import { fetchEchoEventsAfter, fetchDebts, maxEventN, readCachedMaxN, writeCachedMaxN } from '../echo'
 import { isAgentId } from '../agent-id'
+import { LEVEE } from '../contract'
 
 const CORS = { 'Access-Control-Allow-Origin': '*' } as const
 
@@ -102,7 +103,7 @@ export async function handleEcho(request: Request, env: Env, id: string): Promis
     cursor,
     has_more: events.length === limit,
     next_check_after: nextCheck,
-    debts: debts.map(d => ({ voice: d.id, qualified: d.distinct_weavers, permanent_in: Math.max(0, 10 - d.distinct_weavers) })),
+    debts: debts.map(d => ({ voice: d.id, qualified: d.distinct_weavers, permanent_in: Math.max(0, LEVEE.permanence.minWeavers - d.distinct_weavers) })),
   }
 
   return Response.json(body, {

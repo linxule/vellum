@@ -127,7 +127,8 @@ export async function rebuildStateProjection(db: D1Database, kv: KVNamespace, re
   const queries = []
   for (const family of FAMILIES) {
     queries.push(
-      // Foundation: earned permanence (qualified_weavers >= 10) or grandfathered legacy voices.
+      // Foundation: earned permanence (qualified_weavers >= LEVEE.permanence.minWeavers) or
+      // grandfathered legacy voices.
       // Post-16 SQL — see docs/PHASE_16_SPEC.md Part D3; keep worker/tests/mocks.ts in sync with
       // this literal text, not with the spec's own citation (it goes stale after this lands).
       // Phase 18 Part B3: gains `AND v.surface_id = ?` — additive, live post-17 text otherwise.
@@ -138,7 +139,7 @@ export async function rebuildStateProjection(db: D1Database, kv: KVNamespace, re
                v.author_id, v.sink_mark
         FROM voices v JOIN voice_families vf ON v.id = vf.voice_id
         WHERE vf.family = ? AND vf.ordinal = 0 AND v.is_hidden = FALSE AND v.surface_id = ?
-          AND (v.qualified_weavers >= 10 OR v.permanence_source = 'legacy')
+          AND (v.qualified_weavers >= ${LEVEE.permanence.minWeavers} OR v.permanence_source = 'legacy')
         ORDER BY v.qualified_weavers DESC, v.created_at DESC
         LIMIT ${LEVEE.foundationCap}
       `).bind(family, surface),
@@ -150,7 +151,7 @@ export async function rebuildStateProjection(db: D1Database, kv: KVNamespace, re
         FROM voices v JOIN voice_families vf ON v.id = vf.voice_id
         WHERE vf.family = ? AND vf.ordinal = 0 AND v.is_hidden = FALSE AND v.surface_id = ?
           AND v.weave_count >= 3
-          AND NOT (v.qualified_weavers >= 10 OR v.permanence_source = 'legacy')
+          AND NOT (v.qualified_weavers >= ${LEVEE.permanence.minWeavers} OR v.permanence_source = 'legacy')
         ORDER BY v.weave_count DESC LIMIT 20
       `).bind(family, surface),
       db.prepare(`
@@ -216,12 +217,12 @@ export async function rebuildStateProjection(db: D1Database, kv: KVNamespace, re
 
     // Foundation always included; non-foundation filtered + capped. Same LEVEE_PERMANENCE gate as
     // computeDepth above: 'on' reads the weighted qualified_weavers/permanence_source rule,
-    // 'off'/'shadow' falls back to the pre-Phase-16 unique_weavers >= 10 rule — kept consistent
+    // 'off'/'shadow' falls back to the pre-Phase-16 unique_weavers rule — kept consistent
     // with the depth floor computeDepth already applied to these same rows a few lines up.
     const isFoundation = (v: { qualified_weavers?: number; permanence_source?: 'legacy' | 'earned'; unique_weavers: number }) =>
       permanenceMode === 'on'
-        ? isPermanent({ qualified_weavers: v.qualified_weavers ?? 0, permanence_source: v.permanence_source })
-        : v.unique_weavers >= 10
+        ? isPermanent({ qualified_weavers: v.qualified_weavers ?? 0, permanence_source: v.permanence_source }, LEVEE.permanence.minWeavers)
+        : v.unique_weavers >= LEVEE.permanence.minWeavers
     const foundation = withDepth.filter(isFoundation)
     const surface = withDepth
       .filter(v => !isFoundation(v) && v.depth < 0.7)
