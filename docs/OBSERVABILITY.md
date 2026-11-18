@@ -15,12 +15,12 @@ cd worker && bunx wrangler deployments list
 
 Snapshot refreshed during Phase 9.6 against live version `e2ccf9eb-80e0-471b-92ba-377f0e296ae6`.
 
-- Voice count: expect `> 0` and roughly `280-300` voices on prod; the first 9.6 smoke saw `283`.
-- Renderer bundle: `dist/main.js` is `82631` bytes after sound redesign (was `80198` post-Phase 10). Limit: `84000` bytes.
+- Voice count: since 2026-11-18 `/api/state` carries at least 40 voices per current that holds that many (240 on that day; 31 the day before, when sunken voices left the projection).
+- Renderer bundle: `dist/main.js` is `117967` bytes (2026-11-18). Limit: `120000` bytes (`BUNDLE_LIMIT_BYTES` in `scripts/smoke.ts`).
 - Worker upload: keep dry-run total upload within `395-405 KiB`; current baseline is `399.72 KiB` total and about `98.8 KiB` gzip.
 - Worker startup time: no repo-local metric is wired yet; use the Workers dashboard and treat the normal band as low double-digit milliseconds. Sustained movement into `100ms+` territory is a red flag.
 - Expected smoke output:
-  `7/7 passed`, `/api/state` shows `6 threads`, `/ext-app` shows `0 sentinels`, `/mcp` ping succeeds, stateless `/mcp` `server/discover` returns `200`, malformed `/mcp` returns `400 + -32700`, malformed `/api/witness` returns `400`, and the bundle check reports `80198 bytes ≤ 82000`.
+  `7/7 passed`, `/api/state` shows `6 threads`, `/ext-app` shows `0 sentinels`, `/mcp` ping succeeds, stateless `/mcp` `server/discover` returns `200`, malformed `/mcp` returns `400 + -32700`, malformed `/api/witness` returns `400`, and the bundle check reports the size against `120000`.
 
 ## Observability surfaces
 
@@ -42,7 +42,7 @@ Snapshot refreshed during Phase 9.6 against live version `e2ccf9eb-80e0-471b-92b
   `/mcp` stateless `server/discover` (revision `2026-07-28`, no session) returns `200` with `supportedVersions` containing `2026-07-28`, `resultType: "complete"`, and no `Mcp-Session-Id` header.
   `/mcp` malformed body returns `400` with `error.code === -32700`.
   `/api/witness` malformed body returns `400` with `error === 'Invalid witness event'`.
-  `dist/main.js` stays at or below `84000` bytes locally.
+  `dist/main.js` stays at or below `120000` bytes locally.
 - Output format is plain text with `[PASS]` / `[FAIL]` per line and a final `HEALTHY` or `DEGRADED` summary.
 - Interpret FAIL lines literally: the text in parentheses is the first thing to inspect.
 
