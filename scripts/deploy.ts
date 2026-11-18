@@ -18,6 +18,60 @@ export type DeployFacts = {
   remoteBranches: string[]
   /** False when `git fetch` failed, so the two facts above may be stale. */
   fetched: boolean
+  /** Settings in worker/wrangler.jsonc (gitignored) that differ from the tracked example. */
+  configDrift?: string[]
+}
+
+// What reaches production. scripts/production-watch.ts diffs these between the live build and
+// origin/main; SHIPPED below is the same set as a pattern over `git status` lines.
+export const SHIPPED_PATHS = [
+  'worker/src', 'worker/public', 'worker/migrations', 'worker/package.json', 'worker/bun.lock', 'worker/tsconfig.json',
+  'src', 'app/src', 'app/package.json', 'app/bun.lock', 'app/vite.config.ts', 'app/mcp-app.html',
+  'package.json', 'bun.lock', 'AGENTS.md',
+] as const
+
+// The deploy settings that must match worker/wrangler.jsonc.example. Ids and routes are local.
+const COMPARED_SETTINGS = ['vars', 'compatibility_date', 'compatibility_flags', 'rules'] as const
+
+/** JSONC to a value: drops // and block comments and trailing commas, leaving strings alone. */
+export function parseJsonc(text: string): unknown {
+  let out = ''
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (ch === '"') {
+      const start = i
+      for (i++; i < text.length && text[i] !== '"'; i++) if (text[i] === '\\') i++
+      out += text.slice(start, i + 1)
+    } else if (ch === '/' && text[i + 1] === '/') {
+      while (i < text.length && text[i] !== '\n') i++
+      out += '\n'
+    } else if (ch === '/' && text[i + 1] === '*') {
+      i = text.indexOf('*/', i + 2)
+      if (i < 0) break
+      i++
+    } else {
+      out += ch
+    }
+  }
+  return JSON.parse(out.replace(/,(\s*[}\]])/g, '$1'))
+}
+
+export function configDrift(local: unknown, example: unknown): string[] {
+  const a = (local ?? {}) as Record<string, unknown>
+  const b = (example ?? {}) as Record<string, unknown>
+  const drift: string[] = []
+  for (const key of COMPARED_SETTINGS) {
+    if (key === 'vars') {
+      const av = (a.vars ?? {}) as Record<string, unknown>
+      const bv = (b.vars ?? {}) as Record<string, unknown>
+      for (const name of [...new Set([...Object.keys(av), ...Object.keys(bv)])].sort()) {
+        if (JSON.stringify(av[name]) !== JSON.stringify(bv[name])) drift.push(`vars.${name}`)
+      }
+    } else if (JSON.stringify(a[key]) !== JSON.stringify(b[key])) {
+      drift.push(key)
+    }
+  }
+  return drift
 }
 
 // iCloud leaves copy-numbered duplicates ("door-mocks 2.ts") beside tracked
@@ -42,6 +96,9 @@ export function preflight(facts: DeployFacts): string[] {
   }
   if (facts.remoteBranches.length === 0) {
     problems.push('HEAD is not on GitHub. Push the branch first so production never runs code git does not have.')
+  }
+  if (facts.configDrift && facts.configDrift.length > 0) {
+    problems.push(`worker/wrangler.jsonc differs from wrangler.jsonc.example in: ${facts.configDrift.join(', ')}. Change the example in git first, or copy it over.`)
   }
   return problems
 }
@@ -70,11 +127,21 @@ if (import.meta.main) {
   const status = (await git('status', '--porcelain')).out
   const behind = (await git('rev-list', '--count', 'HEAD..origin/main')).out
   const remotes = (await git('branch', '-r', '--contains', 'HEAD')).out
+  let drift: string[] = []
+  try {
+    drift = configDrift(
+      parseJsonc(await Bun.file(`${root}/worker/wrangler.jsonc`).text()),
+      parseJsonc(await Bun.file(`${root}/worker/wrangler.jsonc.example`).text()),
+    )
+  } catch (error) {
+    drift = [`unreadable (${error instanceof Error ? error.message : String(error)})`]
+  }
   const problems = preflight({
     fetched,
     dirty: status === '' ? [] : status.split('\n'),
     behindMain: Number(behind) || 0,
     remoteBranches: remotes.split('\n').map(line => line.trim()).filter(line => line !== '' && !line.includes(' -> ')),
+    configDrift: drift,
   })
 
   if (problems.length > 0) {
@@ -94,7 +161,9 @@ if (import.meta.main) {
   const worker = `${root}/worker`
   await run(['bun', 'run', 'predeploy'], worker)
   const extra = process.argv.slice(2)
-  const args = extra.some(arg => arg === '--message' || arg.startsWith('--message=')) ? extra : ['--message', message, ...extra]
+  const labelled = extra.some(arg => arg === '--message' || arg.startsWith('--message=')) ? extra : ['--message', message, ...extra]
+  // The worker serves this as X-Vellum-Build so the daily watch can tell which commit is live.
+  const args = ['--var', `BUILD_SHA:${(await git('rev-parse', 'HEAD')).out}`, ...labelled]
   console.log(`\nDeploying ${message}\n`)
   await run(['bunx', 'wrangler', 'deploy', ...args], worker)
 }
