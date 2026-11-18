@@ -1,10 +1,11 @@
 import { describe, test, expect } from 'bun:test'
 import { handleDiscover } from '../src/tools/discover'
 import { MockKV, MockExecutionContext, MockAnalytics } from './mocks'
+import { LEVEE } from '../src/contract'
 
-type VoiceRow = { id: string; text: string; language: string | null; created_at: number; weave_count: number; unique_weavers: number; family: string }
+type VoiceRow = { id: string; text: string; language: string | null; created_at: number; weave_count: number; unique_weavers: number; family: string; qualified_weavers?: number; permanence_source?: 'legacy' | 'earned' }
 
-function buildMockEnv(voices: VoiceRow[] = []) {
+function buildMockEnv(voices: VoiceRow[] = [], extraEnv: Record<string, unknown> = {}) {
   const normSql = (sql: string) => sql.replace(/\s+/g, ' ').trim()
 
   const db = {
@@ -48,7 +49,10 @@ function buildMockEnv(voices: VoiceRow[] = []) {
             const limitArg = args[args.length - 1] as number
             filtered = filtered.slice(0, limitArg)
 
-            return { results: filtered as T[] }
+            // Only the columns the statement selects come back, as from a database.
+            const selected = n.slice('SELECT '.length, n.indexOf(' FROM ')).split(',').map(c => c.trim().replace(/^\w+\./, ''))
+            const projected = filtered.map(v => Object.fromEntries(selected.map(c => [c, (v as Record<string, unknown>)[c]])))
+            return { results: projected as T[] }
           }
           return { results: [] }
         },
@@ -59,7 +63,7 @@ function buildMockEnv(voices: VoiceRow[] = []) {
   }
 
   return {
-    env: { DB: db as unknown as D1Database, KV: new MockKV() as unknown as KVNamespace, ANALYTICS: new MockAnalytics() as unknown as AnalyticsEngineDataset, ASSETS: {} as Fetcher, ADMIN_KEY: 'test', SESSION_SECRET: 'test-session' },
+    env: { DB: db as unknown as D1Database, KV: new MockKV() as unknown as KVNamespace, ANALYTICS: new MockAnalytics() as unknown as AnalyticsEngineDataset, ASSETS: {} as Fetcher, ADMIN_KEY: 'test', SESSION_SECRET: 'test-session', ...extraEnv },
   }
 }
 
@@ -113,5 +117,27 @@ describe('discover tool', () => {
     const result = await handleDiscover(env, ctx as unknown as ExecutionContext, 'trace1', { family: 'attention' })
     expect(result.content[0].text).toContain('No voices found')
     expect(result.content[0].text).toContain('total: 0')
+  })
+
+  test('LEVEE_PERMANENCE on: an earned-permanent voice reports its foundation depth, as in the projection', async () => {
+    const old = now - 60 * 24 * 3_600_000
+    const voices: VoiceRow[] = [
+      { id: 'v:rooted', text: 'Carried by enough distinct minds', language: 'en', created_at: old, weave_count: 5, unique_weavers: 3, family: 'memory', qualified_weavers: LEVEE.permanence.minWeavers, permanence_source: 'earned' },
+      { id: 'v:sunk', text: 'Carried, but not by enough', language: 'en', created_at: old - 1000, weave_count: 5, unique_weavers: 3, family: 'memory', qualified_weavers: 0, permanence_source: 'earned' },
+    ]
+    const depths = async (extraEnv: Record<string, unknown>) => {
+      const { env } = buildMockEnv(voices, extraEnv)
+      const result = await handleDiscover(env as never, new MockExecutionContext() as unknown as ExecutionContext, 'trace1', {})
+      return [...result.content[0].text.matchAll(/depth: ([\d.]+)/g)].map(m => Number(m[1]))
+    }
+
+    const [rootedOn, sunkOn] = await depths({ LEVEE_PERMANENCE: 'on' })
+    expect(rootedOn).toBe(0.1)
+    expect(sunkOn).toBeGreaterThan(0.3)
+
+    // Flag off: the weighted columns are ignored and neither voice has enough unique_weavers.
+    const [rootedOff, sunkOff] = await depths({})
+    expect(rootedOff).toBeGreaterThan(0.3)
+    expect(rootedOff).toBe(sunkOff)
   })
 })

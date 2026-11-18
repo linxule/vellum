@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { handleFocus } from '../src/tools/focus'
 import { MockExecutionContext } from './mocks'
+import { LEVEE } from '../src/contract'
 
 type VoiceRow = {
   id: string
@@ -10,6 +11,8 @@ type VoiceRow = {
   weave_count: number
   unique_weavers: number
   is_hidden: number
+  qualified_weavers?: number
+  permanence_source?: 'legacy' | 'earned'
 }
 
 type VoiceFamilyRow = {
@@ -64,7 +67,11 @@ class FocusTestDb {
     // Phase 18 Part B3: every focus.ts query gained a `surface` bind right after family (args[1]);
     // threeDaysAgo (when present) shifted to args[2].
     const threeDaysAgo = args[2] as number | undefined
+    // Only the columns the statement selects come back, as from a database: a column focus.ts
+    // forgets to select is undefined to computeDepth here too.
+    const selected = sql.slice('SELECT '.length, sql.indexOf(' FROM ')).split(',').map(c => c.trim().replace(/^v\./, ''))
     const rows = this.visiblePrimaryVoices(family)
+      .map(voice => Object.fromEntries(selected.map(c => [c, (voice as Record<string, unknown>)[c]])) as VoiceRow)
 
     if (sql.includes('v.weave_count >= 3')) {
       return {
@@ -147,5 +154,34 @@ describe('handleFocus', () => {
     const text = result.content[0]?.text ?? ''
     expect(text).toContain('voice-y')
     expect(text).not.toContain('voice-x')
+  })
+
+  test('LEVEE_PERMANENCE on: an earned-permanent voice keeps its foundation depth, as in the projection', async () => {
+    const now = Date.now()
+    const old = now - 60 * 24 * 3_600_000
+    const row = { language: 'en', created_at: old, weave_count: 5, unique_weavers: 3, is_hidden: 0, permanence_source: 'earned' as const }
+    const db = () => new FocusTestDb(
+      [
+        { id: 'voice-rooted', text: 'Carried by enough distinct minds', ...row, qualified_weavers: LEVEE.permanence.minWeavers },
+        { id: 'voice-sunk', text: 'Carried, but not by enough', ...row, qualified_weavers: 0 },
+      ],
+      [
+        { voice_id: 'voice-rooted', family: 'memory', ordinal: 0 },
+        { voice_id: 'voice-sunk', family: 'memory', ordinal: 0 },
+      ],
+    )
+    const focus = async (env: Record<string, unknown>) =>
+      (await handleFocus({ DB: db() as unknown as D1Database, ...env } as never, new MockExecutionContext() as never, null, { family: 'memory' })).content[0]?.text ?? ''
+
+    // Two months old and woven 5 times: depth ~0.51 by the sinking curve, past the load-bearing
+    // cutoff (0.3) — unless permanence floors it at 0.1.
+    const on = await focus({ LEVEE_PERMANENCE: 'on' })
+    expect(on).toContain('voice-rooted')
+    expect(on).not.toContain('voice-sunk')
+
+    // Flag off: the weighted columns are ignored and neither voice has enough unique_weavers.
+    const off = await focus({})
+    expect(off).not.toContain('voice-rooted')
+    expect(off).not.toContain('voice-sunk')
   })
 })

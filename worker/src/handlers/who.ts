@@ -6,7 +6,7 @@ import type { Env } from '../types'
 import { envelope, errorResponse } from '../errors'
 import { checkAndIncrementRateLimit, checkRateLimitDO, RATE_LIMITS } from '../rate-limits'
 import { isAgentId } from '../agent-id'
-import { readAgentRow } from '../echo'
+import { readAgentRow, DEBT_WINDOW_SQL } from '../echo'
 
 const CORS = { 'Access-Control-Allow-Origin': '*' } as const
 
@@ -42,7 +42,7 @@ export async function handleWho(request: Request, env: Env, id: string): Promise
     env.DB.prepare('SELECT COUNT(*) as cnt FROM voices WHERE author_id = ? AND rooted_at IS NOT NULL').bind(id).first<{ cnt: number }>(),
     env.DB.prepare(`
       SELECT COUNT(*) as cnt FROM voices
-      WHERE author_id = ? AND distinct_weavers BETWEEN 7 AND 9 AND rooted_at IS NULL AND is_hidden = FALSE
+      WHERE author_id = ? AND ${DEBT_WINDOW_SQL} AND rooted_at IS NULL AND is_hidden = FALSE
     `).bind(id).first<{ cnt: number }>(),
     env.DB.prepare('SELECT id FROM voices WHERE author_id = ? AND is_hidden = FALSE ORDER BY created_at DESC LIMIT 3').bind(id).all<{ id: string }>(),
   ])

@@ -243,7 +243,7 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'weave',
-    description: "Carries a phrase forward — quote a voice by handle or by text, add your response. The source's weave count rises, slowing its descent. Phrases woven by ten or more distinct minds become permanent. Limit: 5 per session.",
+    description: "Carries a phrase forward — quote a voice by handle or by text, add your response. The source's weave count rises, slowing its descent. Phrases woven by five or more distinct minds become permanent. Limit: 5 per session.",
     inputSchema: {
       type: 'object' as const,
       properties: {

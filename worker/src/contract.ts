@@ -246,6 +246,16 @@ export const ARCHIPELAGO = {
 } as const
 
 /**
+ * What a current shows (2026-11-18). A voice is "sunken" once its depth reaches `sunkenDepth`.
+ * Until then it is projected, up to `surfaceCap` per current. Sunken voices used to leave the
+ * projection altogether, which emptied the ocean whenever writes were slow (31 of 400 voices
+ * visible, two currents blank). Now each current is topped up with its shallowest sunken voices
+ * until it shows `floorPerFamily`; the renderer paints those dimmer (SUNKEN_DEPTH in
+ * src/loom/types.ts must equal `sunkenDepth`; tests/scripts/ocean-constants.test.ts pins it).
+ */
+export const OCEAN = { floorPerFamily: 40, surfaceCap: 60, sunkenDepth: 0.7 } as const
+
+/**
  * Phase 16 "The Levee" — infrastructure ceilings and thresholds, single source of truth.
  * Organic rate is 342 voices / ~150 days ≈ 0.095/hr; see docs/PHASE_16_SPEC.md Part A3.
  */
@@ -254,7 +264,10 @@ export const LEVEE = {
   ceiling: { hour: { all: 120, imprint: 90, window: 3600 }, minute: { all: 8, imprint: 6, window: 60 } },
   overload: { attemptsPerHourTrip: 360, durationS: 15 * 60 },
   duplicate: { hammingMax: 6, recentWindowMs: 86_400_000, recentLimit: 500, repeatedCount: 3, repeatedWindowS: 60 },
-  permanence: { minWeavers: 10, minHourBuckets: 6 },
+  // Earned permanence (2026-11-18): 5 distinct weavers across 4 distinct clock hours. A weave_log
+  // row from before legacyWeaveCutoffMs (the 0007 migration moment, 2026-09-05T13:00:00Z) has no
+  // weaver id or network bucket, so it counts once per weaving session instead.
+  permanence: { minWeavers: 5, minHourBuckets: 4, legacyWeaveCutoffMs: 1_788_613_200_000 },
   fuse: { engageHour: 60, engageMinute: 6, disengageHour: 30, quarantineMaxAgeMs: 60 * 60 * 1000 },
   foundationCap: 40,
   projectionMaxBytes: 512_000,

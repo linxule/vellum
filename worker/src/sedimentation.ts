@@ -1,5 +1,6 @@
 import type { LeveeMode } from './types'
 import { isPermanent } from './levee-permanence'
+import { LEVEE } from './contract'
 
 export function computeDepth(
   voice: { created_at: number; weave_count: number; unique_weavers: number; qualified_weavers?: number; permanence_source?: 'legacy' | 'earned' },
@@ -30,8 +31,8 @@ export function computeDepth(
   // pre-Phase-16 rule instead — the columns still get computed and written unconditionally
   // (tools/weave.ts, handlers/rest-weave.ts), so flipping the flag later needs no backfill.
   const permanent = permanenceMode === 'on'
-    ? isPermanent({ qualified_weavers: voice.qualified_weavers ?? 0, permanence_source: voice.permanence_source })
-    : voice.unique_weavers >= 10
+    ? isPermanent({ qualified_weavers: voice.qualified_weavers ?? 0, permanence_source: voice.permanence_source }, LEVEE.permanence.minWeavers)
+    : voice.unique_weavers >= LEVEE.permanence.minWeavers
   if (permanent) return Math.min(depth, 0.1)
 
   return depth

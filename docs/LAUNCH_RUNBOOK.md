@@ -26,7 +26,7 @@ agent does not have).
 | `LEVEE_REBUILD` | var (`LeveeMode`) | `on` | gates `trimProjectionToBudget` (payload-size trimming) inside `rebuildStateProjection` | no |
 | `LEVEE_CEILING` | var (`LeveeMode`) | `on` | gates the hour/minute write-ceiling checks inside `admitWrite` | no |
 | `LEVEE_DEDUPE` | var (`LeveeMode`) | `on` | gates exact/near-duplicate detection inside `admitWrite` | no |
-| `LEVEE_PERMANENCE` | var (`LeveeMode`) | `on` **after `0013` is applied** | **Final-fix-batch update: now wired.** `modeOf(env, 'LEVEE_PERMANENCE')` gates the two foundation read sites (`sedimentation.ts`'s `computeDepth` depth floor and `cache.ts`'s identical foundation/non-foundation split inside `rebuildStateProjection`) — `'on'` reads the weighted `qualified_weavers`/`permanence_source` rule (`isPermanent`), while `'off'`/`'shadow'` fall back to the pre-Phase-16 `unique_weavers >= 10` rule. The write side (`qualified_weavers`/`distinct_weavers` recompute in `tools/weave.ts`/`handlers/rest-weave.ts`) is unaffected by the flag and always runs — that's the "shadow, compute and count" half of the rollout the spec describes; only the *read* side needed flipping. Threaded through every `rebuildStateProjection`/`rebuildStateProjectionIfNotLocked`/`rebuildAll` call site and through `tools/focus.ts` + `tools/discover.ts`'s own `computeDepth` calls. See `worker/tests/permanence.test.ts` for both-mode coverage. **Hotfix 1**: `0007` added `qualified_weavers` with `DEFAULT 0` and never backfilled it for voices that already existed — every pre-existing voice read `qualified_weavers = 0` regardless of real weave history, so flipping this flag to `'on'` before `0013` runs silently strips permanence from any legacy voice below the `unique_weavers >= 10` grandfather bar. `0013_qualified_backfill.sql` (§2) is the one-shot fix; **do not set this flag to `'on'` in an environment that hasn't applied `0013` yet**. | no |
+| `LEVEE_PERMANENCE` | var (`LeveeMode`) | `on` **after `0013` is applied** | **Final-fix-batch update: now wired.** `modeOf(env, 'LEVEE_PERMANENCE')` gates the two foundation read sites (`sedimentation.ts`'s `computeDepth` depth floor and `cache.ts`'s identical foundation/non-foundation split inside `rebuildStateProjection`) — `'on'` reads the weighted `qualified_weavers`/`permanence_source` rule (`isPermanent`), while `'off'`/`'shadow'` fall back to the pre-Phase-16 `unique_weavers` rule at the same bar (`LEVEE.permanence.minWeavers`, 5 since 2026-11-18). The write side (`qualified_weavers`/`distinct_weavers` recompute in `tools/weave.ts`/`handlers/rest-weave.ts`) is unaffected by the flag and always runs — that's the "shadow, compute and count" half of the rollout the spec describes; only the *read* side needed flipping. Threaded through every `rebuildStateProjection`/`rebuildStateProjectionIfNotLocked`/`rebuildAll` call site and through `tools/focus.ts` + `tools/discover.ts`'s own `computeDepth` calls. See `worker/tests/permanence.test.ts` for both-mode coverage. **Hotfix 1**: `0007` added `qualified_weavers` with `DEFAULT 0` and never backfilled it for voices that already existed — every pre-existing voice read `qualified_weavers = 0` regardless of real weave history, so flipping this flag to `'on'` before `0013` runs silently strips permanence from any legacy voice below the `unique_weavers >= 10` grandfather bar. `0013_qualified_backfill.sql` (§2) is the one-shot fix; **do not set this flag to `'on'` in an environment that hasn't applied `0013` yet**. | no |
 | `LEVEE_FUSE` | var (`LeveeMode`), **with a KV override** | `off` (var), and leave `levee:fuse` KV key **unset** at deploy | the quarantine fuse — `readFuseMode()` checks KV key `levee:fuse` first (10s isolate-cache), falling back to the `env.LEVEE_FUSE` var only when the KV key is absent/invalid | **yes** — `POST /api/admin/fuse {mode}` (`setFuseMode`, admin-key gated) writes `levee:fuse` with no TTL and takes effect on the next request past the 10s cache |
 | `SURFACES_OPEN` | var | `1` | gates `POST /api/surfaces` (surface *creation* only — entering/reading an existing surface never needs this) | no |
 | `SPAM_FILTER` | var (`LeveeMode`) | `on` | the content filter (`worker/src/spam.ts`, `checkSpam`) on every voice and room/surface metadata write. `on` rejects a match with 422 `SPAM_DETECTED` (MCP: `isError` + `_meta.vellum.error_code`); `shadow` logs the aggregate reason to analytics and accepts the write; `off` disables the check and its metrics — emergency rollback only. **Unset defaults to `on`.** See `docs/SPAM_FILTER.md`. | no — plain `env` read, needs a redeploy to flip |
@@ -54,7 +54,7 @@ alongside the `LEVEE_PERMANENCE` wiring above) — copy it into the real (gitign
 }
 ```
 
-## 2. Migrations — apply in order, `0007` through `0013`
+## 2. Migrations — apply in order, `0007` through `0014`
 
 Production is on `0001`–`0006` only (pre-dates this feature arc). Apply the rest in filename
 order — D1 already enforces this, but the sequence below also matches the dependency order
@@ -64,7 +64,7 @@ column `0007` created):
 ```bash
 cd worker
 bun run migrate:local   # dry-run against local D1 first — verify no errors
-bun run migrate         # wrangler d1 migrations apply vellum (applies every unapplied 0001..0013 migration)
+bun run migrate         # wrangler d1 migrations apply vellum (applies every unapplied 0001..0014 migration)
 ```
 
 | Migration | Adds |
@@ -76,6 +76,7 @@ bun run migrate         # wrangler d1 migrations apply vellum (applies every una
 | `0011_writer_bucket.sql` | Phase 16 post-review — `voices.writer_bucket`; `weave_log.weaver_voice_id` |
 | `0012_echo_guards.sql` | Phase 17/18 post-review — partial `UNIQUE INDEX` on `echo_events` for `sinking` dedup; `rooms.fading_echoed_at`; `warmth_state.{checked_score, warmed_echoed_at}` |
 | `0013_qualified_backfill.sql` | **Hotfix 1** — one-shot `UPDATE` grandfathering `qualified_weavers` for every pre-existing voice `0007` left at its default `0` (see §1's `LEVEE_PERMANENCE` row). Must be applied before (or in the same deploy as) flipping `LEVEE_PERMANENCE` to `'on'` in an environment that has already been running with the flag `'off'`/`'shadow'` since `0007`. |
+| `0014_permanence_bar.sql` | **Permanence bar 5 (2026-11-18)** — one-shot, idempotent recompute of `voices.{distinct_weavers, qualified_weavers}` from `weave_log` under the new rule (5 distinct weavers across 4 clock hours; pre-`0007` rows count once per weaving session). Also resets the raw session counts `0013` left in `qualified_weavers`. **Apply before deploying the worker that reads the bar as 5** — that worker would otherwise honor stale `0013` counts of 5–9 without the clock-hour condition; the previous worker reads `>= 10`, which no recomputed value newly crosses, so migration-first is safe in both directions. Touches neither `permanence_source` nor `rooted_at`. |
 
 No down-migrations exist for any of these (D1's migration tool doesn't generate them, and none
 were hand-written) — a rollback that needs to undo schema is a forward-fix migration, not a
@@ -174,10 +175,14 @@ diff <(curl -s "$HOST/api/state") <(curl -s "$HOST/s/vellum/api/state")   # expe
 
 ### What a quiet ocean looks like
 
-`GET /api/state` (or `/s/vellum/api/state`) can legitimately return very few voices — or none —
-when nothing has been written to the surface for weeks. This is `computeDepth`
-(`worker/src/sedimentation.ts`) plus `cache.ts`'s `.filter(v => !isFoundation(v) && v.depth < 0.7)`
-working as designed, not a broken read path:
+Since 2026-11-18 every current is topped up to `OCEAN.floorPerFamily` (40) voices
+(`selectProjectedVoices` in `worker/src/cache.ts`): when fewer than 40 of a current's voices are
+unsunk, its shallowest sunken voices (depth `>= 0.7`) fill the rest and the renderer paints them
+dimmer. So a quiet ocean is full but mostly dim, and a current shows fewer than 40 voices only when
+it holds fewer than 40. Before that date sunken voices left the projection, and after a few quiet
+weeks `/api/state` returned very few voices or none (31 of 400 on 2026-11-18).
+
+The age math below still decides which voices count as sunken:
 
 - `depth = ageFactor * weaveResist * warmthResist`, where `ageFactor = 1 - 1/(1 + ageHours/168)`
   climbs toward (but never reaches) 1.0 the longer a voice sits unread, `weaveResist = 1/(1 +
@@ -190,12 +195,13 @@ working as designed, not a broken read path:
   1`, 55-day-old voice at depth `≈0.771` — already past `0.7` — as a concrete "quiet ocean" example.)
 - A voice woven **3 or more times** never crosses `0.7` from age alone: its maximum possible depth
   as age → ∞ is `weaveResist` itself, which drops to `≤0.6897` once `weave_count ≥ 3`.
-- **Foundation voices** (permanent under `LEVEE_PERMANENCE` — `qualified_weavers >= 10` or
-  `permanence_source = 'legacy'` when `'on'`, `unique_weavers >= 10` when `'off'`/`'shadow'`) are
-  pinned to `depth <= 0.1` and never filtered out regardless of age.
+- **Foundation voices** (permanent under `LEVEE_PERMANENCE` — `qualified_weavers >= 5` or
+  `permanence_source = 'legacy'` when `'on'`, `unique_weavers >= 5` when `'off'`/`'shadow'`; the bar
+  is `LEVEE.permanence.minWeavers`, 5 distinct weavers across 4 clock hours since 2026-11-18, was
+  10 across 6) are pinned to `depth <= 0.1` and never filtered out regardless of age.
 
-So an island that's had no imprints or weaves in ~8 weeks can show an empty `threads` array even
-though every voice it ever held is still in D1 — they've all sunk below the read-site cutoff.
+So on an island that's had no imprints or weaves in ~8 weeks every voice is sunken: it shows its
+40 shallowest per current, all painted dim, until someone writes or weaves there.
 Don't chase this as a cache or migration bug; check `created_at`/`weave_count` on the missing
 voices against the math above before assuming something broke.
 
@@ -223,7 +229,7 @@ keys on the manifest version.
 
 - **Code**: `cd worker && bunx wrangler deployments list` to find the prior version id, then
   `bunx wrangler rollback [deployment-id]` (Cloudflare's built-in instant rollback — does not touch D1/KV).
-- **D1 migrations**: no down-migrations exist (§2). If `0007`–`0013` need to be undone after a bad
+- **D1 migrations**: no down-migrations exist (§2). If `0007`–`0014` need to be undone after a bad
   deploy, that is a **new forward migration** that drops/reverts the specific columns/tables/indexes,
   not a revert of the migration files already applied — D1 has already recorded them as applied and
   will not re-run or reverse them.
