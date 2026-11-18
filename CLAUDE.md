@@ -232,10 +232,10 @@ Storage: **D1** (voices, voice_families, weave_log, warmth_state, rate_limits, a
 
 **Pretext** (`@chenglou/pretext`): stateless text layout engine.
 - `prepareWithSegments(text, font)` → prepared text with segment/width data
-- `layoutNextLine(prepared, cursor, width)` → one line at a time, advances cursor
+- `layoutNextLine(prepared, width, cursor)` → one line at a time, advances cursor (width BEFORE cursor since 1.0.0; the old order loops forever)
 - `walkLineRanges(prepared, width, callback)` → iterate all lines for cursor caching
 - **Cursor is `{ segmentIndex, graphemeIndex }` — MUST be copied (not shared) between uses.** This is the most common way to break layout without a type error.
-- **Pinned at 0.0.9; 1.0.0 is held** (Dependabot ignores the major). It swaps `layoutNextLine`'s arguments (old-order calls loop forever), removes `segLevels`, and makes `breakableFitAdvances` private. Migration list: README, "Pretext 1.0.0 is held".
+- **Pinned exactly at 1.0.0** (migrated 2026-11-18). It has no `segLevels`: `isLineRTL` in `loom/text.ts` works direction out from each segment's letters. Per-letter widths (`breakableFitAdvances`) are no longer in its published type: read them ONLY through `letterAdvances()` in `loom/text.ts`, which checks the table and measures letters itself when it is missing. Notes for the next bump: README, "Pretext is at 1.0.0".
 
 ## Design model
 

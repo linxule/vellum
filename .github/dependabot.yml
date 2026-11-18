@@ -8,11 +8,6 @@ updates:
     groups:
       dependencies:
         patterns: ["*"]
-    # Pretext 1.x is a breaking major for the renderer, not a routine bump:
-    # see README, "Pretext 1.0.0 is held". Remove once that migration is done.
-    ignore:
-      - dependency-name: "@chenglou/pretext"
-        update-types: ["version-update:semver-major"]
   - package-ecosystem: "bun"
     directory: "/app"
     schedule:
@@ -20,11 +15,6 @@ updates:
     groups:
       dependencies:
         patterns: ["*"]
-    # Pretext 1.x is a breaking major for the renderer, not a routine bump:
-    # see README, "Pretext 1.0.0 is held". Remove once that migration is done.
-    ignore:
-      - dependency-name: "@chenglou/pretext"
-        update-types: ["version-update:semver-major"]
   - package-ecosystem: "bun"
     directory: "/worker"
     schedule:

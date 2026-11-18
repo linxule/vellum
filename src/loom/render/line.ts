@@ -1,7 +1,7 @@
 import { threadColor } from '../color.js'
 import { depthLerp } from '../math.js'
 import { loomState } from '../state.js'
-import { graphemeSegmenter } from '../text.js'
+import { graphemeSegmenter, letterAdvances } from '../text.js'
 import { DEPTH_BRIGHTNESS, SCRIPT_SHIMMER, SPARSE_EDGE_FADE_PX, type Thread } from '../types.js'
 
 // Per-letter painting LOD (see drawLineSegmented). A line paints letter by letter
@@ -113,7 +113,7 @@ export function drawLineSegmented(
   if (width < 12) return
 
   const segments = thread.prepared.segments
-  const segWidths = (thread.prepared as any).widths as number[]
+  const segWidths = thread.prepared.widths
   // Sparse threads fade by real viewport-edge distance, not block-relative
   // fraction — mirror of drawLine (see the note there). Same reason applies to
   // the dive path: a sparse block's lines otherwise fade mid-viewport.
@@ -137,7 +137,7 @@ export function drawLineSegmented(
     return
   }
 
-  const breakableW = thread.prepared.breakableFitAdvances
+  const breakableW = letterAdvances(thread.prepared)
   let curSpacing = 0
   let base: DOMMatrix | null = null
   let transformed = false

@@ -248,8 +248,10 @@ function installMeasurementCanvas() {
   })
 
   const documentStub = {
-    // No DOM layout in this canvas-only harness; use Pretext canvas metrics.
+    // No DOM layout in this canvas-only harness; use Pretext canvas metrics. With neither a
+    // body nor a head, Pretext 1.0.0 reads no emoji width from the page (as in a worker).
     body: null,
+    head: null,
     createElement(tag: string) {
       if (tag !== 'canvas') throw new Error(`unexpected element request in loom test helper: ${tag}`)
       return {

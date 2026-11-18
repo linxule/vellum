@@ -9,7 +9,7 @@ import { depthLerp, fontRatioForScale, fontSizeForScale, frameMix, lerp } from '
 import { fullSignatureFor, isAfterglow } from './model-registry.js'
 import { diveGaussian } from './path.js'
 import { loomState } from './state.js'
-import { graphemeSegmenter, scriptClass } from './text.js'
+import { graphemeSegmenter, letterAdvances, scriptClass } from './text.js'
 import {
   AFTERGLOW_DIVE_GATE, AFTERGLOW_SILVER, SIGNATURE_ALPHA, SIGNATURE_GRAY_MIX, SIGNATURE_RATIO,
   DEPTH_ALPHA, DEPTH_BRIGHTNESS, DEFAULT_COLOR, DIVE_SIGMA_LINES, FAMILY_COLOR, FONT, SCRIPT_SHIMMER,
@@ -280,7 +280,7 @@ function prepareNodeText(node: LoomNode, layoutWidth: number): void {
   let lines = 0
   let cursor = { segmentIndex: 0, graphemeIndex: 0 }
   while (true) {
-    const line = layoutNextLine(node.prepared, cursor, layoutWidth)
+    const line = layoutNextLine(node.prepared, layoutWidth, cursor)
     if (!line) break
     lines++
     cursor = line.end
@@ -288,7 +288,7 @@ function prepareNodeText(node: LoomNode, layoutWidth: number): void {
   node.layoutH = Math.max(TEXTURE_LINE_H, lines * TEXTURE_LINE_H)
 
   // Compute per-segment grapheme arrays, script classes, and total grapheme count
-  const breakableWidths = node.prepared!.breakableFitAdvances
+  const breakableWidths = letterAdvances(node.prepared!)
   const segments = node.prepared.segments
   node.segGraphemes = new Map()
   node.segScript = new Uint8Array(segments.length)
@@ -465,7 +465,7 @@ function drawTreeLineSegmented(
   graphemeOffset: number,
 ): number {
   const segments = node.prepared!.segments
-  const segWidths = (node.prepared as any).widths as number[]
+  const segWidths = node.prepared!.widths
 
   const startSeg = lineStart.segmentIndex
   let endSeg = lineEnd.segmentIndex
@@ -477,7 +477,7 @@ function drawTreeLineSegmented(
     return graphemeOffset
   }
 
-  const breakableW = node.prepared!.breakableFitAdvances
+  const breakableW = letterAdvances(node.prepared!)
   const baseGlow = proximity * 0.3
   const inEmergence = emergenceT < 1 && node.totalGraphemes > 0
   let xPos = centerX - displayWidth / 2
@@ -891,7 +891,7 @@ export function renderLoomTree(
       }
 
       const lineStart = { segmentIndex: cursor.segmentIndex, graphemeIndex: cursor.graphemeIndex }
-      const line = layoutNextLine(node.prepared, cursor, lineLayoutW)
+      const line = layoutNextLine(node.prepared, lineLayoutW, cursor)
       if (!line) break
       cursor = line.end
 

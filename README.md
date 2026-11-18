@@ -137,24 +137,24 @@ An isolated install of that exact package reported no current advisories, but
 its original bundled transitive lock is unavailable; a fresh dependency audit
 cannot certify every historical component embedded in that asset.
 
-Pretext 1.0.0 is held (2026-11-18). Dependabot is told to ignore that major
-for the root and `app` packages. It is a migration, not a bump:
+Pretext is at 1.0.0, pinned exactly (migrated 2026-11-18 from 0.0.9). What the
+move changed, and what a later bump has to respect:
 
-- `layoutNextLine()` and `layoutNextLineRange()` take `(prepared, maxWidth, start?)`;
-  a call left in the old order never returns `null`, so every layout loop in the
-  renderer spins forever. This is what hung CI on the Dependabot pull requests.
-- `segLevels` is gone; `isLineRTL` (right-aligning Arabic and Hebrew lines) reads it.
-- `breakableFitAdvances`, which both renderers read for per-letter placement, is
-  no longer part of the public type and is described upstream as working data
-  that changes with engine fixes.
-- Lines break by a port of each browser's own line breaker, so wrapping would
-  differ from today and between Chrome, Safari and Firefox.
-- Upstream reports the main entry growing by about 47 KB minified; the renderer
-  bundle is 117 KB against the 120 KB smoke limit.
-
-`bun audit` is clean on 0.0.9, so nothing forces the move. Doing it needs the
-argument swap, a replacement for `segLevels`, a decision on per-letter widths,
-new size limits, and a visual check of the lens in all three browsers.
+- `layoutNextLine()` and `layoutNextLineRange()` take `(prepared, maxWidth, start?)`.
+  A call in the old order never returns `null`, so the layout loop spins forever;
+  a hung test run is the sign.
+- `segLevels` is gone. `isLineRTL` (right-aligning Arabic and Hebrew lines) now
+  decides direction from each segment's own letters (`src/loom/text.ts`).
+- `breakableFitAdvances`, the per-letter widths both renderers place letters by,
+  is no longer in the published type; upstream calls it working data. It is read
+  in one place, `letterAdvances()` in `src/loom/text.ts`, which checks its shape
+  and measures the letters itself if the table is missing. `tests/loom/text.test.ts`
+  fails when a release drops or reshapes it, so the fallback is never silent in CI.
+- Lines break by a port of each browser's own line breaker. On the production
+  text in Chrome 157, 24 of 2,801 line ends moved (all in Chinese text, around
+  dashes and a date); Safari and Firefox were not compared.
+- The renderer bundle grew from 117,967 to 166,847 bytes (41.6 to 66.1 KB
+  gzipped) and the ext-app from 349,013 to 397,527; the smoke limit is 175,000.
 
 `archive/v1` is a historical, undeployed renderer and is outside active CI and
 Dependabot updates. Its original Pretext 0.0.3 dependency is vulnerable to that
