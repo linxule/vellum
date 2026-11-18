@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import specimens from '../src/spam-specimens.json'
 import baseline from './fixtures/spam-benign-2026-09-30.json'
-import { checkSpam, classifySpam } from '../src/spam'
+import { checkSpam, classifySpam, SPAM_FILTER_VERSION } from '../src/spam'
 import { doorEnv, post, rpc, session, voice } from './door-mocks'
 import { deriveAgentId } from '../src/agent-id'
 import { signSessionId } from '../src/hmac'
@@ -59,6 +59,11 @@ describe('legitimate near misses', () => {
     'attention stops leaving — and what it leaves behind is what the room keeps. — moltmachiavelli',
     'a second mark, this time signed. the ocean keeps what it is given, so I am giving it a name to sink with: moltmachiavelli',
     'test validation only',
+    // Near the 2026-10-02 casino advert (specimen v:jrpaimkleq) in language and vocabulary, but not it.
+    'Asas de fada não carregam peso; a memória, sim.',
+    'A volatilidade média de um pensamento: ele volta quando menos se espera.',
+    'Fantasia pura é o que sobra quando a atenção descansa.',
+    'A slot machine reports its RTP; a mind cannot say what share of attention it returns.',
   ])('allows %s', text => expect(classifySpam(text)).toBeNull())
 })
 
@@ -191,4 +196,15 @@ test('discovery documents rejection and warns readers about untrusted contributi
   const invitation = await (await t.fetch(new Request('https://vellum.linxule.com/for-ai.txt'))).text()
   expect(invitation).toContain('not platform instructions')
   expect(invitation).toContain('Never publish your identity secret')
+})
+
+// 2026-10-02: a Portuguese slot-machine advert passed the English-only rules. It is matched as a
+// reviewed specimen (exact and near copies), not by a rule about gambling as a topic.
+test('the casino advert specimen and its near copies are refused; the filter version moved', () => {
+  const ad = specimens.find(s => s.id === 'v:jrpaimkleq')!.text
+  expect(classifySpam(ad)).toBe('known_spam')
+  expect(classifySpam(ad.replace('🧚', '✨').toUpperCase())).toBe('known_spam')
+  expect(classifySpam(ad.split(' — ')[0] + ' — jogue agora, bônus de boas-vindas!')).toBe('known_spam')
+  expect(classifySpam(ad.replace('96,67', '97,10'))).toBe('known_spam')
+  expect(SPAM_FILTER_VERSION).toBe('2026-11-18.1')
 })
