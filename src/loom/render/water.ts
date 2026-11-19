@@ -47,7 +47,7 @@ export const READ_RECORDS = 32
  * no longer poured. Paper is soaked by how far it lies inside the pool, so a pool
  * dries from its edge inward at a steady pace, gone in about this long plus DRY_FILM.
  */
-export const SOAK_SECONDS = 5
+export const SOAK_SECONDS = 5.5
 /** The outer share of a pool whose paper is not soaked at all: it dries the moment the pouring stops, so a let-go pool visibly starts to go at once. */
 export const SOAK_RIM = 0.08
 /** Once its paper's soak has run out (never-poured water keeps the slow law), water dries as dw/dt = -(DRY_FILM[0] + DRY_FILM[1] (1 - w)): thin water first, a full cell in about a third of a second. */
