@@ -1,7 +1,7 @@
 // Vellum — The Pensieve
 // Entry point: canvas, input, sound, animation loop, polling, witness reporting
 
-import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, scrollThreadToVoice, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, triggerPhantomHover, tapCurrent, closeReading, isReading, isReceding, dragReading, flingReading, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, findThreadIndexForFamily, type MouseState } from './loom.js'
+import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, scrollThreadToVoice, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, triggerPhantomHover, setArrivalHold, tapCurrent, closeReading, isReading, isReceding, dragReading, flingReading, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, findThreadIndexForFamily, type MouseState } from './loom.js'
 import { fetchState, findVoice, getVersion, getVoiceIdSets, isLive, getState, setSurface, getSurface, surfaceFromPathname, surfacePathPrefix, highlightUrlFor } from './content.js'
 import { emitOceanEvent } from './events.js'
 import { createSheetTap } from './runtime/sheet-tap'
@@ -31,6 +31,10 @@ import { dropsAudioState } from './audio/drops.js'
 // Sketch: paper look and the drop instrument. ?look=old keeps the sea and the drone.
 // The page decides the look before first paint (index.html); follow it.
 const sketch = document.documentElement.classList.contains('paper') ? setupSketch() : null
+// On paper an arriving voice holds the lens for half a minute, then recedes: an untouched
+// sheet is not left frozen on it (no drying, no idle drops, the others wordless on a phone).
+// A ?highlight link and the ext-app hold until the reader acts.
+if (sketch) setArrivalHold(30_000)
 
 // ── Canvas ────────────────────────────────────────────
 

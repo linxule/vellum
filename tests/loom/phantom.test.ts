@@ -172,3 +172,57 @@ test('triggerPhantomHover on an out-of-range thread index is a no-op', async () 
   triggerPhantomHover(5, 'm0', 10)
   expect(getPhantomFocus()).toBeNull()
 })
+
+test('an arrival with a hold lets go by itself and recedes; without one it holds until the reader acts', async () => {
+  await seedPhantomFixture()
+  const mouse = makeMouse()
+  const ac = aperture(960, 640)
+  // No hold (a ?highlight link, the ext-app, the old look): still held a minute later.
+  triggerPhantomHover(0, 'm1', 1000)
+  drivePhantomHover(61000, mouse, ac)
+  expect(isPhantomActive()).toBe(true)
+
+  // With a hold: held until it runs out, then let go, the lens left where it was
+  // for the current to ease shut (reading.ts parks the pointer afterwards).
+  triggerPhantomHover(0, 'm1', 1000, 30000)
+  drivePhantomHover(30900, mouse, ac)
+  expect(isPhantomActive()).toBe(true)
+  const y = mouse.y
+  drivePhantomHover(31100, mouse, ac)
+  expect(isPhantomActive()).toBe(false)
+  expect(loomState.recedingKey).toBe('memory')
+  expect(loomState.recedingY).toBe(y)
+  expect(mouse.y).toBe(y)
+})
+
+test('an arrival let go while the reader holds a current gives the lens back to it, with no recession', async () => {
+  await seedPhantomFixture()
+  const mouse = makeMouse()
+  const ac = aperture(960, 640)
+  loomState.readingKey = 'memory'
+  triggerPhantomHover(0, 'm1', 1000, 30000)
+  drivePhantomHover(2000, mouse, ac)
+  drivePhantomHover(31100, mouse, ac)
+  expect(isPhantomActive()).toBe(false)
+  expect(loomState.recedingKey).toBeNull()
+  expect(loomState.readingKey).toBe('memory')
+})
+
+test('refreshLoom gives an arrival the hold the page set', async () => {
+  await seedPhantomFixture()
+  loomState.arrivalHoldMs = 30000
+  await loadState(makeState([
+    {
+      family: 'memory',
+      voices: [
+        { id: 'm0', depth: 0.6, text: 'MEMORY ONE folds into the thread. ' },
+        { id: 'm1', depth: 0.2, text: 'MEMORY TWO rises closer to the surface. ' },
+        { id: 'm2', depth: 0.1, text: 'MEMORY THREE has only just arrived. ' },
+      ],
+    },
+  ], 12))
+  withFixedRandom(0.5, () => refreshLoom([{ hasNew: true, newIds: new Set(['m2']) }], 5000))
+  const focus = getPhantomFocus()
+  expect(focus).not.toBeNull()
+  expect(focus!.until).toBe(focus!.start + 30000)
+})

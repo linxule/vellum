@@ -72,7 +72,7 @@ bun run migrate:local                 # local variant
 
 - `loom/state.ts` — module-level singletons + test accessors + loom view state
 - `loom/refresh.ts` — `refreshLoom()` with identity-stable voice merge + event emission (DI). Phase 14: preserves eased `apiWarmth` + Math.max-merges `apiWarmthTarget` across rebuild (advanceLoom eases display toward target ~25s — live warmth steps, the ocean eases; both entry points poll visible tabs every ~15s)
-- `loom/phantom.ts` — synthetic hover (drives dive lens on `ontoolresult`)
+- `loom/phantom.ts` — synthetic hover (drives dive lens on `ontoolresult`). It holds until the reader acts, except an arrival on the standalone paper sheet: `setArrivalHold(30_000)` in `src/main.ts` lets it go after half a minute, and it recedes like a read let go by touch (`recedingKey`). A `?highlight` link and the ext-app set no hold
 - `loom/resonance.ts` — per-voice resonance with canonical voiceId (Phase 10: resolves to flat UID per frame)
 - `loom/loom-view.ts` — loom tree building, layout, entry/exit/recenter API, living tree renderer (breath, emergence stagger, filaments, hover proximity, hit targets). Uses ocean vocabulary: `depthLerp`, `threadColor`, `fontSizeForScale`, `frameMix`. `recenterLoomView()` swaps tree in place without touching transition.
 - `loom/render/frame.ts` — `advanceLoom` (state-only) + `paintLoom` (draw-only) + `renderLoom` (combined) + loom view transition

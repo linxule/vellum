@@ -70,9 +70,12 @@ export function advanceLoom(vw: number, vh: number, now: number, dt: number, mou
   // When new content arrives, we simulate the cursor landing on the thread.
   // This reuses the existing hover/dive pipeline — the user sees the hand glow
   // where attention is. They take over instantly by moving their real mouse
-  // (the next mousemove event overwrites mouse.x/y, phantom exits). No auto
-  // release — the field holds focus until the user acts, so they can read or
-  // screenshot without the lens closing on them.
+  // (the next mousemove event overwrites mouse.x/y, phantom exits). By default
+  // the field holds focus until the user acts, so they can read or screenshot
+  // without the lens closing on them (the ext-app, a ?highlight link). An arrival
+  // on the standalone paper sheet is let go after its hold (setArrivalHold) and
+  // recedes: held for good, its pool never dried, no idle drop fell again and,
+  // on a phone, every other current stayed wordless.
   drivePhantomHover(now, mouse, ac)
   // Touch reading: the held current keeps the lens at its reading line; a receding one, until it has shut.
   driveReading(mouse)

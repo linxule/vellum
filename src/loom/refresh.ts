@@ -251,7 +251,7 @@ export function refreshLoom(newVoiceInfo?: { hasNew: boolean, newIds: Set<string
         // and nudge scroll over a few frames — the initial scrollThreadToVoice
         // walk is a good guess, but the texture/dive layout-width discrepancy
         // can leave a few-line residual that the measurement closes exactly.
-        triggerPhantomHover(i, focusId ?? undefined, now)
+        triggerPhantomHover(i, focusId ?? undefined, now, loomState.arrivalHoldMs)
       }
     }
   }

@@ -16,7 +16,7 @@ cd worker && bunx wrangler deployments list
 Snapshot refreshed during Phase 9.6 against live version `e2ccf9eb-80e0-471b-92ba-377f0e296ae6`.
 
 - Voice count: since 2026-11-18 `/api/state` carries at least 40 voices per current that holds that many (240 on that day; 31 the day before, when sunken voices left the projection).
-- Renderer bundle: `dist/main.js` is `218045` bytes (2026-11-19, water and bands: the water field, dry and wet bands and dry brush added about 10 KB; `207742` on 0.4.2, `166847` on 0.3.0). Limit: `225000` bytes (`BUNDLE_LIMIT_BYTES` in `scripts/smoke.ts`).
+- Renderer bundle: `dist/main.js` is `226823` bytes (0.5.2: the anchored layout of the text being read, touch reading by drop, the soak that makes drying visible and the `?probe` readout added about 9 KB; `218045` on 0.5.0, `207742` on 0.4.2, `166847` on 0.3.0). The limit is a tripwire for accidental growth, not a budget to fit code into: do not shorten code to get under it; raise it when a feature needs the room and say why here. Limit: `235000` bytes (`BUNDLE_LIMIT_BYTES` in `scripts/smoke.ts`).
 - Worker upload: the dry run (`cd worker && bunx wrangler deploy --dry-run`) reports `861.48 KiB` total, `238.41 KiB` gzip on 0.4.0 (2026-11-19). It was `813 KiB` / `220 KiB` on 0.3.0; the figure given here before (about `400 KiB`) was already out of date by then. About half is the ext-app's single-file HTML (`app/dist/mcp-app.html`, about 435 KB), which carries the renderer. Expect it to move with the renderer; a jump of more than about 5% with no renderer or worker change to explain it is the thing to look into.
 - Worker startup time: no repo-local metric is wired yet; use the Workers dashboard and treat the normal band as low double-digit milliseconds. Sustained movement into `100ms+` territory is a red flag.
 - Expected smoke output:
@@ -57,7 +57,7 @@ The two ext-apps host channels only exist inside a real MCP client (standalone `
 
 - `bun run smoke` exits non-zero.
 - Voice count drops materially versus the last healthy smoke on the same day.
-- `dist/main.js` exceeds `225000` bytes (`BUNDLE_LIMIT_BYTES` in `scripts/smoke.ts`; it was `84000` until Pretext 0.0.9, `120000` until Pretext 1.0.0, `175000` until the drop and `215000` until the water lens).
+- `dist/main.js` exceeds `235000` bytes (`BUNDLE_LIMIT_BYTES` in `scripts/smoke.ts`; it was `84000` until Pretext 0.0.9, `120000` until Pretext 1.0.0, `175000` until the drop, `215000` until the water lens and `225000` until 0.5.2).
 - Analytics Engine shows a 500 rate above the recent healthy baseline.
 - `/api/state` `computed_at` age stays above `STATE_CACHE_STALE_MS` (`10 min`) across repeated checks.
 - Phase 16 "The Levee" (`/api/admin/stats`'s `levee` block): `visibility_mirror_mismatches > 0` (ever); `fuse_engaged` true outside a real traffic spike; `settling_count` non-zero while `LEVEE_FUSE` is off; `projection_bytes` sitting near `LEVEE.projectionMaxBytes` (trimming becoming load-bearing rather than a backstop); a 429/`SURFACE_SATURATED` denial while `global_hour_count` reads under `LEVEE.ceiling.hour.all` (120) — the ceiling and the counter it reads have drifted.

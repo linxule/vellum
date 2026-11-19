@@ -443,7 +443,8 @@ export function renderThread(
     let drawX = line.x
     if (sepWidth > 0) drawX += (voiceGroupIndex(thread, line.lineVoiceAnchorUid) - (groupCount - 1) / 2) * sepWidth
     // Clamp text to viewport — applies to all threads, not just primary during dive
-    const halfW = line.width * 0.5
+    // An arriving voice is drawn larger than it was laid out: keep what is drawn on the sheet.
+    const halfW = (paper.on && isNewVoice ? line.width * drawFontSize / line.fontSize : line.width) * 0.5
     if (drawX - halfW < 8) drawX = 8 + halfW
     else if (drawX + halfW > loomState.VW - 8) drawX = loomState.VW - 8 - halfW
 

@@ -324,12 +324,24 @@ function setOn(value: boolean): void {
   if (suspendTimer !== null) { clearTimeout(suspendTimer); suspendTimer = null }
   if (on) {
     if (ac.state !== 'running' && ac.state !== 'closed') void ac.resume()
+    lensVoiceAgain()
     master.gain.setTargetAtTime(0.9, ac.currentTime, 0.05)
     nextIdleAt = performance.now() + 2500
   } else {
     master.gain.setTargetAtTime(0, ac.currentTime, 0.08)
     suspendTimer = setTimeout(() => { suspendTimer = null; if (!on && ac) void ac.suspend() }, SUSPEND_AFTER_MS)
   }
+}
+
+/**
+ * The sound comes on while the lens rests on a voice: its phrase fell silently
+ * (rings only) and is marked played, so without this it would stay unheard until
+ * the reader left it and came back. It plays once more, now with its sound.
+ */
+export function lensVoiceAgain(): void {
+  if (lensId === null) return
+  lastPlayed.delete(lensId)
+  lensPlayedId = null
 }
 
 export async function initDrops(): Promise<boolean> {

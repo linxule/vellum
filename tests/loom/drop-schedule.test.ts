@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { cancelDrops, configureDrops, dropsPending, dropTap, notesFor, playVoice, recentlyPlayed, resetDropsForTest, TAP_PHRASE_GAP_MS, TAP_RING, tapNoteIdx, tickDrops, type DropVoice } from '../../src/audio/drops'
+import { cancelDrops, configureDrops, dropsPending, dropTap, lensVoiceAgain, notesFor, playVoice, recentlyPlayed, resetDropsForTest, TAP_PHRASE_GAP_MS, TAP_RING, tapNoteIdx, tickDrops, type DropVoice } from '../../src/audio/drops'
 import { CURRENT_SOUNDS } from '../../src/audio/phrase'
 
 // The schedule runs without sound (no AudioContext here, as in the ext-app):
@@ -148,6 +148,23 @@ describe('the lens as playhead', () => {
     const notes = notesFor(voices[0]!, lookup).length
     run(12000, lensA)
     expect(fallen.length).toBe(notes)
+  })
+
+  test('when the sound comes on, the voice the lens rests on is played once more', () => {
+    const lens = { id: 'v:a', x: 10, y: 10 }
+    run(12000, lens)
+    const before = fallen.length
+    expect(before).toBeGreaterThan(0)
+    run(4000, lens)
+    expect(fallen.length).toBe(before) // not repeated while the lens stays
+    lensVoiceAgain()
+    run(12000, lens)
+    expect(fallen.length).toBe(before * 2)
+    // With nothing under the lens it does nothing.
+    run(3000)
+    lensVoiceAgain()
+    run(3000)
+    expect(fallen.length).toBe(before * 2)
   })
 
   test('an arrival passage is not talked over by the lens', () => {

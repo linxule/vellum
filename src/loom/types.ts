@@ -83,6 +83,8 @@ export interface PhantomFocus {
   voiceId: string | null
   groupKey: string | null
   start: number
+  /** When the lens lets an arrival go by itself (ms, the frame clock); Infinity: it holds until the reader acts. */
+  until: number
   settledFrames: number
   diagFrames: number
   capturedY: number
