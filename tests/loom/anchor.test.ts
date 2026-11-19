@@ -235,6 +235,36 @@ describe('on paper, the words under the lens stay put', () => {
     expect(Math.abs(attention.scroll - jumped)).toBeLessThan(0.2)
   })
 
+  test('an arriving voice begins at the lens line and stays there: the lens does not chase it', async () => {
+    // The old look steers the lens to wherever the arriving voice's line lies, and that line
+    // moves when the lens does. With an anchor opening upward it ran off the sheet and the lens
+    // swung after it for the whole hold (seen on a desktop with the mouse resting on the page).
+    await loadState(makeState([
+      { family: 'attention', voices: [{ id: 'a0', text: words('a', 400) }, { id: 'n0', text: words('n', 90) }, { id: 'a1', text: words('b', 400) }] },
+      { family: 'memory', voices: [{ id: 'm0', text: words('m', 400) }] },
+    ], 9500))
+    withFixedRandom(0.5, () => refreshLoom([{ hasNew: true, newIds: new Set(['n0']) }, { hasNew: false, newIds: new Set() }], now))
+    attention = loomState.threads.find(t => t.familyNames.includes('attention'))!
+    const focus = loomState.phantomFocus!
+    expect(focus).not.toBeNull()
+    const ys: number[] = []
+    const read: string[] = []
+    frames(400, () => {
+      const anchor = attention._anchor!
+      expect(anchor).toBeDefined()
+      expect(attention.prepared.segments[anchor.cursor.segmentIndex]).toBe('n0')
+      expect(focus.capturedY).toBe(anchor.y)
+      ys.push(mouse.y)
+      // Under the lens the line is printed letter by letter.
+      if (attention.proximity > 0.5) read.push(ctx.fillTextCalls.filter(c => Math.abs(c.y - anchor.y) < 1.5).sort((p, q) => p.x - q.x).map(c => c.text.replace(/ /g, '')).join('').slice(0, 4))
+    })
+    // The lens stood still, in the middle of the sheet, on the voice's first words.
+    expect(Math.max(...ys) - Math.min(...ys)).toBeLessThan(1)
+    expect(Math.abs(mouse.y - VH / 2)).toBeLessThan(VH * 0.1)
+    expect(new Set(read)).toEqual(new Set(['n0n1']))
+    expect(attention.proximity).toBeGreaterThan(0.9)
+  })
+
   test('the anchor follows a drag exactly: scroll by k resting lines moves the read line by k reading lines', () => {
     const y = 400
     frames(200, () => hold(y))

@@ -135,6 +135,11 @@ export function renderThread(
     ctx.fillRect(cx - extent, cy - extent, extent * 2, extent * 2)
   }
 
+  const phantomFocus = loomState.phantomFocus
+  const phantomTarget = resolvePhantomTarget(phantomFocus)
+  const phantomTracksThisThread = phantomTarget !== null && phantomTarget.voiceFlatIdx >= 0 && phantomTarget.thread === thread
+  const phantomVoiceCount = phantomTracksThisThread ? (thread.groupBoundaries[thread.groupBoundaries.length - 1] || 1) : 1
+
   // The text being read, on paper, is laid out from the reading line outward
   // (thread._anchor): the line under the lens keeps its words and its place while
   // the lens opens and closes and while the lines breathe, which re-wrap only the
@@ -142,6 +147,23 @@ export function renderThread(
   // reading size. It lasts while the current is held or touched, then hands back
   // to thread.scroll where the text lies. The old look never anchors.
   let anchor = paper.on && !thread.sparse ? thread._anchor : undefined
+  // An arriving voice the lens was sent to (phantom.ts) begins at the lens line: the
+  // anchor is put there, on the voice's first word, and the lens stays where it is.
+  // Steering the lens to wherever that line lay (the old look still does) chases a
+  // line that moves as the lens does; with an anchor opening upward it ran off the
+  // sheet and the lens swung after it for as long as the arrival was held.
+  let phantomAnchored = false
+  if (paper.on && !thread.sparse && phantomTracksThisThread && mouse.x > -1000) {
+    const inVoice = (seg: number) => (thread.segVoiceUid[seg] ?? -1) >= 0 && thread.segVoiceUid[seg]! % phantomVoiceCount === phantomTarget!.voiceFlatIdx
+    if (!anchor || !inVoice(anchor.cursor.segmentIndex)) {
+      const first = thread.segVoiceUid.indexOf(phantomTarget!.voiceFlatIdx)
+      if (first >= 0) {
+        const at = { segmentIndex: first, graphemeIndex: 0 }
+        anchor = thread._anchor = { cursor: at, y: Math.max(0, Math.min(loomState.VH, mouse.y)), scroll: thread.scroll, top: at, width: 0, prox: -1 }
+      }
+    }
+    phantomAnchored = anchor !== undefined && inVoice(anchor.cursor.segmentIndex)
+  }
   if (anchor) {
     const period = thread.totalLines / 3
     let moved = thread.scroll - anchor.scroll
@@ -149,7 +171,7 @@ export function renderThread(
     const jump = Math.abs(moved * 3) > 12 // resting lines in one frame: a jump to a voice, not reading
     anchor.y -= moved * 3 * ac.diveLineH
     anchor.scroll = thread.scroll
-    const keep = thread.touched || (isPrimary && prox > 0.01)
+    const keep = thread.touched || (isPrimary && prox > 0.01) || phantomAnchored
     if (jump || !keep || anchor.y < 0 || anchor.y > loomState.VH || anchor.cursor.segmentIndex >= thread.prepared.segments.length) {
       // A jump (scrollThreadToVoice, a rebuild) is the scroll's own; otherwise hand the text back where it lies.
       if (!jump) thread.scroll = scrollForTop(thread, anchor.top)
@@ -167,11 +189,13 @@ export function renderThread(
   let closestLineDistance = Infinity
   const lineBreath = ((1 + 0.25 * Math.sin(now * thread.breathRate * 0.7 + thread.pathSeed * 1.3) + loomState.current * thread.currentResponse * 0.12) - 1) * 1.5
 
-  const phantomFocus = loomState.phantomFocus
-  const phantomTarget = resolvePhantomTarget(phantomFocus)
-  const phantomTracksThisThread = phantomTarget !== null && phantomTarget.voiceFlatIdx >= 0 && phantomTarget.thread === thread
-  const phantomVoiceCount = phantomTracksThisThread ? (thread.groupBoundaries[thread.groupBoundaries.length - 1] || 1) : 1
   let phantomTargetMeasured = false
+  if (phantomAnchored && anchor) {
+    // Where the lens belongs: on the anchored line of the voice, not on the first of its lines found on the sheet.
+    phantomFocus!.capturedY = anchor.y
+    phantomFocus!.settledFrames++
+    phantomTargetMeasured = true
+  }
   if (phantomTracksThisThread && phantomFocus!.diagFrames < 3) {
     loomState.diagHook?.('phantom-track', {
       frame: phantomFocus!.diagFrames,
@@ -251,7 +275,8 @@ export function renderThread(
   }
   // Lines are recorded top to bottom.
   const record = (line: LaidOutLine) => {
-    if (phantomTracksThisThread && !phantomTargetMeasured && line.lineVoiceAnchorUid >= 0 && ((line.lineVoiceAnchorUid % phantomVoiceCount) === phantomTarget!.voiceFlatIdx)) {
+    // On the sheet only: an anchored layout reaches a line above it, and a line there is not one to steer to.
+    if (phantomTracksThisThread && !phantomTargetMeasured && line.y >= 0 && line.lineVoiceAnchorUid >= 0 && ((line.lineVoiceAnchorUid % phantomVoiceCount) === phantomTarget!.voiceFlatIdx)) {
       if (phantomFocus!.diagFrames < 8) {
         loomState.diagHook?.('phantom-capture', { frame: phantomFocus!.diagFrames, targetY: line.y, mouseY: mouse.y, delta: line.y - mouse.y, scroll: thread.scroll })
       }

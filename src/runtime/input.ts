@@ -114,11 +114,16 @@ export function attachInputHandlers(opts: {
   const onControl = (target: EventTarget | null): boolean =>
     typeof Element !== 'undefined' && target instanceof Element && target.closest('.u, #info') !== null
 
+  // A second finger joined the touch: whatever this is (a pinch, two thumbs), it is not a tap.
+  let many = false
+
   const handleTouchStart = (e: TouchEvent) => {
     const now = performance.now()
     lastTouchAt = now
     const t = e.touches[0]
     if (!t) return
+    if (e.touches.length > 1) { many = true; return }
+    many = false
     if (onControl(e.target)) { mode = 'control'; return }
     clearTouchEndTimeout()
     clearKept()
@@ -170,17 +175,19 @@ export function attachInputHandlers(opts: {
   const handleTouchEnd = (e: TouchEvent) => {
     const now = performance.now()
     lastTouchAt = now
+    // Fingers still down: the touch has not ended.
+    if (e.type === 'touchend' && e.touches.length > 0) return
     if (mode === 'control') return
     mouse.down = false
     clearTouchEndTimeout()
     // After the reading has had the tap (a current opened, its drop fell), the page has it.
-    const tapped = e.type === 'touchend' && !dragging && now - startAt < TAP_MAX_MS
+    const tapped = e.type === 'touchend' && !dragging && !many && now - startAt < TAP_MAX_MS
     const tapDone = () => { if (tapped && onTap) onTap(startX, startY, e) }
     if (mode === 'reading' && reading) {
       if (dragging) {
         // Only a finger still moving when it lifts carries the text on.
         if (reading.active() && now - lastMoveAt < 60) reading.fling(velocity * 16.7)
-      } else if (now - startAt < TAP_MAX_MS) {
+      } else if (tapped) {
         const result = reading.tap(startX, startY)
         if (result === 'opened') reading.dropped?.(startX, startY)
         else if (result === 'closed') letGo()

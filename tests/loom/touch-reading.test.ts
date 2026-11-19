@@ -620,6 +620,28 @@ describe('touch handlers', () => {
     expect(taps).toEqual(['300,200'])
   })
 
+  test('two fingers are not a tap, whichever lifts first', () => {
+    const taps: string[] = []
+    onTap = (x, y) => { taps.push(`${x},${y}`) }
+    attach(reading())
+    const a = { clientX: 100, clientY: 600 }
+    const b = { clientX: 220, clientY: 640 }
+    handlers.touchstart!({ type: 'touchstart', target: canvas, touches: [a] })
+    advance(20)
+    handlers.touchstart!({ type: 'touchstart', target: canvas, touches: [a, b] })
+    advance(60)
+    handlers.touchend!({ type: 'touchend', target: canvas, touches: [b] })
+    advance(20)
+    handlers.touchend!({ type: 'touchend', target: canvas, touches: [] })
+    expect(calls).toEqual([])
+    expect(taps).toEqual([])
+    // One finger, afterwards, taps as usual.
+    advance(1000)
+    touch('touchstart', 100, 600); advance(60); touch('touchend', 100, 600)
+    expect(calls).toEqual(['tap 100,600', 'drop 100,600'])
+    expect(taps).toEqual(['100,600'])
+  })
+
   test('a touch on a control reaches only the control', () => {
     attach(reading())
     open = true

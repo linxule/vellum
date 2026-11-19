@@ -52,8 +52,9 @@ export function readingFamily(): string | null {
 /**
  * Lets the current go. By touch it recedes (`recede`): the lens stays at its line
  * while the current eases shut at the usual closing rate, then the pointer is
- * parked (driveReading). Without `recede` (a real pointer takes over, the lineage
- * view opens, the current was rebuilt) it is let go at once, recession included.
+ * parked (driveReading). Without `recede` (a real pointer takes over, the current
+ * was rebuilt) it is let go at once, recession included. The lineage view does not
+ * let it go: the read waits under it (driveReading stands by) and is there on return.
  */
 export function closeReading(recede = false): void {
   if (recede && loomState.readingKey !== null) {
