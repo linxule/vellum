@@ -42,6 +42,18 @@ export const CLEAR_MAX = 0.94
 export const READABLE = 0.4
 /** How many finished reads are kept as records. */
 export const READ_RECORDS = 32
+/**
+ * How long the deepest-soaked paper, in the middle of a pool, holds its water once
+ * no longer poured. Paper is soaked by how far it lies inside the pool, so a pool
+ * dries from its edge inward at a steady pace, gone in about this long plus DRY_FILM.
+ */
+export const SOAK_SECONDS = 5.5
+/** The outer share of a pool whose paper is not soaked at all: it dries the moment the pouring stops, so a let-go pool visibly starts to go at once. */
+export const SOAK_RIM = 0.08
+/** Once its paper's soak has run out (never-poured water keeps the slow law), water dries as dw/dt = -(DRY_FILM[0] + DRY_FILM[1] (1 - w)): thin water first, a full cell in about a third of a second. */
+export const DRY_FILM = [1.5, 4] as const
+/** How fast the pale patch fills back with pigment once its water has gone, per second (CLEAR_MAX is all of it). */
+export const REFILL = 1.6
 
 const smooth = (a: number, b: number, v: number) => { const x = clamp01((v - a) / (b - a)); return x * x * (3 - 2 * x) }
 
@@ -110,6 +122,14 @@ let clear = new Float32Array(0)
 let dep = new Float32Array(0)
 /** The wet front this step: thin water beside dry paper. */
 let front = new Float32Array(0)
+/**
+ * How deep the paper is soaked, 0..1: how long it keeps its water once no
+ * longer poured (SOAK_SECONDS per unit). -1 once that has run out (its water then
+ * dries fast); 0 where the water was never poured (a thin film spread there dries as it always did).
+ */
+let soak = new Float32Array(0)
+/** Poured this step (1): such water dries as it always did, so a pool being read holds still. */
+let poured = new Uint8Array(0)
 /** Paper permeability: where water runs easily. */
 let perm = new Float32Array(0)
 let smoothed = new Float32Array(0)
@@ -134,7 +154,8 @@ export function newField(vw: number, vh: number, seed = 4242): void {
   const n = gw * gh
   const F = () => new Float32Array(n)
   water = F(); next = F(); reach = F(); life = F(); clear = F()
-  dep = F(); front = F(); perm = F(); smoothed = F()
+  dep = F(); front = F(); perm = F(); smoothed = F(); soak = F()
+  poured = new Uint8Array(n)
   owner = new Int8Array(n).fill(-1)
   for (let i = 0; i < n; i++) {
     const x = i % gw
@@ -144,6 +165,34 @@ export function newField(vw: number, vh: number, seed = 4242): void {
   bx0 = by0 = 1
   bx1 = by1 = 0
   masks = null
+}
+
+/**
+ * The sheet changes size. Only its height changed (a phone's bars moving): the water
+ * stays where it lies, the part still on the sheet carried into the new field.
+ * Otherwise (a rotation, a window resized) the currents are placed afresh and the
+ * sheet starts dry.
+ */
+export function resizeField(vw: number, vh: number): boolean {
+  if (vw !== fieldW || isDry()) { newField(vw, vh); return false }
+  const ow = gw
+  const old = [water, reach, life, clear, dep, soak]
+  const oldOwner = owner
+  const [x0, y0, x1, y1] = [bx0, by0, bx1, by1]
+  newField(vw, vh)
+  const fresh = [water, reach, life, clear, dep, soak]
+  // Border cells are never stepped, so nothing is carried into them.
+  const yEnd = Math.min(y1, gh - 2)
+  for (let y = y0; y <= yEnd; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const i = y * gw + x
+      const j = y * ow + x
+      for (let a = 0; a < 6; a++) fresh[a]![i] = old[a]![j]!
+      owner[i] = oldOwner[j]!
+    }
+  }
+  if (yEnd >= y0) setBox(x0 + 3, y0 + 3, x1 - 3, yEnd - 3)
+  return true
 }
 
 const isDry = () => bx1 < bx0
@@ -171,6 +220,16 @@ export function pour(rows: ArrayLike<number>, slot: number, amount: number, dt: 
   if (n < 2 || amount <= 0) return
   const c = WATER_CELL
   const rate = Math.min(1, dt * 9)
+  // The block's reach (its first and last rows with any width): the soak is how far
+  // inside the block a cell lies, across and along, each as a share of the block's
+  // own half-size, so the pool keeps its shape as it shrinks to its middle.
+  let top = Infinity, bottom = -Infinity
+  for (let r = 0; r < n; r++) {
+    if (rows[r * 3 + 2]! <= 1) continue
+    top = Math.min(top, rows[r * 3 + 1]!)
+    bottom = Math.max(bottom, rows[r * 3 + 1]!)
+  }
+  const halfH = Math.max(12, (bottom - top) / 2)
   let k = 0
   let x0 = gw, y0 = gh, x1 = -1, y1 = -1
   const gyEnd = Math.min(gh - 2, Math.floor(rows[(n - 1) * 3 + 1]! / c))
@@ -185,13 +244,21 @@ export function pour(rows: ArrayLike<number>, slot: number, amount: number, dt: 
     const gxEnd = Math.min(gw - 2, Math.ceil((cx + half * 1.2) / c))
     for (let gx = Math.max(1, Math.floor((cx - half * 1.2) / c)); gx <= gxEnd; gx++) {
       const i = gy * gw + gx
-      const d = Math.abs(gx * c - cx) / (half * (0.84 + 0.3 * perm[i]!))
+      const p = perm[i]!
+      const d = Math.abs(gx * c - cx) / (half * (0.84 + 0.3 * p))
       if (d >= 1) continue
       const v = Math.min(1, (1 - d) * 2.6) * amount
       if (v > water[i]!) {
         water[i]! += (v - water[i]!) * rate
         owner[i] = slot
       }
+      poured[i] = 1
+      // Soaked by how far inside the block it lies (the two shares met in a rounded
+      // corner, 1 in the middle), unevenly with the grain.
+      const a = 1 - d
+      const b = Math.max(0, Math.min(y - top, bottom - y)) / halfH
+      const s = Math.max(0.001, Math.min(1, (1.42 * a * b / Math.sqrt(a * a + b * b + 1e-6) * (0.75 + 0.5 * p) - SOAK_RIM) / (1 - SOAK_RIM)) * amount)
+      if (s > soak[i]!) soak[i]! += (s - soak[i]!) * rate
       if (gx < x0) x0 = gx
       if (gx > x1) x1 = gx
       if (gy < y0) y0 = gy
@@ -211,7 +278,9 @@ export function pour(rows: ArrayLike<number>, slot: number, amount: number, dt: 
  */
 export function stepField(dt: number, bloom: Bloom | null): boolean {
   if (isDry() || dt <= 0) return false
-  const h = dt / 2
+  // The spreading's step is held to 0.1 s (under a heavy load it slows, as it always
+  // has); drying keeps real time.
+  const h = Math.min(dt, 0.1) / 2
   for (let s = 0; s < 2; s++) {
     next.set(water)
     for (let y = by0; y <= by1; y++) {
@@ -249,12 +318,21 @@ export function stepField(dt: number, bloom: Bloom | null): boolean {
     for (let x = bx0; x <= bx1; x++) {
       const i = y * gw + x
       let w = water[i]!
-      // Drying: a thin film goes first (damp paper would hold it longer).
+      // Drying: a thin film goes first (damp paper would hold it longer). Water still
+      // being poured dries slowly, as it always has, so the pool being read holds
+      // still; once no longer poured it stays as long as its paper is soaked, then
+      // goes in a fraction of a second. Deep paper stays soaked longest: the edge recedes.
+      const sk = soak[i]!
       if (w > 0) {
-        w -= dt * (0.05 + 0.22 * (1 - w))
+        if (poured[i] || sk === 0) w -= dt * (0.05 + 0.22 * (1 - w))
+        else if (sk < 0) w -= dt * (DRY_FILM[0] + DRY_FILM[1] * (1 - w))
         if (w < 0.004) w = 0
         water[i] = w
       }
+      poured[i] = 0
+      // Soaked paper dries out at a steady pace; spent (-1), its water goes fast. Back to 0 once dry.
+      if (sk > 0) soak[i] = w === 0 ? 0 : sk > dt / SOAK_SECONDS ? sk - dt / SOAK_SECONDS : -1
+      else if (sk < 0 && w === 0) soak[i] = 0
       // How far the water reached: yes or no, kept until its tide line has faded,
       // so the line stays exactly where the water stopped.
       if (w > 0.03) { reach[i] = 1; life[i] = 1 }
@@ -265,7 +343,7 @@ export function stepField(dt: number, bloom: Bloom | null): boolean {
       // Clean water pushes the pigment away; once dry, the pale patch fills back slowly.
       const target = smooth(0.1, 0.5, w) * CLEAR_MAX
       const cl = clear[i]!
-      clear[i] = target > cl ? cl + (target - cl) * Math.min(1, dt * 7) : Math.max(target, cl - dt * 0.09)
+      clear[i] = target > cl ? cl + (target - cl) * Math.min(1, dt * 7) : Math.max(target, cl - dt * REFILL)
       // The wet front: thin water next to dry paper, where the pushed pigment gathers.
       let fr = 0
       if (w > 0.006 && w < 0.32) {
@@ -442,10 +520,12 @@ function lensRows(lens: LensPour, vw: number): [number, number, number] | null {
 export function stepWater(now: number, lens: LensPour | null): void {
   const vw = loomState.VW
   const vh = loomState.VH
-  const dt = lastStep > 0 ? Math.max(0, Math.min(0.1, (now - lastStep) / 1000)) : 1 / 30
+  // The wash is painted every second frame, so on a phone at 15 frames a second a step
+  // is 0.13 s; up to 0.25 s the water keeps real time (a longer gap is a paused tab).
+  const dt = lastStep > 0 ? Math.max(0, Math.min(0.25, (now - lastStep) / 1000)) : 1 / 30
   lastStep = now
   if (!lens && isDry() && !anyWet) { bloom = null; return }
-  if (fieldW !== vw || fieldH !== vh) { newField(vw, vh); ending.clear() }
+  if (fieldW !== vw || fieldH !== vh) { if (!resizeField(vw, vh)) ending.clear() }
   const shape = lens && lens.amount > 0.05 ? lensRows(lens, vw) : null
   if (lens && shape) {
     const slot = slotOf(lens.thread, true)
@@ -507,8 +587,9 @@ const over: [number, number, number] = [0, 0, 0]
 /**
  * Whether another current's water lies over a line of `thread` spanning x0..x1 at
  * height y: [from, to, fade]. The stretch from..to is under clean water and is not
- * printed (from >= to when none is); fade (0..1) dims the rest where the water is
- * thin or drying, so words come back gently as it dries. The current being read is
+ * printed (from >= to when none is); fade (0..1) dims the rest by the thin or drying
+ * water over it, averaged along the printed words, so words come back gently as it
+ * dries and a line that only grazes a pool's edge is not dimmed whole. The current being read is
  * never covered. On a small sheet, or while a current is held by touch, the open
  * current's water is taken to cover the whole sheet (reading.ts, wordlessAmount).
  * A scratch tuple: read it at once.
@@ -522,20 +603,32 @@ export function waterOver(thread: Thread, x0: number, x1: number, y: number): [n
   const gy = Math.round(y / WATER_CELL)
   if (isDry() || fieldW !== loomState.VW || fieldH !== loomState.VH || gy < by0 || gy > by1) return over
   const own = slotOf(thread)
+  const first = Math.floor(x0 / WATER_CELL)
+  const last = Math.ceil(x1 / WATER_CELL)
+  const end = Math.min(bx1, last)
+  const start = Math.max(bx0, first)
   let from = Infinity
   let to = -Infinity
-  const end = Math.min(bx1, Math.ceil(x1 / WATER_CELL))
-  for (let gx = Math.max(bx0, Math.floor(x0 / WATER_CELL)); gx <= end; gx++) {
+  for (let gx = start; gx <= end; gx++) {
+    const i = gy * gw + gx
+    if (water[i]! >= HIDING_WATER && owner[i]! >= 0 && owner[i] !== own) {
+      from = Math.min(from, gx)
+      to = Math.max(to, gx)
+    }
+  }
+  // Thin water dims the printed words by how much of them it lies under: a line
+  // that only grazes a pool's edge keeps its ink, one lying in thin water keeps little.
+  let thin = 0
+  for (let gx = start; gx <= end; gx++) {
+    if (gx >= from && gx <= to) continue
     const i = gy * gw + gx
     const w = water[i]!
     const o = owner[i]!
-    if (w <= 0.004 || o < 0 || o === own) continue
-    if (w >= HIDING_WATER) {
-      from = Math.min(from, (gx - 0.5) * WATER_CELL)
-      to = Math.max(to, (gx + 0.5) * WATER_CELL)
-    } else over[2] = Math.max(over[2], w / HIDING_WATER)
+    if (w > 0.004 && o >= 0 && o !== own) thin += w / HIDING_WATER
   }
-  if (from < to) { over[0] = from; over[1] = to }
+  const printed = last - first + 1 - (from <= to ? to - from + 1 : 0)
+  if (printed > 0) over[2] = Math.max(over[2], Math.min(1, thin / printed))
+  if (from <= to) { over[0] = (from - 0.5) * WATER_CELL; over[1] = (to + 0.5) * WATER_CELL }
   return over
 }
 
@@ -618,8 +711,42 @@ function strokeGroups(ctx: CanvasRenderingContext2D, groups: Map<number, number[
   }
 }
 
-// The tide line once dry: fine and delicate, broken where little pigment reached.
-const TIDE = [0.08, 0.16, 0.26]
+/**
+ * The tide line once dry: alphas by strength step, and width (sheet px). Thin, but
+ * a reader can find it with the text on; broken where little pigment reached.
+ */
+export const TIDE = [0.12, 0.24, 0.4] as const
+export const TIDE_WIDTH = 1.5
+/** The share of its life a tide line holds at full strength before it fades (TIDE_LIFE_MS). */
+export const TIDE_HOLD = 0.3
+/**
+ * How far (px) the water must have drawn back from a stretch of tide line before
+ * that stretch shows: the line grows in behind the leaving water, never drawn as a
+ * border around a pool still standing.
+ */
+export const TIDE_CLEAR = 30
+
+/**
+ * How strong the tide line is at a point: as much as pigment gathered there; where
+ * none did, faint and only where the paper's grain is open, so the line breaks (an
+ * even outline would frame the text). At full for the first TIDE_HOLD of its life,
+ * then fading; only once the water within TIDE_CLEAR of it (`near`, the most there) has gone.
+ */
+export function tideStrength(pigment: number, grain: number, life: number, near: number): number {
+  return Math.max(Math.min(1, pigment * 2.2), 0.45 * smooth(0.42, 0.62, grain)) * smooth(0, 1 - TIDE_HOLD, life) * (1 - smooth(0.02, 0.3, near))
+}
+
+/** The most water within TIDE_CLEAR of grid cell i. */
+function waterNear(i: number): number {
+  const r = Math.round(TIDE_CLEAR / WATER_CELL)
+  const x = i % gw
+  const y = (i - x) / gw
+  let most = 0
+  for (let yy = Math.max(by0, y - r); yy <= Math.min(by1, y + r); yy++) {
+    for (let xx = Math.max(bx0, x - r); xx <= Math.min(bx1, x + r); xx++) most = Math.max(most, water[yy * gw + xx]!)
+  }
+  return most
+}
 
 /**
  * Paints the water onto the wash, after the bands and before the rings: the clean
@@ -660,8 +787,8 @@ export function paintWater(ctx: CanvasRenderingContext2D, ocean: number, blend: 
   if (tideCells > 0) strokeGroups(ctx, contour(reach, 0.5, (i) => {
     const j = [i, i + 1, i + gw, i + gw + 1]
     const most = (a: Float32Array) => Math.max(a[j[0]!]!, a[j[1]!]!, a[j[2]!]!, a[j[3]!]!)
-    return (0.2 + 0.8 * Math.min(1, most(dep) * 2.2)) * most(life) * (1 - smooth(0, 0.04, most(water)))
-  }), TIDE, 0.9)
+    return tideStrength(most(dep), perm[i]!, most(life), waterNear(i))
+  }), TIDE, TIDE_WIDTH)
   ctx.globalAlpha = 1
   ctx.lineCap = 'butt'
 }
@@ -697,5 +824,5 @@ export function setWaterCanvasForTest(factory: MaskFactory | null): void {
 
 /** Test-only: the grid as it stands. */
 export function waterForTest() {
-  return { gw, gh, water, reach, life, clear, dep, owner, box: [bx0, by0, bx1, by1], dry: isDry() }
+  return { gw, gh, water, reach, life, clear, dep, soak, owner, box: [bx0, by0, bx1, by1], dry: isDry() }
 }

@@ -1,5 +1,6 @@
 import { beforeEach, expect, test } from 'bun:test'
 import { initLoom, resizeLoom } from '../../src/loom/init.js'
+import { readingThread } from '../../src/loom/reading.js'
 import { getInteractionState, getThreads, loomState, resetLoomState } from '../../src/loom/state.js'
 import { installViewport, loadState, makeState, withFixedRandom } from './helpers.js'
 
@@ -139,4 +140,62 @@ test('resizeLoom preserves thread count and re-spaces xCenter without clearing s
   expect(getThreads()[0]!.xCenter).not.toBeCloseTo(firstXCenter, 2)
   // Warmth was preserved (resize does not touch local state fields)
   expect(getThreads()[0]!.warmth).toBeCloseTo(0.42, 5)
+})
+
+test('a resize of the height alone keeps every column where it is, and the open current open', async () => {
+  // A phone's bars moving change the page's height only.
+  installViewport(420, 912)
+  await loadState(nineFamilyState())
+  withFixedRandom(0.5, () => initLoom())
+  const threads = getThreads()
+  const xs = threads.map(t => t.xCenter)
+  const cursors = threads.map(t => t.lineEndCursors)
+  loomState.touchedThread = threads[2]!
+  loomState.readingKey = threads[2]!.familyNames.slice().sort().join(',')
+
+  installViewport(420, 832)
+  withFixedRandom(0.9, () => resizeLoom())
+
+  expect(loomState.VH).toBe(832)
+  expect(getThreads()).toBe(threads)
+  expect(getThreads().map(t => t.xCenter)).toEqual(xs)
+  expect(getThreads().map(t => t.lineEndCursors)).toEqual(cursors)
+  expect(loomState.touchedThread).toBe(threads[2]!)
+  expect(readingThread()).toBe(threads[2]!)
+})
+
+test('a resize to the same size changes nothing', async () => {
+  installViewport(960, 640)
+  await loadState(nineFamilyState())
+  withFixedRandom(0.5, () => initLoom())
+  const xs = getThreads().map(t => t.xCenter)
+  withFixedRandom(0.9, () => resizeLoom())
+  expect(getThreads().map(t => t.xCenter)).toEqual(xs)
+})
+
+test('a rotation re-places the columns but keeps the current held open for reading', async () => {
+  installViewport(420, 912)
+  await loadState(nineFamilyState())
+  withFixedRandom(0.5, () => initLoom())
+  const held = getThreads().find(t => t.familyNames.length === 1)!
+  loomState.readingKey = held.familyNames[0]!
+
+  installViewport(912, 420)
+  withFixedRandom(0.9, () => resizeLoom())
+  expect(loomState.VW).toBe(912)
+  expect(readingThread()).toBe(held)
+})
+
+test('a current held open and split apart by a wider sheet stays open as the part it began with', async () => {
+  installViewport(240, 640)
+  await loadState(tenFamilyState())
+  withFixedRandom(0.5, () => initLoom())
+  const merged = getThreads().find(t => t.familyNames.length > 1)!
+  loomState.readingKey = [...merged.familyNames].sort().join(',')
+
+  installViewport(1440, 900)
+  withFixedRandom(0.5, () => resizeLoom())
+  const open = readingThread()
+  expect(open).not.toBeNull()
+  expect(open!.familyNames).toEqual([merged.familyNames[0]!])
 })

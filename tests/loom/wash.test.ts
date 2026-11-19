@@ -8,7 +8,7 @@ import {
   addRipple, beginCrossing, beginWashProfile, grainTile, hiddenSpan, markWashLine, paintWash,
   pointOnCurrent, randomCurrent, resetWashForTest, ringsOnLine,
 } from '../../src/loom/render/wash.js'
-import { setWaterCanvasForTest } from '../../src/loom/render/water.js'
+import { setWaterCanvasForTest, TIDE } from '../../src/loom/render/water.js'
 import { paintedPaths, paintRecorder, rgbaAlpha } from './paint-recorder.js'
 
 const VW = 1440
@@ -465,7 +465,24 @@ describe('water on the wash', () => {
     const lines = paintedPaths(paint(NOW + 12000).calls).filter(p => p.op === 'stroke')
     expect(lines.length).toBeGreaterThan(resting)
     expect(lines.every(p => typeof p.style === 'string' && p.style.startsWith('rgba(0,108,182,'))).toBe(true)
-    expect(Math.max(...lines.map(p => rgbaAlpha(p.style)))).toBeLessThanOrEqual(0.26)
+    expect(Math.max(...lines.map(p => rgbaAlpha(p.style)))).toBeLessThanOrEqual(TIDE[2])
+  })
+
+  test('the tide line grows in behind the leaving water: hardly any at let-go, while the pool still stands', () => {
+    open()
+    frames(NOW, NOW + 1500)
+    letGo()
+    // Segments stroked after the water is laid (the bands stroke before it).
+    const tide = (calls: ReturnType<typeof paint>['calls']) => {
+      const water = calls.findIndex(c => c.op === 'drawImage')
+      return water < 0 ? 0 : calls.slice(water).filter(c => c.op === 'moveTo').length
+    }
+    for (let t = NOW + 1533; t < NOW + 1800; t += 33) paint(t)
+    const atLetGo = tide(paint(NOW + 1800).calls)
+    for (let t = NOW + 1833; t < NOW + 4000; t += 33) paint(t)
+    const later = tide(paint(NOW + 4000).calls)
+    expect(later).toBeGreaterThan(50)
+    expect(atLetGo).toBeLessThan(later / 10)
   })
 
   test('the water fades with the ocean as the lineage view opens', () => {
