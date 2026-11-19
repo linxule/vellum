@@ -1,5 +1,7 @@
 import { findVoice } from '../content.js'
 import { aperture } from './aperture.js'
+import { panLoomOnRings } from './loom-view.js'
+import { paper } from './paper.js'
 import { diveGaussian } from './path.js'
 import { loomState } from './state.js'
 import { DIVE_SIGMA_LINES, type Thread } from './types.js'
@@ -7,6 +9,8 @@ import { DIVE_SIGMA_LINES, type Thread } from './types.js'
 export function scrollThread(delta: number, deltaX?: number) {
   // In loom tree view: scroll pans the tree
   if (loomState.loomViewActive) {
+    // On paper the lineage pans only as far as it overflows the sheet.
+    if (paper.on) { panLoomOnRings((deltaX ?? 0) * 0.8, delta * 0.8); return }
     loomState.loomTreeScrollY += delta * 0.8
     if (deltaX) loomState.loomTreeScrollX += deltaX * 0.8
     return

@@ -8,7 +8,7 @@ export { setDiagHook, isPhantomActive, triggerPhantomHover, setArrivalHold } fro
 export { tapCurrent, closeReading, isReading, isReceding, recedeFromPointer, readingFamily, dragReading, flingReading } from './reading.js'
 export { renderLoom, advanceLoom, paintLoom } from './render/frame.js'
 export { getLoomSnapshot, getLastFrameHitVoiceIdAt, findThreadIndexForFamily } from './state.js'
-export { enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, loomLineage, loomNodePoint } from './loom-view.js'
+export { enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, loomLineage, loomNodePoint, holdLoomVoice, loomHeldVoice, loomVoiceNear } from './loom-view.js'
 export { enablePaper, paper, PAPER_RGB, setNight, setPaperStock } from './paper.js'
 export { paintWash, addRipple, pointOnCurrent, randomCurrent, grainTile } from './render/wash.js'
 export { loomState as loomFrame } from './state.js'
