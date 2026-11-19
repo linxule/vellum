@@ -14,6 +14,7 @@ const RELIFT = 0.85
 const CROSSING_MIN_STUB = 34
 import { loomState } from '../state.js'
 import { paper } from '../paper.js'
+import { wordlessWhileReading } from '../reading.js'
 import { copyCursor, isLineRTL, voiceGroupIndex, voiceSpanForLine, wholeWordWidth } from '../text.js'
 import { FONT_FAMILY, NEIGHBOR_LENS_FADE, AFTERGLOW_DIVE_GATE, AFTERGLOW_SILVER, BREATH_AMP, BREATH_SPATIAL, DEPTH_ALPHA, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, HL_FONT_BOOST, SIGNATURE_ALPHA, SIGNATURE_GRAY_MIX, SIGNATURE_RATIO, SPARSE_EDGE_FADE_PX, SUNKEN_DIM, SUNKEN_SURFACE_DIVE_T, WARM_BASE_ALPHA, WARM_DIVE_BOOST, ZERO_CURSOR, type ApertureConfig, type Thread } from '../types.js'
 import { depthColor, signatureGray, threadColor } from '../color.js'
@@ -338,6 +339,8 @@ export function renderThread(
   // A current that is being read is never cut by one that crosses it.
   const crossing = paper.on && washProfile !== null && thread.proximity < 0.15
   if (crossing) beginCrossing(thread)
+  // Read by touch, another current is open: this one keeps its wash and prints no words.
+  const wordless = paper.on && wordlessWhileReading(thread)
 
   for (let i = 0; i < laidOutLines.length; i++) {
     const line = laidOutLines[i]!
@@ -432,8 +435,8 @@ export function renderThread(
     // Passing under another current: the covered stretch of this line is not
     // printed. A stub too short to read is dropped with it.
     let clipped = false
-    let unseen = false
-    if (crossing) {
+    let unseen = wordless
+    if (crossing && !unseen) {
       const x0 = drawX - halfW
       const x1 = drawX + halfW
       const span = hiddenSpan(x0, x1, line.y, now)

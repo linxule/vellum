@@ -59,6 +59,19 @@ Two old Japanese crafts, one for the ear and one for the eye. **Suikinkutsu**: a
 | `RING_PUSH` | `render/wash.ts` | 7 px | how far a passing ring pushes a line aside (widening the column under a ring was tried and dropped: the re-wrap leaves doubled print) |
 | `paper.alphaGain` | `loom/paper.ts` | 1.3 day, 1.12 night | thin dark type reads fainter than light type on dark |
 
+
+### Reading by touch (2026-11-19)
+
+On a phone the first version put the pool under the finger, where the hand covers it, and one drag both moved the lens and scrolled the text. Now a finger works differently from a pointer.
+
+- **A tap chooses.** The nearest current opens at a fixed reading line 40% down the sheet (`READING_LINE`), above the thumb. It stays open with no finger on the glass.
+- **A drag moves the text**, one line of travel for one line of text, with a short glide if the finger is still moving when it lifts. The lens does not move, so the print does not re-wrap under the hand.
+- **The others go quiet.** While one current is read, the rest keep their wash and print no words.
+- **Letting go.** A tap on the open text closes it; a tap on a band beside it moves there; after 45 s untouched the sheet rests. A tap on a woven voice keeps the current open, and a second tap opens its lineage.
+- **Controls.** On a touch screen the labels are 12 px on a patch of bare paper with a 42 px target, and a touch on one never reaches the currents.
+
+Tuning: `READING_LINE`, `TAP_REACH_PX`, `REST_TAP_REACH_PX`, `WORDLESS_PROXIMITY` (`src/loom/reading.ts`); `DRAG_SLOP_PX`, `TAP_MAX_MS`, `READING_IDLE_MS` (`src/runtime/input.ts`).
+
 ## Write-to-render pipeline
 
 Write tools `await rebuildStateProjection` synchronously before responding; ext-app `ontoolresult` fires → forces refresh poll → gets fresh state → triggers emergence + resonance + loom view auto-enter. Witness events trigger background rebuilds via `ctx.waitUntil` (coalesced through the dirty-marker system).

@@ -3,7 +3,7 @@
 // Dual-mode: iframe (SDK) or standalone (URL param highlight).
 
 import { App } from '@modelcontextprotocol/ext-apps'
-import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, type MouseState } from '../../src/loom.js'
+import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, tapCurrent, closeReading, isReading, dragReading, flingReading, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, type MouseState } from '../../src/loom.js'
 import { fetchState, findVoice, getVersion, getVoiceIdSets, isLive, setBaseUrl, getState } from '../../src/content.js'
 import { emitOceanEvent, onOceanEvent } from '../../src/events.js'
 import { HoldMachine, HOLD_MS, composeHeldMessage, composeDigest, deriveDigestInputs } from './threshold.js'
@@ -126,7 +126,23 @@ function nextVisiblePollDelay(): number {
 
 // ── Input handlers ────────────────────────────────────
 
-attachInputHandlers({ mouse, scrollThread, aperture })
+// A woven voice under the finger: a tap there is the first of the two that open its lineage,
+// so it does not let the open current go.
+function wovenVoiceAt(x: number, y: number): boolean {
+  const id = getLastFrameHitVoiceIdAt(x, y)
+  if (!id) return false
+  for (const thread of getState()?.threads ?? []) {
+    const voice = thread.voices.find(v => v.id === id)
+    if (voice) return Boolean(voice.weave_from) || voice.weave_count > 0
+  }
+  return false
+}
+attachInputHandlers({
+  mouse, scrollThread, aperture,
+  // Touch: tap a current to open it at the reading line, drag to move its text (loom/reading.ts).
+  // The lineage view keeps the lens under the finger.
+  reading: { enabled: () => !isLoomViewActive(), active: isReading, tap: (x, y) => tapCurrent(x, y, wovenVoiceAt(x, y)), drag: dragReading, fling: flingReading, release: closeReading },
+})
 
 // ── Resize ────────────────────────────────────────────
 
@@ -542,7 +558,7 @@ document.addEventListener('visibilitychange', () => {
 
 // ── Ext-apps SDK ──────────────────────────────────────
 
-const app = new App({ name: 'Vellum Pensieve', version: '0.4.0' })
+const app = new App({ name: 'Vellum Pensieve', version: '0.4.1' })
 
 const fsBtn = document.getElementById('fs') as HTMLButtonElement | null
 const szEl = document.getElementById('sz') as HTMLDivElement | null

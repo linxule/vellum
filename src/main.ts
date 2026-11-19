@@ -1,7 +1,7 @@
 // Vellum — The Pensieve
 // Entry point: canvas, input, sound, animation loop, polling, witness reporting
 
-import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, scrollThreadToVoice, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, triggerPhantomHover, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, findThreadIndexForFamily, type MouseState } from './loom.js'
+import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, scrollThreadToVoice, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, triggerPhantomHover, tapCurrent, closeReading, isReading, dragReading, flingReading, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, findThreadIndexForFamily, type MouseState } from './loom.js'
 import { fetchState, findVoice, getVersion, getVoiceIdSets, isLive, getState, setSurface, getSurface, surfaceFromPathname, surfacePathPrefix, highlightUrlFor } from './content.js'
 import { emitOceanEvent } from './events.js'
 import { attachInputHandlers } from './runtime/input'
@@ -77,16 +77,37 @@ function nextVisiblePollDelay(): number {
 
 // ── Input handlers ────────────────────────────────────
 
-attachInputHandlers({ mouse, scrollThread, aperture })
+// A woven voice under the finger: a tap there is the first of the two that open its lineage,
+// so it does not let the open current go.
+function wovenVoiceAt(x: number, y: number): boolean {
+  const id = getLastFrameHitVoiceIdAt(x, y)
+  if (!id) return false
+  for (const thread of getState()?.threads ?? []) {
+    const voice = thread.voices.find(v => v.id === id)
+    if (voice) return Boolean(voice.weave_from) || voice.weave_count > 0
+  }
+  return false
+}
+attachInputHandlers({
+  mouse, scrollThread, aperture,
+  // Touch: tap a current to open it at the reading line, drag to move its text (loom/reading.ts).
+  // The lineage view keeps the lens under the finger.
+  reading: { enabled: () => !isLoomViewActive(), active: isReading, tap: (x, y) => tapCurrent(x, y, wovenVoiceAt(x, y)), drag: dragReading, fling: flingReading, release: closeReading },
+})
 
 const soundEl = document.getElementById('sn')!
+function showSound(on: boolean): void {
+  soundEl.textContent = on ? 'sound \u00b7' : 'sound'; soundEl.setAttribute('aria-pressed', String(on))
+  soundEl.classList.toggle('on', on)
+}
+let cancelSoundAutoStart: () => void = () => {}
 async function handleSoundToggleGesture(e?: Event): Promise<void> {
   e?.preventDefault?.()
   e?.stopPropagation?.()
   if (sketch) {
-    const on = await sketch.toggleSound()
-    soundEl.textContent = on ? 'sound \u00b7' : 'sound'; soundEl.setAttribute('aria-pressed', String(on))
-    soundEl.classList.toggle('on', on)
+    // The reader has chosen: from here the button alone decides.
+    cancelSoundAutoStart()
+    showSound(await sketch.toggleSound())
     return
   }
   resumeAudioContext()
@@ -103,10 +124,32 @@ async function handleSoundToggleGesture(e?: Event): Promise<void> {
   soundEl.classList.toggle('on', on)
 }
 
-soundEl.addEventListener('pointerdown', (e) => { void handleSoundToggleGesture(e) })
-// Keyboard activation (Enter/Space on the button) arrives as a click with detail 0;
-// pointer clicks are already handled on pointerdown above.
-soundEl.addEventListener('click', (e) => { if ((e as MouseEvent).detail === 0) void handleSoundToggleGesture(e) })
+// A click, from a pointer, a finger or the keyboard: the one event every browser accepts as
+// a gesture that may start audio (a finger's pointerdown is not one everywhere).
+soundEl.addEventListener('click', (e) => { void handleSoundToggleGesture(e) })
+
+// On paper, sound is on unless the reader turned it off. A browser lets audio start only from
+// a gesture, so it starts with the reader's first tap, click or key press anywhere on the page.
+if (sketch) {
+  let preference: string | null = null
+  try { preference = localStorage.getItem('vellum-sound') } catch { /* private mode */ }
+  if (preference !== 'off') {
+    const QUIET_KEYS = new Set(['Escape', 'Tab', 'Shift', 'Control', 'Alt', 'Meta', 'CapsLock'])
+    const start = (e: Event) => {
+      if (e.target === soundEl) return
+      if (e.type === 'keydown' && QUIET_KEYS.has((e as KeyboardEvent).key)) return
+      cancelSoundAutoStart()
+      void sketch.toggleSound().then(showSound)
+    }
+    cancelSoundAutoStart = () => {
+      document.removeEventListener('click', start, true)
+      document.removeEventListener('keydown', start, true)
+      cancelSoundAutoStart = () => {}
+    }
+    document.addEventListener('click', start, true)
+    document.addEventListener('keydown', start, true)
+  }
+}
 
 // No auto-start. Prewarm on INTENT, not for every visitor: loading + initStrudel()
 // is ~214 KB gzipped and a long main-thread task (~90 ms measured on desktop, several

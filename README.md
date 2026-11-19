@@ -88,6 +88,15 @@ cd worker && bun run dev   # local worker
 
 Deploy sequence, flags, migrations, and smoke probes: `docs/LAUNCH_RUNBOOK.md`. Design and phase history: `docs/`.
 
+## 0.4.1 — 2026-11-19
+
+- **Reading on a phone.** A tap opens a current at a reading line above the thumb, where it stays;
+  a drag moves its text and nothing else; the other currents keep their colour and drop their
+  words while one is read. Tap the open text to let it go.
+- **Sound is on** unless the reader turned it off; it starts with the first tap or click. The
+  sound and info labels are larger on touch screens and can be hit.
+- Sharper type on phones (the canvas is drawn at up to 3x), and a share image for links.
+
 ## 0.4.0 — 2026-11-19
 
 - **The drop: ink on paper.** The page is a sheet of paper (cream by day, indigo by night, its
@@ -96,7 +105,8 @@ Deploy sequence, flags, migrations, and smoke probes: `docs/LAUNCH_RUNBOOK.md`. 
   a stain; a lineage is rings of ink around its seed. `?look=old` keeps the dark sea.
 - **Every voice has a sound.** A short phrase of water-drop notes worked out from the voice's own
   text, heard when a reader rests on it; a ring spreads where each note falls. Each current has
-  its instrument, each ocean its key. Sound is off until the reader turns it on.
+  its instrument, each ocean its key. Sound was off until the reader turned it on (on by
+  default since 0.4.1).
 - **Write replies say how the voice sounds.** REST: `sound: { instrument, key, notes, drops,
   seconds }`; MCP: a `sound:` line and `_meta.sound`. `/api/state` is unchanged.
 - **Type.** Cormorant, LXGW WenKai (self-hosted), Klee One, Gowun Batang, Noto Serif Thai.
