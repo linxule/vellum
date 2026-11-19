@@ -67,10 +67,21 @@ On a phone the first version put the pool under the finger, where the hand cover
 - **A tap chooses.** The nearest current opens at a fixed reading line 40% down the sheet (`READING_LINE`), above the thumb. It stays open with no finger on the glass.
 - **A drag moves the text**, one line of travel for one line of text, with a short glide if the finger is still moving when it lifts. The lens does not move, so the print does not re-wrap under the hand.
 - **The others go quiet.** While one current is read, the rest keep their wash and print no words.
-- **Letting go.** A tap on the open text closes it; a tap on a band beside it moves there; after 45 s untouched the sheet rests. A tap on a woven voice keeps the current open, and a second tap opens its lineage.
+- **Letting go.** A tap on the open text closes it; a tap on a band beside it moves there; after 45 s untouched the sheet rests. On a woven voice the close waits half a second, in case a second tap comes to open its lineage.
 - **Controls.** On a touch screen the labels are 12 px on a patch of bare paper with a 42 px target, and a touch on one never reaches the currents.
 
 Tuning: `READING_LINE`, `TAP_REACH_PX`, `REST_TAP_REACH_PX`, `WORDLESS_PROXIMITY` (`src/loom/reading.ts`); `DRAG_SLOP_PX`, `TAP_MAX_MS`, `READING_IDLE_MS` (`src/runtime/input.ts`).
+
+### Small sheets
+
+An inline ext-app is a strip about 320 px tall, read with a mouse. Two rules apply to any small sheet, not to the ext-app as such:
+
+- **The lens fits the height.** Under 600 px tall its type and line height shrink, to 78% at 300 px (about 17 px type), so more lines fit and the fall-off to the resting size finishes inside the window.
+- **One voice at a time.** Under 760 px wide or 520 px tall, the other currents print no words while one is open, with a mouse as with a finger. Move away and their words return.
+
+Inline in a conversation on a touch screen, a swipe over the resting sheet scrolls the conversation; once a current is open, drags move its text.
+
+Tuning: `SHORT_FROM_PX`, `SHORT_FLOOR_PX`, `SHORT_LENS` (`src/loom/aperture.ts`); `SMALL_SHEET_W`, `SMALL_SHEET_H` (`src/loom/reading.ts`).
 
 ## Write-to-render pipeline
 

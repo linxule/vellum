@@ -4,7 +4,7 @@
 import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, scrollThreadToVoice, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, triggerPhantomHover, tapCurrent, closeReading, isReading, dragReading, flingReading, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, findThreadIndexForFamily, type MouseState } from './loom.js'
 import { fetchState, findVoice, getVersion, getVoiceIdSets, isLive, getState, setSurface, getSurface, surfaceFromPathname, surfacePathPrefix, highlightUrlFor } from './content.js'
 import { emitOceanEvent } from './events.js'
-import { attachInputHandlers } from './runtime/input'
+import { attachInputHandlers, DOUBLE_TAP_MS } from './runtime/input'
 import { setupCanvas } from './runtime/canvas'
 import { createWitnessReporter } from './runtime/witness'
 import { computeNewVoiceInfo, applyResonanceFromNewVoices, fetchStateWithTimeout } from './runtime/poll-core'
@@ -77,8 +77,8 @@ function nextVisiblePollDelay(): number {
 
 // ── Input handlers ────────────────────────────────────
 
-// A woven voice under the finger: a tap there is the first of the two that open its lineage,
-// so it does not let the open current go.
+// A woven voice under the finger: a tap there may be the first of the two that open its lineage,
+// so the open current is let go only once the double-tap window has passed.
 function wovenVoiceAt(x: number, y: number): boolean {
   const id = getLastFrameHitVoiceIdAt(x, y)
   if (!id) return false
@@ -205,7 +205,7 @@ document.addEventListener('click', (e) => {
             } else {
               pendingTouchLoomId = hitId
               if (pendingTouchLoomTimer) clearTimeout(pendingTouchLoomTimer)
-              pendingTouchLoomTimer = setTimeout(() => { pendingTouchLoomId = null; pendingTouchLoomTimer = null }, 800)
+              pendingTouchLoomTimer = setTimeout(() => { pendingTouchLoomId = null; pendingTouchLoomTimer = null }, DOUBLE_TAP_MS)
             }
           } else {
             enterLoomView(hitId)

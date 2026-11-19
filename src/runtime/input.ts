@@ -4,6 +4,8 @@ import type { MouseState } from '../loom.js'
 export interface TouchReading {
   /** False where touch keeps the old follow-the-finger lens (the lineage view). */
   enabled(): boolean
+  /** False where a drag on a resting sheet belongs to the page around it (an inline ext-app in a scrolling chat). Default: true. */
+  dragOpens?(): boolean
   active(): boolean
   tap(x: number, y: number): 'opened' | 'kept' | 'closed'
   /** The finger moved by dy px while dragging. */
@@ -17,6 +19,8 @@ export interface TouchReading {
 export const DRAG_SLOP_PX = 8
 /** A touch held longer than this is not a tap. */
 export const TAP_MAX_MS = 500
+/** Two taps on a woven voice within this long open its lineage; a single one lets the current go once it has passed. */
+export const DOUBLE_TAP_MS = 500
 /** With no touch for this long, the open current is let go and the sheet rests. */
 export const READING_IDLE_MS = 45000
 /** Browsers follow a tap with made-up mouse events; for this long after a touch they are ignored. */
@@ -43,6 +47,8 @@ export function attachInputHandlers(opts: {
 }): () => void {
   const { mouse, scrollThread, aperture, reading } = opts
   let touchEndTimeout: ReturnType<typeof setTimeout> | null = null
+  let keptTimeout: ReturnType<typeof setTimeout> | null = null
+  const clearKept = () => { if (keptTimeout !== null) { clearTimeout(keptTimeout); keptTimeout = null } }
 
   const clearTouchEndTimeout = () => {
     if (touchEndTimeout !== null) {
@@ -91,6 +97,7 @@ export function attachInputHandlers(opts: {
     if (!t) return
     if (onControl(e.target)) { mode = 'control'; return }
     clearTouchEndTimeout()
+    clearKept()
     lastTouchX = t.clientX
     lastTouchY = t.clientY
     mouse.down = true; mouse.downStart = now; mouse.touch = true
@@ -120,9 +127,9 @@ export function attachInputHandlers(opts: {
       if (!dragging && Math.hypot(t.clientX - startX, t.clientY - startY) > DRAG_SLOP_PX) {
         dragging = true
         // A drag that begins on a resting sheet picks up the current under it.
-        if (!reading.active()) reading.tap(startX, startY)
+        if (!reading.active() && (reading.dragOpens?.() ?? true)) reading.tap(startX, startY)
       }
-      if (dragging) {
+      if (dragging && reading.active()) {
         const now = performance.now()
         velocity = dy / Math.max(1, now - lastMoveAt)
         lastMoveAt = now
@@ -142,9 +149,17 @@ export function attachInputHandlers(opts: {
     if (mode === 'reading' && reading) {
       if (dragging) {
         // Only a finger still moving when it lifts carries the text on.
-        if (now - lastMoveAt < 60) reading.fling(velocity * 16.7)
+        if (reading.active() && now - lastMoveAt < 60) reading.fling(velocity * 16.7)
       } else if (now - startAt < TAP_MAX_MS) {
-        if (reading.tap(startX, startY) === 'closed') park()
+        const result = reading.tap(startX, startY)
+        if (result === 'closed') park()
+        else if (result === 'kept') {
+          // On a woven voice: wait for the second tap (the lineage). If none comes, this was a tap to let go.
+          keptTimeout = setTimeout(() => {
+            keptTimeout = null
+            if (reading.enabled() && reading.active()) { reading.release(); park() }
+          }, DOUBLE_TAP_MS)
+        }
       }
       touchEndTimeout = setTimeout(() => {
         touchEndTimeout = null
@@ -182,6 +197,7 @@ export function attachInputHandlers(opts: {
 
   return () => {
     clearTouchEndTimeout()
+    clearKept()
     document.removeEventListener('mousemove', handleMouseMove)
     document.removeEventListener('mouseleave', handleMouseLeave)
     document.removeEventListener('mousedown', handleMouseDown)

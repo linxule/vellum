@@ -60,7 +60,7 @@ export function advanceLoom(vw: number, vh: number, now: number, dt: number, mou
   loomState.frameRatio = dt / FRAME_TIME
   const frameRatio = loomState.frameRatio
   const threadCount = loomState.threads.length
-  const ac = aperture(vw)
+  const ac = aperture(vw, vh)
   loomState.currentAperture = ac
   loomState.currentMouse = mouse
 

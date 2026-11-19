@@ -48,3 +48,18 @@ test('aperture voiceSeparation activates only above t > 0.3', () => {
   const wide = aperture(1440)
   expect(wide.voiceSeparation).toBeGreaterThan(0.9)
 })
+
+test('a short window gets a smaller lens; from 600 px tall nothing changes', () => {
+  const tall = aperture(720, 900)
+  expect(aperture(720)).toEqual(tall)
+  expect(aperture(720, 600)).toEqual(tall)
+  const inline = aperture(720, 320)   // an inline ext-app
+  expect(inline.diveScale).toBeLessThan(tall.diveScale * 0.82)
+  expect(inline.diveScale).toBeGreaterThan(tall.diveScale * 0.77)
+  expect(inline.diveLineH / inline.diveScale).toBeCloseTo(tall.diveLineH / tall.diveScale, 6)
+  // Still type to read: 15 px base.
+  expect(inline.diveScale * 15).toBeGreaterThan(16)
+  // Only the lens changes.
+  expect({ ...inline, diveScale: 0, diveLineH: 0 }).toEqual({ ...tall, diveScale: 0, diveLineH: 0 })
+  expect(aperture(720, 100).diveScale).toBeCloseTo(aperture(720, 300).diveScale, 6)
+})
