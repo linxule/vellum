@@ -468,6 +468,23 @@ describe('water on the wash', () => {
     expect(Math.max(...lines.map(p => rgbaAlpha(p.style)))).toBeLessThanOrEqual(TIDE[2])
   })
 
+  test('the tide line grows in behind the leaving water: hardly any at let-go, while the pool still stands', () => {
+    open()
+    frames(NOW, NOW + 1500)
+    letGo()
+    // Segments stroked after the water is laid (the bands stroke before it).
+    const tide = (calls: ReturnType<typeof paint>['calls']) => {
+      const water = calls.findIndex(c => c.op === 'drawImage')
+      return water < 0 ? 0 : calls.slice(water).filter(c => c.op === 'moveTo').length
+    }
+    for (let t = NOW + 1533; t < NOW + 1800; t += 33) paint(t)
+    const atLetGo = tide(paint(NOW + 1800).calls)
+    for (let t = NOW + 1833; t < NOW + 4000; t += 33) paint(t)
+    const later = tide(paint(NOW + 4000).calls)
+    expect(later).toBeGreaterThan(50)
+    expect(atLetGo).toBeLessThan(later / 10)
+  })
+
   test('the water fades with the ocean as the lineage view opens', () => {
     open()
     frames(NOW, NOW + 600)

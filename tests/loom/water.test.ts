@@ -188,8 +188,12 @@ describe('the tide line', () => {
     expect(tideStrength(0.5, 0.2, 1, 0)).toBe(1)
   })
 
-  test('only where the paper is dry', () => {
-    expect(tideStrength(1, 1, 1, 0.2)).toBe(0)
+  test('only once the water near it has gone: it grows in behind the leaving water', () => {
+    expect(tideStrength(1, 1, 1, 0.3)).toBe(0)
+    const half = tideStrength(1, 1, 1, 0.15)
+    expect(half).toBeGreaterThan(0.2)
+    expect(half).toBeLessThan(0.8)
+    expect(tideStrength(1, 1, 1, 0.01)).toBe(1)
   })
 })
 
@@ -504,6 +508,30 @@ describe('words under water', () => {
     const [from, to, fade] = waterOver(other, 600, 840, 450)
     expect(from).toBeGreaterThanOrEqual(to)
     expect(fade).toBe(0)
+  })
+
+  test('a line that only grazes thin water is not dimmed whole; one lying in it is', () => {
+    enablePaper()
+    const read = current(700, ['attention'])
+    const other = current(720, ['memory'])
+    stage([read, other])
+    let t = run(1000, 2000, lens(read))
+    // Wait for a stretch of thin water with no clean water on the line.
+    let x = -1
+    for (let k = 0; k < 400 && x < 0; k++) {
+      t = run(t, t + 33, null)
+      const f = waterForTest()
+      const row = Math.round(450 / WATER_CELL) * f.gw
+      for (let gx = 0; gx < f.gw; gx++) if (f.water[row + gx]! > 0.1 && f.water[row + gx]! < 0.25 && f.owner[row + gx] === 0) { x = gx * WATER_CELL; break }
+      if (x >= 0 && waterOver(other, x - 3, x + 3, 450)[0] < waterOver(other, x - 3, x + 3, 450)[1]) x = -1
+    }
+    expect(x).toBeGreaterThan(0)
+    const inIt = waterOver(other, x - 3, x + 3, 450)[2]
+    // The rest of the line lies away from the pool, on dry paper.
+    const grazing = x < 700 ? waterOver(other, x - 600, x + 3, 450) : waterOver(other, x - 3, x + 600, 450)
+    expect(inIt).toBeGreaterThan(0.3)
+    expect(grazing[0]).toBeGreaterThanOrEqual(grazing[1])
+    expect(grazing[2]).toBeLessThan(inIt / 3)
   })
 
   test('its own water never hides a current\'s words, even once it is let go', () => {

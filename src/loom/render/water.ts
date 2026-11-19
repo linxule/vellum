@@ -587,8 +587,9 @@ const over: [number, number, number] = [0, 0, 0]
 /**
  * Whether another current's water lies over a line of `thread` spanning x0..x1 at
  * height y: [from, to, fade]. The stretch from..to is under clean water and is not
- * printed (from >= to when none is); fade (0..1) dims the rest where the water is
- * thin or drying, so words come back gently as it dries. The current being read is
+ * printed (from >= to when none is); fade (0..1) dims the rest by the thin or drying
+ * water over it, averaged along the printed words, so words come back gently as it
+ * dries and a line that only grazes a pool's edge is not dimmed whole. The current being read is
  * never covered. On a small sheet, or while a current is held by touch, the open
  * current's water is taken to cover the whole sheet (reading.ts, wordlessAmount).
  * A scratch tuple: read it at once.
@@ -602,20 +603,32 @@ export function waterOver(thread: Thread, x0: number, x1: number, y: number): [n
   const gy = Math.round(y / WATER_CELL)
   if (isDry() || fieldW !== loomState.VW || fieldH !== loomState.VH || gy < by0 || gy > by1) return over
   const own = slotOf(thread)
+  const first = Math.floor(x0 / WATER_CELL)
+  const last = Math.ceil(x1 / WATER_CELL)
+  const end = Math.min(bx1, last)
+  const start = Math.max(bx0, first)
   let from = Infinity
   let to = -Infinity
-  const end = Math.min(bx1, Math.ceil(x1 / WATER_CELL))
-  for (let gx = Math.max(bx0, Math.floor(x0 / WATER_CELL)); gx <= end; gx++) {
+  for (let gx = start; gx <= end; gx++) {
+    const i = gy * gw + gx
+    if (water[i]! >= HIDING_WATER && owner[i]! >= 0 && owner[i] !== own) {
+      from = Math.min(from, gx)
+      to = Math.max(to, gx)
+    }
+  }
+  // Thin water dims the printed words by how much of them it lies under: a line
+  // that only grazes a pool's edge keeps its ink, one lying in thin water keeps little.
+  let thin = 0
+  for (let gx = start; gx <= end; gx++) {
+    if (gx >= from && gx <= to) continue
     const i = gy * gw + gx
     const w = water[i]!
     const o = owner[i]!
-    if (w <= 0.004 || o < 0 || o === own) continue
-    if (w >= HIDING_WATER) {
-      from = Math.min(from, (gx - 0.5) * WATER_CELL)
-      to = Math.max(to, (gx + 0.5) * WATER_CELL)
-    } else over[2] = Math.max(over[2], w / HIDING_WATER)
+    if (w > 0.004 && o >= 0 && o !== own) thin += w / HIDING_WATER
   }
-  if (from < to) { over[0] = from; over[1] = to }
+  const printed = last - first + 1 - (from <= to ? to - from + 1 : 0)
+  if (printed > 0) over[2] = Math.max(over[2], Math.min(1, thin / printed))
+  if (from <= to) { over[0] = (from - 0.5) * WATER_CELL; over[1] = (to + 0.5) * WATER_CELL }
   return over
 }
 
@@ -706,15 +719,33 @@ export const TIDE = [0.12, 0.24, 0.4] as const
 export const TIDE_WIDTH = 1.5
 /** The share of its life a tide line holds at full strength before it fades (TIDE_LIFE_MS). */
 export const TIDE_HOLD = 0.3
+/**
+ * How far (px) the water must have drawn back from a stretch of tide line before
+ * that stretch shows: the line grows in behind the leaving water, never drawn as a
+ * border around a pool still standing.
+ */
+export const TIDE_CLEAR = 30
 
 /**
  * How strong the tide line is at a point: as much as pigment gathered there; where
  * none did, faint and only where the paper's grain is open, so the line breaks (an
  * even outline would frame the text). At full for the first TIDE_HOLD of its life,
- * then fading; only where the paper is dry.
+ * then fading; only once the water within TIDE_CLEAR of it (`near`, the most there) has gone.
  */
-export function tideStrength(pigment: number, grain: number, life: number, wet: number): number {
-  return Math.max(Math.min(1, pigment * 2.2), 0.45 * smooth(0.42, 0.62, grain)) * smooth(0, 1 - TIDE_HOLD, life) * (1 - smooth(0, 0.04, wet))
+export function tideStrength(pigment: number, grain: number, life: number, near: number): number {
+  return Math.max(Math.min(1, pigment * 2.2), 0.45 * smooth(0.42, 0.62, grain)) * smooth(0, 1 - TIDE_HOLD, life) * (1 - smooth(0.02, 0.3, near))
+}
+
+/** The most water within TIDE_CLEAR of grid cell i. */
+function waterNear(i: number): number {
+  const r = Math.round(TIDE_CLEAR / WATER_CELL)
+  const x = i % gw
+  const y = (i - x) / gw
+  let most = 0
+  for (let yy = Math.max(by0, y - r); yy <= Math.min(by1, y + r); yy++) {
+    for (let xx = Math.max(bx0, x - r); xx <= Math.min(bx1, x + r); xx++) most = Math.max(most, water[yy * gw + xx]!)
+  }
+  return most
 }
 
 /**
@@ -756,7 +787,7 @@ export function paintWater(ctx: CanvasRenderingContext2D, ocean: number, blend: 
   if (tideCells > 0) strokeGroups(ctx, contour(reach, 0.5, (i) => {
     const j = [i, i + 1, i + gw, i + gw + 1]
     const most = (a: Float32Array) => Math.max(a[j[0]!]!, a[j[1]!]!, a[j[2]!]!, a[j[3]!]!)
-    return tideStrength(most(dep), perm[i]!, most(life), most(water))
+    return tideStrength(most(dep), perm[i]!, most(life), waterNear(i))
   }), TIDE, TIDE_WIDTH)
   ctx.globalAlpha = 1
   ctx.lineCap = 'butt'
