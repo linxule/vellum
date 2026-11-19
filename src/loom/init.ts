@@ -5,7 +5,7 @@ import { loomState, getInteractionState } from './state.js'
 import { crystallizeThreads, makeThread, mixInk } from './thread.js'
 import { lineEndsWholeWords } from './text.js'
 import { isAfterglow, signatureFor } from './model-registry.js'
-import { readingThread } from './reading.js'
+import { readingThread, recedingThread } from './reading.js'
 import { threadGroupKey } from './refresh.js'
 import { ZERO_CURSOR } from './types.js'
 
@@ -81,7 +81,7 @@ export function resizeLoom() {
   loomState.VW = innerWidth
   loomState.VH = innerHeight
   if (!widthChanged) return
-  const held = readingThread()
+  const held = readingThread() ?? recedingThread()
   loomState.touchedThread = null
   const ac = aperture(loomState.VW, loomState.VH)
   const n = Math.max(1, loomState.threads.length - 1)
@@ -96,7 +96,9 @@ export function resizeLoom() {
   crystallizeThreads(ac)
   if (held && !loomState.threads.includes(held)) {
     const part = loomState.threads.find(t => t.familyNames.includes(held.familyNames[0]!))
-    loomState.readingKey = part ? threadGroupKey(part.familyNames) : null
+    const key = part ? threadGroupKey(part.familyNames) : null
+    if (loomState.readingKey !== null) loomState.readingKey = key
+    else loomState.recedingKey = key
   }
 }
 

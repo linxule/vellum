@@ -214,6 +214,17 @@ describe('a tap chooses a current', () => {
     expect(readingThread()).toBe(memory)
   })
 
+  test('with two currents within a thumb\'s reach, a tap opens the nearer one', () => {
+    // Whichever comes first in the list, the tap goes to the one it fell on.
+    straight(attention, 150)
+    straight(memory, 190)
+    expect(tapCurrent(186, 400)).toBe('opened')
+    expect(readingThread()).toBe(memory)
+    closeReading()
+    expect(tapCurrent(154, 400)).toBe('opened')
+    expect(readingThread()).toBe(attention)
+  })
+
   test('a held current keeps the lens when another crosses the reading line beside it', () => {
     tapCurrent(xOf(attention, 300), 300)
     frames(30)
@@ -593,6 +604,22 @@ describe('touch handlers', () => {
     expect(calls).toEqual([])
   })
 
+  test('the click a browser makes up after a long press or a drag is not a tap', () => {
+    const taps: string[] = []
+    onTap = (x, y) => { taps.push(`${x},${y}`) }
+    attach(reading())
+    touch('touchstart', 100, 600)
+    advance(900)
+    touch('touchend', 100, 600)
+    advance(30)
+    click(100, 600)
+    expect(taps).toEqual([])
+    // A mouse's own click, later, is a tap.
+    advance(2000)
+    click(300, 200)
+    expect(taps).toEqual(['300,200'])
+  })
+
   test('a touch on a control reaches only the control', () => {
     attach(reading())
     open = true
@@ -737,9 +764,12 @@ describe('touch handlers', () => {
       touch('touchstart', 150, 300); advance(50); handlers.touchcancel!({ type: 'touchcancel', target: canvas, touches: [] })
       touch('touchstart', 30, 820, button); advance(40); touch('touchend', 30, 820, button)
       expect(page).toEqual(['drag'])
-      // The control's own click still reaches the page (the entry points skip it by id).
+      // The clicks a browser makes up after those touches are theirs, not taps (the control hears its own).
       advance(10); click(30, 820, button)
-      expect(page).toEqual(['drag', 'click 30,820'])
+      expect(page).toEqual(['drag'])
+      // A click on its own, later, is a tap.
+      advance(2000); click(200, 400)
+      expect(page).toEqual(['drag', 'click 200,400'])
     })
 
     test('in the lineage view (the finger moves the lens), taps reach the page the same way', () => {

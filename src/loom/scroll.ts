@@ -45,6 +45,8 @@ export function scrollThreadToVoice(threadIdx: number, voiceId: string): void {
   const thread = loomState.threads[threadIdx]!
   const lineIdx = findLineForVoice(thread, found.family, found.voiceIndex)
   if (lineIdx < 0) return
+  // A jump is the scroll's own: an anchored layout (render/thread.ts) would hold the text where it was.
+  thread._anchor = undefined
 
   const ac = aperture(loomState.VW, loomState.VH)
   const center = loomState.VH / 2

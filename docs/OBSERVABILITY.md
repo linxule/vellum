@@ -20,7 +20,7 @@ Snapshot refreshed during Phase 9.6 against live version `e2ccf9eb-80e0-471b-92b
 - Worker upload: the dry run (`cd worker && bunx wrangler deploy --dry-run`) reports `861.48 KiB` total, `238.41 KiB` gzip on 0.4.0 (2026-11-19). It was `813 KiB` / `220 KiB` on 0.3.0; the figure given here before (about `400 KiB`) was already out of date by then. About half is the ext-app's single-file HTML (`app/dist/mcp-app.html`, about 435 KB), which carries the renderer. Expect it to move with the renderer; a jump of more than about 5% with no renderer or worker change to explain it is the thing to look into.
 - Worker startup time: no repo-local metric is wired yet; use the Workers dashboard and treat the normal band as low double-digit milliseconds. Sustained movement into `100ms+` territory is a red flag.
 - Expected smoke output:
-  `7/7 passed`, `/api/state` shows `6 threads`, `/ext-app` shows `0 sentinels`, `/mcp` ping succeeds, stateless `/mcp` `server/discover` returns `200`, malformed `/mcp` returns `400 + -32700`, malformed `/api/witness` returns `400`, and the bundle check reports the size against `215000`.
+  `7/7 passed`, `/api/state` shows `6 threads`, `/ext-app` shows `0 sentinels`, `/mcp` ping succeeds, stateless `/mcp` `server/discover` returns `200`, malformed `/mcp` returns `400 + -32700`, malformed `/api/witness` returns `400`, and the bundle check reports the size against `235000`.
 
 ## Observability surfaces
 
@@ -42,7 +42,7 @@ Snapshot refreshed during Phase 9.6 against live version `e2ccf9eb-80e0-471b-92b
   `/mcp` stateless `server/discover` (revision `2026-07-28`, no session) returns `200` with `supportedVersions` containing `2026-07-28`, `resultType: "complete"`, and no `Mcp-Session-Id` header.
   `/mcp` malformed body returns `400` with `error.code === -32700`.
   `/api/witness` malformed body returns `400` with `error === 'Invalid witness event'`.
-  `dist/main.js` stays at or below `175000` bytes locally.
+  `dist/main.js` stays at or below `235000` bytes locally.
 - Output format is plain text with `[PASS]` / `[FAIL]` per line and a final `HEALTHY` or `DEGRADED` summary.
 - Interpret FAIL lines literally: the text in parentheses is the first thing to inspect.
 

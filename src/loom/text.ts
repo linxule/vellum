@@ -232,31 +232,49 @@ function canStartLine(prepared: PreparedTextWithSegments, s: number): boolean {
 
 /**
  * The line of at most `maxWidth` (15px layout units) that ends exactly at `end`:
- * its start, text and width. A single word wider than the line is kept whole
- * (the line runs wide, as `wholeWordWidth` lets a forward line do). Null at the
- * very start of the text.
+ * its start, text and width. It never reaches back across a line break in the
+ * text (an empty line between two breaks is a line). A single word wider than
+ * the line is kept whole (the line runs wide, as `wholeWordWidth` lets a forward
+ * line do), unless it is wider than WHOLE_WORD_MAX_LAYOUT_W too (a URL): that one
+ * is cut between letters, as Pretext cuts it forwards. Null at the very start of
+ * the text.
  */
 export function lineEndingAt(prepared: PreparedTextWithSegments, maxWidth: number, end: LayoutCursor): { start: LayoutCursor, text: string, width: number } | null {
+  const kinds = prepared.kinds
+  const line = (start: LayoutCursor, width: number) => ({ start, text: materializeLineRange(prepared, { width, start, end }).text, width })
+  // The letters of segment `seg` before `upTo` that fit in `room`, from the end backwards (at least one).
+  const cut = (seg: number, upTo: number, room: number, used: number) => {
+    const letters = letterAdvances(prepared)[seg]!
+    let g = upTo
+    let w = 0
+    while (g > 0 && (g === upTo || w + letters[g - 1]! <= room + 0.01)) w += letters[--g]!
+    return line({ segmentIndex: seg, graphemeIndex: g }, used + w)
+  }
+  // A piece of a cut word ends here: the line is the piece before it.
+  if (end.graphemeIndex > 0) return cut(end.segmentIndex, end.graphemeIndex, maxWidth, 0)
   let i = end.segmentIndex - 1
+  if (i < 0) return null
+  // The line's own break, then the spaces hanging at its end.
+  if (kinds[i] === 'hard-break') i--
+  while (i >= 0 && HANGING.test(kinds[i]!)) i--
   let width = 0
   let best = -1
   let widthAtBest = 0
-  if (end.graphemeIndex > 0) {
-    // A word broken across lines (only one wider than WHOLE_WORD_MAX_LAYOUT_W):
-    // counted whole, so the line above it is at most a little short.
-    width = prepared.widths[++i] ?? 0
-    if (canStartLine(prepared, i)) { best = i; widthAtBest = width }
-    i--
-  } else {
-    while (i >= 0 && HANGING.test(prepared.kinds[i]!)) i--
-  }
   for (; i >= 0; i--) {
-    const w = width + (prepared.widths[i] ?? 0)
-    if (w > maxWidth + 0.01 && best >= 0) break
+    // The line before ended at this break. A tab's width depends on where it falls, which is not known
+    // backwards: the line starts after it (short, and sure to fit).
+    if (kinds[i] === 'hard-break' || kinds[i] === 'tab') break
+    const own = prepared.widths[i] ?? 0
+    const w = width + own
+    if (w > maxWidth + 0.01) {
+      if (best >= 0) break
+      if (own > Math.max(maxWidth, WHOLE_WORD_MAX_LAYOUT_W) && letterAdvances(prepared)[i]) {
+        return cut(i, letterAdvances(prepared)[i]!.length, maxWidth - width, width)
+      }
+    }
     width = w
     if (canStartLine(prepared, i)) { best = i; widthAtBest = width }
   }
-  if (best < 0) return null
-  const start = { segmentIndex: best, graphemeIndex: 0 }
-  return { start, text: materializeLineRange(prepared, { width: widthAtBest, start, end }).text, width: widthAtBest }
+  // Nothing a line may start on: only spaces, or nothing at all, back to a break or the start of the text.
+  return best < 0 ? line({ segmentIndex: i + 1, graphemeIndex: 0 }, 0) : line({ segmentIndex: best, graphemeIndex: 0 }, widthAtBest)
 }

@@ -226,3 +226,24 @@ test('refreshLoom gives an arrival the hold the page set', async () => {
   expect(focus).not.toBeNull()
   expect(focus!.until).toBe(focus!.start + 30000)
 })
+
+test('an arrival does not take the lens from a current held by touch', async () => {
+  await seedPhantomFixture()
+  loomState.arrivalHoldMs = 30000
+  loomState.readingKey = 'memory'
+  await loadState(makeState([
+    {
+      family: 'memory',
+      voices: [
+        { id: 'm0', depth: 0.6, text: 'MEMORY ONE folds into the thread. ' },
+        { id: 'm1', depth: 0.2, text: 'MEMORY TWO rises closer to the surface. ' },
+        { id: 'm2', depth: 0.1, text: 'MEMORY THREE has only just arrived. ' },
+      ],
+    },
+  ], 12))
+  withFixedRandom(0.5, () => refreshLoom([{ hasNew: true, newIds: new Set(['m2']) }], 5000))
+  expect(getPhantomFocus()).toBeNull()
+  expect(loomState.readingKey).toBe('memory')
+  // The arrival is still marked where it lies.
+  expect(getThreads()[0]!.newVoiceIds.has('m2')).toBe(true)
+})

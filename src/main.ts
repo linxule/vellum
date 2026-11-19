@@ -206,8 +206,8 @@ const lineageTap = createSheetTap({
 // A tap on the sheet: a click, or a touch tap at its touchend (runtime/input.ts calls this once per
 // tap either way, so sound starts and a double tap opens the lineage whether or not iOS sends clicks).
 function sheetTap(x: number, y: number, e: Event): void {
-  const targetId = (e.target as HTMLElement)?.id
-  if (targetId === 'sn' || targetId === 'ip') return
+  // The controls and the about panel are not the sheet.
+  if ((e.target as Element | null)?.closest?.('.u, #info')) return
   if (e.type === 'touchend') soundAutoStart?.(e)
   // Cancel pending highlight auto-loom on any user click
   if (highlightAutoLoomTimeout) { clearTimeout(highlightAutoLoomTimeout); highlightAutoLoomTimeout = null }

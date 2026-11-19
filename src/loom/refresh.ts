@@ -215,7 +215,10 @@ export function refreshLoom(newVoiceInfo?: { hasNew: boolean, newIds: Set<string
       // mechanism that surfaces arrivals — so it cannot also count as
       // "the user is already attending here." Same precedent as the
       // proximity-clear gate at the bottom of renderThread().
-      const userEngaged = !loomState.phantomFocus && thread.proximity > 0.3
+      //
+      // A current held open by touch (reading.ts) is attention committed, on
+      // whichever current the arrival lands: the lens is not taken from it.
+      const userEngaged = loomState.readingKey !== null || (!loomState.phantomFocus && thread.proximity > 0.3)
       if (!userEngaged) {
         // Hoisted out of `if (state)` to resolve a TS2552 in the baseline monolith.
         // DO NOT move the declaration back inside the `if (state)` block — that

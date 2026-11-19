@@ -122,9 +122,11 @@ export function tapCurrent(x: number, y: number, keep = false, byDrag = false): 
   }
   // A tap on the lines of a current still easing shut opens it again (its lines are wider than its reach).
   const receding = open ? null : recedingThread()
-  let nearest: Thread | null = receding && onOpenLines(receding, loomState.recedingY, x, y) ? receding : null
+  const onReceding = receding !== null && onOpenLines(receding, loomState.recedingY, x, y)
+  let nearest: Thread | null = onReceding ? receding : null
   let best = open ? Math.max(TAP_REACH_PX, ac.restingWidth * 0.75) : Math.max(REST_TAP_REACH_PX, ac.restingWidth)
-  for (let i = 0; i < loomState.threads.length && nearest === null; i++) {
+  // Otherwise the nearest current within reach (not the first one found there).
+  for (let i = 0; !onReceding && i < loomState.threads.length; i++) {
     const thread = loomState.threads[i]!
     if (thread === open || thread._path.length < 2) continue
     if ((loomState.frameVisibilityAlpha[i] ?? 0) < 0.5) continue

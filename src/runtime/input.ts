@@ -78,10 +78,10 @@ export function attachInputHandlers(opts: {
 
   let lastTouchAt = -1e9
   const afterTouch = () => performance.now() - lastTouchAt < SYNTHETIC_MOUSE_MS
-  // The click a browser may make up after a touch tap is the same tap: it has already acted.
-  let touchTapAt = -1e9
+  // The click a browser may make up after a touch is that touch: a tap has already acted, and a
+  // long press or a drag is not a tap.
   const handleClick = (e: MouseEvent) => {
-    if (performance.now() - touchTapAt < SYNTHETIC_MOUSE_MS) return
+    if (afterTouch()) return
     onTap?.(e.clientX, e.clientY, e)
   }
 
@@ -175,7 +175,7 @@ export function attachInputHandlers(opts: {
     clearTouchEndTimeout()
     // After the reading has had the tap (a current opened, its drop fell), the page has it.
     const tapped = e.type === 'touchend' && !dragging && now - startAt < TAP_MAX_MS
-    const tapDone = () => { if (tapped && onTap) { touchTapAt = now; onTap(startX, startY, e) } }
+    const tapDone = () => { if (tapped && onTap) onTap(startX, startY, e) }
     if (mode === 'reading' && reading) {
       if (dragging) {
         // Only a finger still moving when it lifts carries the text on.

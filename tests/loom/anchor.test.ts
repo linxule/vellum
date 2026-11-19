@@ -3,11 +3,12 @@ import { layoutNextLine, prepareWithSegments } from '@chenglou/pretext'
 import { initLoom, refreshLoom, renderLoom } from '../../src/loom/index.js'
 import { enablePaper, resetPaperForTest } from '../../src/loom/paper.js'
 import { pathXAtY } from '../../src/loom/path.js'
+import { scrollThreadToVoice } from '../../src/loom/scroll.js'
 import { resetWashForTest } from '../../src/loom/render/wash.js'
 import { loomState, resetLoomState } from '../../src/loom/state.js'
 import { compareCursors, lineEndingAt } from '../../src/loom/text.js'
 import { aperture } from '../../src/loom/aperture.js'
-import type { Thread } from '../../src/loom/types.js'
+import { WHOLE_WORD_MAX_LAYOUT_W, type Thread } from '../../src/loom/types.js'
 import { CanvasContextStub, installViewport, loadState, makeMouse, makeState, withFixedRandom } from './helpers.js'
 
 // The text being read stays still (render/thread.ts, thread._anchor): on paper the
@@ -96,6 +97,40 @@ describe('lineEndingAt: a line laid out backwards', () => {
   test('at the very start of the text there is no line before', () => {
     expect(lineEndingAt(prepared, 100, { segmentIndex: 0, graphemeIndex: 0 })).toBeNull()
   })
+
+  // Voices keep their own line breaks and spaces (the thread is prepared pre-wrap), and may hold a URL.
+  const awkward: Record<string, string> = {
+    'line breaks, and an empty line': 'one two three\nfour five six seven eight nine\n\nten eleven twelve thirteen. ',
+    'a word far wider than any line': 'short words then https://example.com/a/very/long/unbroken/path/that/goes/on/and/on/and/on/for/several/lines/of/a/narrow/column/indeed and after ',
+    'runs of spaces, from the first letter on': '   leading spaces and  double  spaces    inside and trailing   ',
+    'tabs': 'a\tb\tc tabbed\ttext with\ttabs here and there ',
+  }
+  for (const [name, awkwardText] of Object.entries(awkward)) {
+    for (const width of [70, 130, 200]) {
+      test(`${name}, at ${width} units: every line fits forwards, none crosses a line break, and the text is whole`, () => {
+        installViewport(400, 800)
+        const p = prepareWithSegments(awkwardText, '400 15px serif', { whiteSpace: 'pre-wrap' })
+        let end = { segmentIndex: p.segments.length, graphemeIndex: 0 }
+        const parts: string[] = []
+        for (let i = 0; i < 400; i++) {
+          const line = lineEndingAt(p, width, end)
+          if (!line) break
+          parts.unshift(line.text)
+          expect(compareCursors(line.start, end)).toBeLessThan(0)
+          // A whole word may run wide (wholeWordWidth); nothing wider than that does.
+          expect(line.width).toBeLessThanOrEqual(Math.max(width, WHOLE_WORD_MAX_LAYOUT_W) + 0.01)
+          const forward = layoutNextLine(p, Math.max(width, line.width), { ...line.start })
+          expect(forward).not.toBeNull()
+          expect(compareCursors(forward!.end, end)).toBeGreaterThanOrEqual(0)
+          // No break in the text inside the line (its own, at its end, is the last segment).
+          for (let s = line.start.segmentIndex; s < end.segmentIndex - 1; s++) expect(p.kinds[s]).not.toBe('hard-break')
+          end = line.start
+        }
+        expect(end).toEqual({ segmentIndex: 0, graphemeIndex: 0 })
+        expect(parts.join('')).toBe(awkwardText.replace(/\n/g, ''))
+      })
+    }
+  }
 })
 
 describe('on paper, the words under the lens stay put', () => {
@@ -180,6 +215,24 @@ describe('on paper, the words under the lens stay put', () => {
     // A jump is not reading: the scroll keeps it, and the anchor starts over where the lens is now.
     expect(attention._anchor).toBeDefined()
     expect(Math.abs(attention._anchor!.y - y)).toBeLessThan(ap.diveLineH)
+  })
+
+  test('a short jump to a voice, just after the lens left, is kept (the anchor does not pull the text back)', () => {
+    const y = 400
+    frames(200, () => hold(y))
+    leave()
+    frames(30)
+    // Still held in place: a current stays touched for a while after the lens leaves it.
+    expect(attention._anchor).toBeDefined()
+    const idx = loomState.threads.indexOf(attention)
+    const was = attention.scroll
+    // A jump of a few lines: under the 12-line threshold that tells a jump from reading.
+    attention.scroll = was + 2
+    scrollThreadToVoice(idx, 'a0')
+    const jumped = attention.scroll
+    expect(attention._anchor).toBeUndefined()
+    frames(1)
+    expect(Math.abs(attention.scroll - jumped)).toBeLessThan(0.2)
   })
 
   test('the anchor follows a drag exactly: scroll by k resting lines moves the read line by k reading lines', () => {
