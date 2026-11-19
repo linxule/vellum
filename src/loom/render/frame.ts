@@ -337,16 +337,12 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
   const trailClear = (alpha: number) => slow < 1.02 ? alpha : 1 - Math.pow(1 - alpha, slow)
   const seaClear = slow < 1.02 ? '.18' : trailClear(0.18).toFixed(3)
   const bgPhase = loomState.current * 0.5 + 0.5
-  const bgGrad = ctx.createLinearGradient(0, 0, 0, vh)
   const topR = Math.round(12 + bgPhase * 6)
   const topG = Math.round(18 + bgPhase * 7)
   const topB = Math.round(30 + bgPhase * 8)
   const botR = Math.round(5 + bgPhase * 3)
   const botG = Math.round(8 + bgPhase * 3)
   const botB = Math.round(16 + bgPhase * 5)
-  bgGrad.addColorStop(0, `rgba(${topR},${topG},${topB},${seaClear})`)
-  bgGrad.addColorStop(0.6, `rgba(${Math.round((topR + botR) / 2)},${Math.round((topG + botG) / 2)},${Math.round((topB + botB) / 2)},${seaClear})`)
-  bgGrad.addColorStop(1, `rgba(${botR},${botG},${botB},${seaClear})`)
   if (paper.on) {
     // The canvas holds only ink; the paper is underneath. Fade the ink instead
     // of painting the ground over it.
@@ -355,6 +351,10 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
     ctx.fillRect(0, 0, vw, vh)
     ctx.globalCompositeOperation = 'source-over'
   } else {
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, vh)
+    bgGrad.addColorStop(0, `rgba(${topR},${topG},${topB},${seaClear})`)
+    bgGrad.addColorStop(0.6, `rgba(${Math.round((topR + botR) / 2)},${Math.round((topG + botG) / 2)},${Math.round((topB + botB) / 2)},${seaClear})`)
+    bgGrad.addColorStop(1, `rgba(${botR},${botG},${botB},${seaClear})`)
     ctx.fillStyle = bgGrad
     ctx.fillRect(0, 0, vw, vh)
   }

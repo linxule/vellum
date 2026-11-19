@@ -24,6 +24,7 @@ export const mouse: MouseState = {
 import { initStrudelSound, modulateSound, toggleStrudelSound, isStrudelReady, isSoundOn, resumeAudioContext } from './audio/controller.js'
 import { preloadStrudelScript } from './audio/strudel-loader.js'
 import { setupSketch } from './sketch.js'
+import { paper } from './loom/paper.js'
 
 // Sketch: paper look and the drop instrument. ?look=old keeps the sea and the drone.
 // The page decides the look before first paint (index.html); follow it.
@@ -31,7 +32,15 @@ const sketch = document.documentElement.classList.contains('paper') ? setupSketc
 
 // ── Canvas ────────────────────────────────────────────
 
-const { ctx, syncCanvasSize } = setupCanvas()
+// ?probe: frame timing in the corner label, with switches to find what a slow device is slow
+// at (dpr=1..3, water=0, wash=0, blend=0). A diagnostic: nothing here runs unless asked for.
+const probeQuery = new URLSearchParams(location.search)
+const probe = probeQuery.has('probe') ? { n: 0, since: 0, worst: 0, text: 0, wash: 0, wash0: probeQuery.get('wash') === '0' } : null
+const { canvas: sheetCanvas, ctx, syncCanvasSize } = setupCanvas(probe ? Number(probeQuery.get('dpr')) || 3 : 3)
+if (probe) {
+  paper.noWater = probeQuery.get('water') === '0'
+  if (probeQuery.get('blend') === '0') sheetCanvas.style.mixBlendMode = 'normal'
+}
 let prevNow = 0
 const frameHandle: {
   frameId: number | null
@@ -356,14 +365,28 @@ function render(now: number) {
     const vw = innerWidth, vh = innerHeight
     syncCanvasSize(vw, vh)
 
+    const t0 = probe ? performance.now() : 0
     renderLoom(ctx, vw, vh, now, dt, mouse)
+    const t1 = probe ? performance.now() : 0
 
     // Witness check (debounced by render loop)
     checkWitness()
 
     // Strudel sound modulation
     if (sketch) {
-      sketch.frame(now, vw, vh)
+      if (!probe?.wash0) sketch.frame(now, vw, vh)
+      if (probe) {
+        probe.text += t1 - t0
+        probe.wash += performance.now() - t1
+        probe.worst = Math.max(probe.worst, dt * 1000)
+        if (++probe.n && now - probe.since >= 1000) {
+          const label = document.getElementById('tr')!
+          label.style.cssText = 'font-size:13px;opacity:1;bottom:40px'
+          label.textContent = `${(probe.n * 1000 / (now - probe.since)).toFixed(0)} fps \u00b7 worst ${probe.worst.toFixed(0)} \u00b7 text ${(probe.text / probe.n).toFixed(1)} \u00b7 wash ${(probe.wash / probe.n).toFixed(1)} ms \u00b7 ${sheetCanvas.width}x${sheetCanvas.height}`
+          probe.n = probe.text = probe.wash = probe.worst = 0
+          probe.since = now
+        }
+      }
     } else {
       const st = getLoomState()
       modulateSound(st.proximity, st.immersion)

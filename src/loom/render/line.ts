@@ -212,6 +212,13 @@ export function drawLineSegmented(
           const shimmerX = scSway > 0 ? Math.sin(shimmerPhase * 0.6 + 1.1) * scSway * shimmerDampenLod : 0
           const fill = `rgba(${cr},${cg},${cb},${wordAlpha})`
           if (fill !== prevFill) { ctx.fillStyle = fill; prevFill = fill }
+          if (shimmerDampenLod === 0) {
+            // A still line (the current being read, on paper): the wave is flat, so the word
+            // needs no transform of its own. The same pixels, without a transform per word.
+            ctx.fillText(segText, wCenter - wordW / 2, y)
+            xPos += rtl ? -wordW : wordW
+            continue
+          }
           if (base === null) base = ctx.getTransform()
           // base · translate(centre) · rotate(atan(slope)) — small angle, so
           // cos ≈ 1/√(1+m²), sin ≈ m/√(1+m²) exactly for θ = atan(m).
@@ -258,8 +265,9 @@ export function drawLineSegmented(
     if (transformed) { ctx.setTransform(base!); transformed = false }
     const sliceText = graphemes.slice(gStart, gEnd).join('')
     const prefixText = gStart > 0 ? graphemes.slice(0, gStart).join('') : ''
-    const renderedW = ctx.measureText(sliceText).width
-    const prefixW = prefixText ? ctx.measureText(prefixText).width : 0
+    // One-letter words and punctuation have no letter table: measured once per font, not per frame.
+    const renderedW = nativeWidth(ctx, sliceText)
+    const prefixW = prefixText ? nativeWidth(ctx, prefixText) : 0
     xPos += rtl ? -prefixW : prefixW
     const segCenter = xPos + (rtl ? -renderedW / 2 : renderedW / 2)
     const cursorGlow = Math.max(0, 1 - Math.abs(mouseX - segCenter) / 25) * proximity * 0.45

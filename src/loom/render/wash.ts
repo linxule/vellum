@@ -654,7 +654,7 @@ export function paintWash(ctx: CanvasRenderingContext2D, scale: number, now: num
   const touched = loomState.touchedThread
 
   // The water first: the bands ask it how wet they are.
-  stepWater(now, lensPour(touched, mouse, ac, now))
+  if (!paper.noWater) stepWater(now, lensPour(touched, mouse, ac, now))
 
   if (ocean > 0.01) {
     let touchedVisibility = 0
@@ -667,7 +667,7 @@ export function paintWash(ctx: CanvasRenderingContext2D, scale: number, now: num
     }
     if (touched && touchedVisibility > 0) paintBand(ctx, touched, touchedVisibility, ac, t, ocean, sigma, now)
     // Clean water where a current is read: the pigment under it cleared into a rim.
-    paintWater(ctx, ocean, paper.night ? 'screen' : 'multiply')
+    if (!paper.noWater) paintWater(ctx, ocean, paper.night ? 'screen' : 'multiply')
   }
 
   // Drops.

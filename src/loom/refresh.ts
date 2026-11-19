@@ -9,9 +9,17 @@ import { triggerPhantomHover } from './phantom.js'
 // thread-local state across initLoom() rebuilds so continuity survives
 // normal polling (identical signature) and resets cleanly on regrouping
 // (different signature) rather than migrating onto the wrong thread.
+// Asked once per printed line since the water (render/water.ts, waterOver): a current's family
+// list is set when it is built and never changed, so the key is worked out once per list.
+const groupKeys = new WeakMap<string[], string>()
 export function threadGroupKey(familyNames: string[]): string {
-  // Copy before sort — the thread's own familyNames array must not mutate.
-  return [...familyNames].sort().join(',')
+  let key = groupKeys.get(familyNames)
+  if (key === undefined) {
+    // Copy before sort — the thread's own familyNames array must not mutate.
+    key = [...familyNames].sort().join(',')
+    groupKeys.set(familyNames, key)
+  }
+  return key
 }
 
 export function refreshLoom(newVoiceInfo?: { hasNew: boolean, newIds: Set<string> }[], now = performance['now'](), emitEvent?: (e: OceanEvent) => void) {
