@@ -385,7 +385,7 @@ Both contribute independently to brightness. Do NOT conflate them.
 
 ### Fonts-ready timeout
 
-`document.fonts.ready` races against a 2s timeout. Claude Desktop's iframe CSP sometimes blocks Google Fonts loading by 30+ seconds, which was blocking the entire boot sequence. System fonts are an acceptable fallback — the loom layout re-measures on next poll anyway.
+The faces the sheet's text needs (`loadTypeface`, `src/runtime/fonts.ts`) race against 2 s from boot. Claude Desktop's iframe CSP sometimes blocks Google Fonts loading by 30+ seconds, which was blocking the entire boot sequence. A fallback face is acceptable to start with; once the face arrives, `remeasureLoom()` measures the currents again (until 2026-11-20 the comment here said the next poll re-measured; it did not: Pretext keeps its widths until `clearCache()`, and `document.fonts.ready` never waited for Cormorant at all).
 
 ### Dimensions come from `applyContainerDimensions`
 

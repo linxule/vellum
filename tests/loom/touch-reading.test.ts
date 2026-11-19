@@ -2,14 +2,14 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:tes
 import { getLoomState, initLoom, renderLoom } from '../../src/loom/index.js'
 import { enablePaper, resetPaperForTest } from '../../src/loom/paper.js'
 import { pathXAtY } from '../../src/loom/path.js'
-import { clampReadingY, closeReading, dragReading, driveReading, DRAG_LIFT_SIGMAS, flingReading, isReading, isReceding, READING_EDGE_SIGMAS, READING_FOOT, READING_LINE, readingThread, RECEDED_PROXIMITY, recedingThread, tapCurrent, TOUCH_OPEN_RATE, WORDLESS_PROXIMITY } from '../../src/loom/reading.js'
+import { clampReadingY, closeReading, dragReading, driveReading, DRAG_LIFT_SIGMAS, flingReading, isReading, isReceding, READING_EDGE_SIGMAS, READING_FOOT, READING_LINE, readingThread, RECEDED_PROXIMITY, recedeFromPointer, recedingThread, tapCurrent, TOUCH_OPEN_RATE, WORDLESS_PROXIMITY } from '../../src/loom/reading.js'
 import { DIVE_SIGMA_LINES } from '../../src/loom/types.js'
 import { resetWashForTest } from '../../src/loom/render/wash.js'
 import { loomState, resetLoomState } from '../../src/loom/state.js'
 import type { Thread } from '../../src/loom/types.js'
 import { attachInputHandlers, DOUBLE_TAP_MS, DRAG_SLOP_PX, READING_IDLE_MS, type TouchReading } from '../../src/runtime/input.js'
 import { createSheetTap } from '../../src/runtime/sheet-tap.js'
-import { CanvasContextStub, installViewport, loadState, makeMouse, makeState, runFrames, withFixedRandom } from './helpers.js'
+import { CanvasContextStub, installViewport, loadState, makeMouse, makeState, maxFontSizeForText, runFrames, withFixedRandom } from './helpers.js'
 
 // Reading by touch (loom/reading.ts, runtime/input.ts): a tap opens a current where
 // it fell (kept on the sheet), a drag moves its text and never moves the lens, and
@@ -358,6 +358,158 @@ describe('letting go recedes', () => {
     ctx.fillTextCalls = []
     frames(2)
     expect(ctx.fillTextCalls.some(c => c.text.includes('yet'))).toBe(true)
+  })
+})
+
+describe('a pointer that lets go', () => {
+  // A desktop sheet with room beside each current: bare paper lies between them.
+  function wide(): void {
+    installViewport(1200, VH)
+    withFixedRandom(0.5, () => initLoom())
+    frames(6)
+    attention = loomState.threads.find(t => t.familyNames.includes('attention'))!
+    memory = loomState.threads.find(t => t.familyNames.includes('memory'))!
+  }
+  /** Hovers the mouse on a current at height y until it is open, following its sway. */
+  function hover(thread: Thread, y: number, n = 150): void {
+    for (let i = 0; i < n; i++) { mouse.x = xOf(thread, y); mouse.y = y; frames(1) }
+  }
+  /** The point at height y farthest from every current. */
+  function bare(y: number): number {
+    let best = -1, at = 0
+    for (let x = 20; x < loomState.VW - 20; x += 5) {
+      const d = Math.min(...loomState.threads.map(t => Math.abs(x - xOf(t, y))))
+      if (d > best) { best = d; at = x }
+    }
+    return at
+  }
+
+  test('leaving the sheet, the current under it eases shut where it was, then the pointer is parked', () => {
+    enablePaper()
+    wide()
+    hover(attention, 400)
+    const open = attention.proximity
+    expect(open).toBeGreaterThan(0.5)
+    const x = mouse.x
+    ctx.fillTextCalls = []
+    frames(1)
+    const reading = maxFontSizeForText(ctx as unknown as CanvasRenderingContext2D, 'rush')
+    // As the page does (runtime/input.ts): parked only if nothing recedes.
+    if (!recedeFromPointer(mouse)) { mouse.x = -9e3; mouse.y = -9e3 }
+    expect(isReceding()).toBe(true)
+    frames(9)
+    ctx.fillTextCalls = []
+    frames(1)
+    // Still read at nearly its size ten frames on (dropped, it was back to texture in one).
+    expect(maxFontSizeForText(ctx as unknown as CanvasRenderingContext2D, 'rush')).toBeGreaterThan(reading * 0.85)
+    // Nothing is steered: the lens stays where the pointer left it, on the same current.
+    expect(mouse.x).toBe(x)
+    expect(mouse.y).toBe(400)
+    expect(loomState.touchedThread).toBe(attention)
+    // Closing at the usual rate, not in one frame.
+    expect(attention.proximity).toBeLessThan(open)
+    expect(attention.proximity).toBeGreaterThan(open * Math.pow(1 - 0.015, 10) - 0.05)
+    frames(400)
+    expect(attention.proximity).toBeLessThan(RECEDED_PROXIMITY)
+    expect(isReceding()).toBe(false)
+    expect(mouse.x).toBe(-9e3)
+  })
+
+  test('its closing is not witnessed, and on a large sheet the others keep their words', () => {
+    enablePaper()
+    wide()
+    hover(attention, 400)
+    expect(getLoomState().families.length).toBeGreaterThan(0)
+    recedeFromPointer(mouse)
+    frames(3)
+    expect(attention.proximity).toBeGreaterThan(WORDLESS_PROXIMITY)
+    expect(getLoomState().families).toEqual([])
+    ctx.fillTextCalls = []
+    frames(2)
+    expect(ctx.fillTextCalls.some(c => c.text.includes('yet'))).toBe(true)
+  })
+
+  test('the text under the lens stays anchored while it closes', () => {
+    enablePaper()
+    wide()
+    hover(attention, 400)
+    const anchor = attention._anchor!
+    expect(anchor).toBeDefined()
+    const { y, cursor } = anchor
+    if (!recedeFromPointer(mouse)) { mouse.x = -9e3; mouse.y = -9e3 }
+    for (let i = 0; i < 60; i++) {
+      frames(1)
+      expect(attention._anchor?.cursor).toEqual(cursor)
+      expect(attention._anchor!.y).toBeCloseTo(y, 6)
+    }
+  })
+
+  test('with nothing open under it, or the lens held by an arrival or a read, nothing recedes', () => {
+    wide()
+    mouse.x = bare(400); mouse.y = 400
+    frames(60)
+    expect(recedeFromPointer(mouse)).toBe(false)
+    hover(attention, 400)
+    tapCurrent(xOf(attention, 400), 400)
+    expect(recedeFromPointer(mouse)).toBe(false)
+    expect(isReading()).toBe(true)
+    closeReading()
+    hover(attention, 400)
+    loomState.phantomFocus = {} as never
+    expect(recedeFromPointer(mouse)).toBe(false)
+    loomState.phantomFocus = null
+    mouse.x = -9e3; mouse.y = -9e3
+    expect(recedeFromPointer(mouse)).toBe(false)
+  })
+
+  test('moved off onto bare paper, on paper the current eases shut instead of closing in one frame', () => {
+    enablePaper()
+    wide()
+    hover(attention, 400)
+    const open = attention.proximity
+    const paperX = bare(400)
+    mouse.x = paperX
+    frames(1)
+    expect(loomState.touchedThread).toBe(attention)
+    expect(getLoomState().families).toEqual([])
+    frames(30)
+    expect(loomState.touchedThread).toBe(attention)
+    expect(attention.proximity).toBeGreaterThan(open * Math.pow(1 - 0.015, 31) - 0.05)
+    frames(400)
+    expect(loomState.touchedThread).toBe(null)
+    // The pointer is still on the sheet: nothing is parked.
+    expect(mouse.x).toBe(paperX)
+  })
+
+  test('in the old look it is dropped at once, as before', () => {
+    wide()
+    hover(attention, 400)
+    mouse.x = bare(400)
+    frames(1)
+    expect(loomState.touchedThread).toBe(null)
+  })
+
+  test('moved onto another current, that one wins at once', () => {
+    enablePaper()
+    wide()
+    hover(attention, 400)
+    mouse.x = xOf(memory, 400)
+    frames(1)
+    expect(loomState.touchedThread).toBe(memory)
+  })
+
+  test('an arrival the mouse takes over elsewhere is not held by the pointer', () => {
+    enablePaper()
+    wide()
+    const i = loomState.threads.indexOf(attention)
+    loomState.phantomFocus = { voiceId: null, groupKey: 'attention', start: 0, until: Infinity, settledFrames: 0, diagFrames: 0, capturedY: -1 }
+    for (let k = 0; k < 120; k++) frames(1)
+    expect(loomState.touchedThread).toBe(loomState.threads[i])
+    expect(attention.proximity).toBeGreaterThan(0.5)
+    loomState.phantomFocus = null
+    mouse.x = bare(400); mouse.y = 400
+    frames(1)
+    expect(loomState.touchedThread).toBe(null)
   })
 })
 
@@ -723,6 +875,49 @@ describe('touch handlers', () => {
     handlers.mousemove!({ clientX: 300, clientY: 200 })
     expect(calls.at(-1)).toBe('release')
     expect(mouse.y).toBe(200)
+  })
+
+  test('a pointer leaving the sheet lets the current under it ease shut, where the page says so', () => {
+    let left = 0
+    let receding = false
+    attach({ ...reading(), receding: () => receding, left: () => { left++; receding = true; return true } })
+    advance(2000)
+    handlers.mousemove!({ clientX: 300, clientY: 200 })
+    handlers.mouseleave!({})
+    expect(left).toBe(1)
+    // The pointer stays where it left until the current has shut.
+    expect(mouse.x).toBe(300)
+    // Coming back, it takes over at once.
+    handlers.mousemove!({ clientX: 500, clientY: 220 })
+    expect(calls.at(-1)).toBe('release')
+    expect(mouse.x).toBe(500)
+  })
+
+  test('with nothing to let go, or no say from the page, a pointer leaving is parked at once', () => {
+    attach({ ...reading(), left: () => false })
+    advance(2000)
+    handlers.mousemove!({ clientX: 300, clientY: 200 })
+    handlers.mouseleave!({})
+    expect(mouse.x).toBe(-9e3)
+    handlers = {}
+    attach(reading())
+    handlers.mousemove!({ clientX: 300, clientY: 200 })
+    handlers.mouseleave!({})
+    expect(mouse.x).toBe(-9e3)
+  })
+
+  test('a mouse leaving after a touch is not a pointer letting go', () => {
+    let left = 0
+    attach({ ...reading(), left: () => { left++; return true } })
+    touch('touchstart', 120, 700); advance(60); touch('touchend', 120, 700)
+    // The made-up events right after the touch are ignored...
+    handlers.mouseleave!({})
+    // ...and later, while the last input is still a finger, it is parked as before.
+    advance(2000)
+    mouse.x = 55; mouse.y = 66
+    handlers.mouseleave!({})
+    expect(left).toBe(0)
+    expect(mouse.x).toBe(-9e3)
   })
 
   test('in the lineage view, and without touch reading, the lens follows the finger as before', () => {

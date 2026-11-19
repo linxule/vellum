@@ -234,13 +234,17 @@ function fontSizeFromFont(font: string): number {
   return match ? Number(match[1]) : 0
 }
 
+// Every letter measures this many em. A test may change it to stand for a face that arrived late.
+let emPerLetter = 0.62
+export function setMeasuredEm(em: number) { emPerLetter = em }
+
 function installMeasurementCanvas() {
   class MeasureContextStub {
     font = '400 15px serif'
 
     measureText(text: string) {
       const size = fontSizeFromFont(this.font)
-      return { width: text.length * size * 0.62 }
+      return { width: text.length * size * emPerLetter }
     }
   }
 

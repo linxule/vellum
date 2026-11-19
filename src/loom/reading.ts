@@ -60,10 +60,32 @@ export function closeReading(recede = false): void {
   if (recede && loomState.readingKey !== null) {
     loomState.recedingKey = loomState.readingKey
     loomState.recedingY = loomState.readingY
+    loomState.recedingPointer = false
   } else if (!recede) {
     loomState.recedingKey = null
   }
   loomState.readingKey = null
+}
+
+/**
+ * A pointer left the sheet (on paper; the entry points decide): the current under it
+ * eases shut where it was read, as one let go by touch does, instead of closing in one
+ * frame. Nothing under the lens is moved: the pointer stays where it left until the
+ * current has shut (driveReading), then it is parked. True when a current recedes
+ * (or one already is); false when there is none to let go, and the caller parks the
+ * pointer as before. A real pointer coming back ends it at once (closeReading).
+ */
+export function recedeFromPointer(mouse: MouseState): boolean {
+  if (loomState.recedingKey !== null) return true
+  const thread = loomState.touchedThread
+  if (!thread || mouse.x <= -1000 || thread.proximity < RECEDED_PROXIMITY) return false
+  // The lens is someone else's: a read held by touch, an arrival, the lineage view.
+  if (loomState.readingKey !== null || loomState.phantomFocus !== null || loomState.loomViewActive) return false
+  if (!loomState.threads.includes(thread)) return false
+  loomState.recedingKey = threadGroupKey(thread.familyNames)
+  loomState.recedingY = mouse.y
+  loomState.recedingPointer = true
+  return true
 }
 
 /** The current easing shut after a touch let it go, if any. */
@@ -191,6 +213,8 @@ export function driveReading(mouse: MouseState): void {
     parkPointer(mouse)
     return
   }
+  // Let go by a pointer that left the sheet: the lens stays where the pointer left it.
+  if (loomState.recedingPointer) return
   loomState.recedingY = clampReadingY(loomState.recedingY)
   putLens(mouse, thread, loomState.recedingY)
 }
@@ -224,8 +248,9 @@ export function wordlessAmount(thread: Thread): number {
   if (loomState.loomViewActive) return 0
   let open: Thread | null = null
   // A receding current still quiets the others, by its own openness: their words come back as it closes.
+  // One a pointer let go quiets them as a pointer does: only on a small sheet (below).
   if (loomState.readingKey !== null) open = readingThread()
-  else if (loomState.recedingKey !== null) open = recedingThread()
+  else if (loomState.recedingKey !== null && !loomState.recedingPointer) open = recedingThread()
   else if (loomState.VW < SMALL_SHEET_W || loomState.VH < SMALL_SHEET_H) open = loomState.touchedThread
   if (open === null || open === thread) return 0
   if (open.proximity > WORDLESS_PROXIMITY) return 1

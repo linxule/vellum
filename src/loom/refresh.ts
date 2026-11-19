@@ -1,7 +1,8 @@
+import { clearCache } from '@chenglou/pretext'
 import { findVoice, getState } from '../content.js'
 import type { OceanEvent } from '../events.js'
 import { loomState } from './state.js'
-import type { Thread } from './types.js'
+import { ZERO_CURSOR, type Thread } from './types.js'
 import { initLoom } from './init.js'
 import { scrollThreadToVoice } from './scroll.js'
 import { scrollForTop } from './text.js'
@@ -287,5 +288,36 @@ export function refreshLoom(newVoiceInfo?: { hasNew: boolean, newIds: Set<string
       for (const t of state.threads) familyWarmth[t.family] = t.warmth ?? 0
       emitEvent({ type: 'warmth-update', familyWarmth })
     }
+  }
+}
+
+/**
+ * The sheet's typeface arrived after the currents were measured (a slow font host,
+ * or a part of a face first needed now): measure them again. Pretext keeps the
+ * widths it measured, the fallback face's, until its cache is cleared. Every
+ * current keeps its place and its text keeps its place in it (the line at its top
+ * is found again in the new wrap); a read current keeps its anchored line, which
+ * re-wraps around it as on a resize.
+ */
+export function remeasureLoom(): void {
+  if (!loomState.ready) return
+  clearCache()
+  const tops = new Map<string, Thread['lineEndCursors'][number]>()
+  // How a current sways is drawn afresh when it is rebuilt (thread.ts): kept, so no current changes its shape.
+  const sways = new Map<string, [number, number, number, number]>()
+  for (const t of loomState.threads) {
+    sways.set(threadGroupKey(t.familyNames), [t.freqMult, t.ampMult, t.currentResponse, t.breathRate])
+    if (t.totalLines === 0) continue
+    const offset = ((Math.floor(t.scroll * 3) % t.totalLines) + t.totalLines) % t.totalLines
+    tops.set(threadGroupKey(t.familyNames), offset === 0 ? ZERO_CURSOR : t.lineEndCursors[offset - 1]!)
+  }
+  refreshLoom()
+  for (const t of loomState.threads) {
+    const sway = sways.get(threadGroupKey(t.familyNames))
+    if (sway) [t.freqMult, t.ampMult, t.currentResponse, t.breathRate] = sway
+    // A read line remembers its width so its words hold while the lens opens (render/thread.ts): not across a new face.
+    if (t._anchor) { t._anchor.width = 0; t._anchor.prox = -1; continue }
+    const top = tops.get(threadGroupKey(t.familyNames))
+    if (top) t.scroll = scrollForTop(t, top)
   }
 }

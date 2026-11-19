@@ -3,8 +3,8 @@
 // Dual-mode: iframe (SDK) or standalone (URL param highlight).
 
 import { App } from '@modelcontextprotocol/ext-apps'
-import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, tapCurrent, closeReading, isReading, isReceding, dragReading, flingReading, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, type MouseState } from '../../src/loom.js'
-import { fetchState, findVoice, getVersion, getVoiceIdSets, isLive, setBaseUrl, getState } from '../../src/content.js'
+import { initLoom, renderLoom, resizeLoom, refreshLoom, remeasureLoom, scrollThread, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, tapCurrent, closeReading, isReading, isReceding, recedeFromPointer, dragReading, flingReading, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, type MouseState } from '../../src/loom.js'
+import { fetchState, findVoice, getVersion, getVoiceIdSets, isLive, setBaseUrl, getState, THREADS } from '../../src/content.js'
 import { emitOceanEvent, onOceanEvent } from '../../src/events.js'
 import { HoldMachine, HOLD_MS, composeHeldMessage, composeDigest, deriveDigestInputs } from './threshold.js'
 import { createSheetTap } from '../../src/runtime/sheet-tap'
@@ -13,6 +13,8 @@ import { setupCanvas } from '../../src/runtime/canvas'
 import { createWitnessReporter } from '../../src/runtime/witness'
 import { computeNewVoiceInfo, applyResonanceFromNewVoices, fetchStateWithTimeout } from '../../src/runtime/poll-core'
 import { updateMouseVelocity, scheduleNextFrame, clearScheduledFrame } from '../../src/runtime/frame'
+import { loadTypeface, within } from '../../src/runtime/fonts'
+import { FONT } from '../../src/loom/types.js'
 import { setupSketch } from '../../src/sketch.js'
 
 const BASE_URL = '__VELLUM_BASE_URL__'
@@ -156,7 +158,9 @@ attachInputHandlers({
   mouse, scrollThread, aperture,
   // Touch: tap a current to open it where the tap fell (a drop falls there), drag to move its text (loom/reading.ts).
   // The lineage view keeps the lens under the finger.
-  reading: { enabled: () => !isLoomViewActive(), dragOpens: () => !inlineInHost(), active: isReading, receding: isReceding, tap: (x, y, byDrag) => tapCurrent(x, y, wovenVoiceAt(x, y), byDrag), dropped: (x, y) => sketch.tapDrop(x, y), drag: dragReading, fling: flingReading, release: closeReading },
+  reading: { enabled: () => !isLoomViewActive(), dragOpens: () => !inlineInHost(), active: isReading, receding: isReceding, tap: (x, y, byDrag) => tapCurrent(x, y, wovenVoiceAt(x, y), byDrag), dropped: (x, y) => sketch.tapDrop(x, y), drag: dragReading, fling: flingReading, release: closeReading,
+    // A pointer leaving the frame (often, inline in a chat) lets the current under it ease shut where it was.
+    left: () => recedeFromPointer(mouse) },
   // Every tap on the sheet, from the touch itself or from a click (never both): see sheetTap below.
   onTap: (x, y, e) => sheetTap(x, y, e),
   onDrag: () => lineageTap.clearPending(),
@@ -448,6 +452,8 @@ async function poll(options: { refresh?: boolean; forceNewVoiceIds?: string[] } 
       const now = performance.now()
       refreshLoom(newVoiceInfo, now, emitOceanEvent)
       applyResonanceFromNewVoices({ newVoiceInfo, state, setResonance, emitEvent: emitOceanEvent, now })
+      // A new voice may be in a script whose part of the face has not loaded yet.
+      measureInTypeface()
     }
 
     // Deferred loom effects from ontoolresult: resonance glow + auto-enter.
@@ -707,26 +713,28 @@ if (inIframe) {
   })
 }
 
-// Race fonts.ready against a 2-second timeout. Claude Desktop's iframe CSP
-// sometimes blocks or delays Google Fonts loading by 30+ seconds, which was
-// blocking the entire boot sequence (canvas rendering, ontoolresult handling,
-// pendingBootArrivals drain). System fonts are an acceptable fallback — the
-// loom layout re-measures on next poll anyway.
-const fontsReadyOrTimeout = Promise.race([
-  document.fonts.ready.then(() => 'fonts' as const),
-  new Promise<'timeout'>(resolve => setTimeout(() => resolve('timeout'), 2000)),
-])
-
-fontsReadyOrTimeout.then(async (mode) => {
-  if (mode === 'timeout') {
-    console.warn('Vellum ext-app: fonts.ready timeout, booting with system fonts')
-  }
-  // fetchState may already be in flight from early boot — await it here
-  await initialFetch
+// The sheet's typeface for the text it will draw (runtime/fonts.ts: fonts.ready does not
+// wait for a face nothing has used yet), raced against a 2-second wait from boot. Claude
+// Desktop's iframe CSP sometimes blocks or delays Google Fonts loading by 30+ seconds, which
+// was blocking the entire boot sequence (canvas rendering, ontoolresult handling,
+// pendingBootArrivals drain). A fallback face is acceptable to start with: the currents are
+// measured again once the face is in.
+const TYPEFACE_WAIT_MS = 2000
+const bootAt = performance.now()
+const sheetText = () => THREADS.map(voices => voices.map(v => v.text).join(' ')).join(' ')
+function measureInTypeface(): void {
+  void loadTypeface(FONT, sheetText()).then(loaded => { if (loaded) remeasureLoom() })
+}
+void initialFetch.then(async () => {
+  const typeface = loadTypeface(FONT, sheetText())
+  const inTime = await within(typeface.then(() => true), TYPEFACE_WAIT_MS - (performance.now() - bootAt), false)
+  if (!inTime) console.warn('Vellum ext-app: typeface late, booting with a fallback face')
   lastVersion = getVersion()
 
   initLoom()
   loomInitialized = true
+  // Too slow: measure again once the face is in.
+  if (!inTime) void typeface.then(loaded => { if (loaded) remeasureLoom() })
   scheduleFrame()
   setTimeout(() => document.getElementById('vl')!.classList.add('o'), 500)
   // Phase 13 F12: push the connect-time brief now — boot state is already

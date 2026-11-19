@@ -1,8 +1,8 @@
 // Vellum — The Pensieve
 // Entry point: canvas, input, sound, animation loop, polling, witness reporting
 
-import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, scrollThreadToVoice, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, triggerPhantomHover, setArrivalHold, tapCurrent, closeReading, isReading, isReceding, dragReading, flingReading, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, findThreadIndexForFamily, type MouseState } from './loom.js'
-import { fetchState, findVoice, getVersion, getVoiceIdSets, isLive, getState, setSurface, getSurface, surfaceFromPathname, surfacePathPrefix, highlightUrlFor } from './content.js'
+import { initLoom, renderLoom, resizeLoom, refreshLoom, remeasureLoom, scrollThread, scrollThreadToVoice, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, triggerPhantomHover, setArrivalHold, tapCurrent, closeReading, isReading, isReceding, recedeFromPointer, dragReading, flingReading, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, findThreadIndexForFamily, type MouseState } from './loom.js'
+import { fetchState, findVoice, getVersion, getVoiceIdSets, isLive, getState, setSurface, getSurface, surfaceFromPathname, surfacePathPrefix, highlightUrlFor, THREADS } from './content.js'
 import { emitOceanEvent } from './events.js'
 import { createSheetTap } from './runtime/sheet-tap'
 import { attachInputHandlers } from './runtime/input'
@@ -10,6 +10,8 @@ import { setupCanvas } from './runtime/canvas'
 import { createWitnessReporter } from './runtime/witness'
 import { computeNewVoiceInfo, applyResonanceFromNewVoices, fetchStateWithTimeout } from './runtime/poll-core'
 import { updateMouseVelocity, scheduleNextFrame, clearScheduledFrame } from './runtime/frame'
+import { loadTypeface, stylesheetsIn, within } from './runtime/fonts'
+import { FONT } from './loom/types.js'
 
 // ── Shared input state ────────────────────────────────
 
@@ -105,7 +107,9 @@ attachInputHandlers({
   mouse, scrollThread, aperture,
   // Touch: tap a current to open it where the tap fell (a drop falls there), drag to move its text (loom/reading.ts).
   // The lineage view keeps the lens under the finger.
-  reading: { enabled: () => !isLoomViewActive(), active: isReading, receding: isReceding, tap: (x, y, byDrag) => tapCurrent(x, y, wovenVoiceAt(x, y), byDrag), dropped: (x, y) => sketch?.tapDrop(x, y), drag: dragReading, fling: flingReading, release: closeReading },
+  reading: { enabled: () => !isLoomViewActive(), active: isReading, receding: isReceding, tap: (x, y, byDrag) => tapCurrent(x, y, wovenVoiceAt(x, y), byDrag), dropped: (x, y) => sketch?.tapDrop(x, y), drag: dragReading, fling: flingReading, release: closeReading,
+    // On paper a pointer leaving the sheet lets the current under it ease shut where it was.
+    left: () => sketch !== null && recedeFromPointer(mouse) },
   // Every tap on the sheet, from the touch itself or from a click (never both): see sheetTap below.
   onTap: (x, y, e) => sheetTap(x, y, e),
   onDrag: () => lineageTap.clearPending(),
@@ -312,6 +316,8 @@ async function poll(options: { refresh?: boolean } = {}) {
       const now = performance.now()
       refreshLoom(newVoiceInfo, now, emitOceanEvent)
       applyResonanceFromNewVoices({ newVoiceInfo, state, setResonance, emitEvent: emitOceanEvent, now })
+      // A new voice may be in a script whose part of the face has not loaded yet.
+      measureInTypeface()
     }
 
     if (!document.hidden) scheduleRegularPoll()
@@ -390,16 +396,31 @@ document.addEventListener('visibilitychange', () => {
 
 // ── Boot ──────────────────────────────────────────────
 
-document.fonts.ready.then(async () => {
-  // Try live data first; falls back to seed content if API unavailable
-  await fetchStateWithTimeout({
-    fetchState,
-    refresh: Boolean(highlightId),
-    timeoutMs: FETCH_STATE_TIMEOUT_MS,
-  })
+// The sheet waits this long at most for its typeface; then it starts in a fallback face
+// and the currents are measured again once the face is in (runtime/fonts.ts).
+const TYPEFACE_WAIT_MS = 2_000
+const sheetText = () => THREADS.map(voices => voices.map(v => v.text).join(' ')).join(' ')
+// Measure the currents again when the face their text needs arrives after they were built.
+function measureInTypeface(): void {
+  void loadTypeface(FONT, sheetText()).then(loaded => { if (loaded) remeasureLoom() })
+}
+
+const bootAt = performance.now()
+// Try live data first; falls back to seed content if API unavailable. Not after the fonts.
+const stateFetched = fetchStateWithTimeout({
+  fetchState,
+  refresh: Boolean(highlightId),
+  timeoutMs: FETCH_STATE_TIMEOUT_MS,
+})
+// The faces the sheet's text needs, once their definitions are in and the text is known.
+const typeface = Promise.all([stylesheetsIn('link[data-face]'), stateFetched]).then(() => loadTypeface(FONT, sheetText()))
+void stateFetched.then(async () => {
+  const inTime = await within(typeface.then(() => true), TYPEFACE_WAIT_MS - (performance.now() - bootAt), false)
   lastVersion = getVersion()
 
   initLoom()
+  // Too slow: the sheet started in a fallback face. Measure again once the face is in.
+  if (!inTime) void typeface.then(loaded => { if (loaded) remeasureLoom() })
 
   // Highlight a specific voice via URL param
   if (highlightId) {
