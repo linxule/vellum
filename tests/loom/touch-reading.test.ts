@@ -6,7 +6,7 @@ import { closeReading, dragReading, flingReading, isReading, READING_LINE, readi
 import { resetWashForTest } from '../../src/loom/render/wash.js'
 import { loomState, resetLoomState } from '../../src/loom/state.js'
 import type { Thread } from '../../src/loom/types.js'
-import { attachInputHandlers, DRAG_SLOP_PX, READING_IDLE_MS, type TouchReading } from '../../src/runtime/input.js'
+import { attachInputHandlers, DOUBLE_TAP_MS, DRAG_SLOP_PX, READING_IDLE_MS, type TouchReading } from '../../src/runtime/input.js'
 import { CanvasContextStub, installViewport, loadState, makeMouse, makeState, runFrames, withFixedRandom } from './helpers.js'
 
 // Reading by touch (loom/reading.ts, runtime/input.ts): a tap opens a current at
@@ -162,6 +162,33 @@ describe('the other currents while one is read', () => {
     expect(ctx.fillTextCalls.some(c => c.text.includes('yet'))).toBe(true)
   })
 
+  test('on a small sheet a mouse quiets them too; on a large one it does not', () => {
+    enablePaper()
+    const hover = () => {
+      mouse.x = xOf(attention, 300); mouse.y = 300
+      frames(120)
+      ctx.fillTextCalls = []
+      frames(3)
+      return ctx.fillTextCalls.some(c => c.text.includes('yet'))
+    }
+    expect(isReading()).toBe(false)
+    expect(hover()).toBe(false)   // 390 wide: no room for the others' words
+    installViewport(1200, 800)
+    withFixedRandom(0.5, () => initLoom())
+    frames(6)
+    attention = loomState.threads.find(t => t.familyNames.includes('attention'))!
+    expect(hover()).toBe(true)
+    installViewport(1200, 320)   // wide but short, as an inline ext-app
+    withFixedRandom(0.5, () => initLoom())
+    frames(6)
+    attention = loomState.threads.find(t => t.familyNames.includes('attention'))!
+    mouse.x = xOf(attention, 160); mouse.y = 160
+    frames(120)
+    ctx.fillTextCalls = []
+    frames(3)
+    expect(ctx.fillTextCalls.some(c => c.text.includes('yet'))).toBe(false)
+  })
+
   test('in the old look they keep their words', () => {
     tapCurrent(xOf(attention, 300), 300)
     frames(120)
@@ -296,6 +323,20 @@ describe('touch handlers', () => {
     expect(calls).toEqual(['tap 200,500', 'drag -30'])
   })
 
+  test('where a drag belongs to the page around the sheet, it opens nothing and moves nothing', () => {
+    attach({ ...reading(), dragOpens: () => false })
+    touch('touchstart', 200, 500)
+    advance(16); touch('touchmove', 200, 470)
+    advance(16); touch('touchmove', 200, 440)
+    touch('touchend', 200, 440)
+    expect(calls).toEqual([])
+    // Once a current is open, drags are the sheet's.
+    open = true
+    touch('touchstart', 200, 500)
+    advance(16); touch('touchmove', 200, 470)
+    expect(calls).toEqual(['drag -30'])
+  })
+
   test('a finger still moving when it lifts carries the text on; one that stopped does not', () => {
     attach(reading())
     open = true
@@ -311,6 +352,28 @@ describe('touch handlers', () => {
     advance(400)
     touch('touchend', 100, 560)
     expect(calls).toEqual(['drag -40'])
+  })
+
+  test('a tap on a woven voice waits for a second; alone, it lets the current go', () => {
+    let lineage = false
+    attach({ ...reading(), enabled: () => !lineage, tap: (x, y) => { calls.push(`tap ${x},${y}`); return 'kept' } })
+    open = true
+    const tap = () => { touch('touchstart', 150, 300); advance(50); touch('touchend', 150, 300) }
+    tap()
+    advance(DOUBLE_TAP_MS - 100)
+    expect(open).toBe(true)
+    advance(200)
+    expect(open).toBe(false)
+    expect(mouse.x).toBe(-9e3)
+    // Two taps: the second cancels the wait, and the lineage it opens is not closed under it.
+    open = true; calls = []
+    tap()
+    advance(200)
+    tap()
+    lineage = true
+    advance(DOUBLE_TAP_MS + 200)
+    expect(open).toBe(true)
+    expect(calls).toEqual(['tap 150,300', 'tap 150,300'])
   })
 
   test('a long press is neither a tap nor a drag', () => {

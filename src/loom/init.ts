@@ -10,7 +10,7 @@ import { ZERO_CURSOR } from './types.js'
 export function initLoom() {
   loomState.VW = innerWidth
   loomState.VH = innerHeight
-  const ac = aperture(loomState.VW)
+  const ac = aperture(loomState.VW, loomState.VH)
   const poolSize = Math.max(1, Math.min(THREADS.length, ac.maxThreads))
   const combined: typeof THREADS = Array.from({ length: poolSize }, () => [])
   const familyMap: string[][] = Array.from({ length: poolSize }, () => [])
@@ -71,7 +71,7 @@ export function resizeLoom() {
   loomState.VW = innerWidth
   loomState.VH = innerHeight
   loomState.touchedThread = null
-  const ac = aperture(loomState.VW)
+  const ac = aperture(loomState.VW, loomState.VH)
   const n = Math.max(1, loomState.threads.length - 1)
   loomState.threads.forEach((t, i) => {
     const spread = loomState.VW * 0.04

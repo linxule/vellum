@@ -7,7 +7,7 @@ import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, getLoomSta
 import { fetchState, findVoice, getVersion, getVoiceIdSets, isLive, setBaseUrl, getState } from '../../src/content.js'
 import { emitOceanEvent, onOceanEvent } from '../../src/events.js'
 import { HoldMachine, HOLD_MS, composeHeldMessage, composeDigest, deriveDigestInputs } from './threshold.js'
-import { attachInputHandlers } from '../../src/runtime/input'
+import { attachInputHandlers, DOUBLE_TAP_MS } from '../../src/runtime/input'
 import { setupCanvas } from '../../src/runtime/canvas'
 import { createWitnessReporter } from '../../src/runtime/witness'
 import { computeNewVoiceInfo, applyResonanceFromNewVoices, fetchStateWithTimeout } from '../../src/runtime/poll-core'
@@ -126,8 +126,22 @@ function nextVisiblePollDelay(): number {
 
 // ── Input handlers ────────────────────────────────────
 
-// A woven voice under the finger: a tap there is the first of the two that open its lineage,
-// so it does not let the open current go.
+// Inline in a host's conversation, a swipe over the resting sheet belongs to the conversation
+// (it scrolls the chat). Only once a current is open do drags belong to the sheet.
+function inlineInHost(): boolean {
+  if (window === window.parent) return false
+  try { return ((app.getHostContext() as { displayMode?: string } | null | undefined)?.displayMode ?? 'inline') !== 'fullscreen' } catch { return true }
+}
+let touchActionNow = ''
+function syncTouchAction(): void {
+  const want = !inlineInHost() || isReading() || isLoomViewActive() ? 'none' : ''
+  if (want === touchActionNow) return
+  touchActionNow = want
+  document.documentElement.style.touchAction = want
+}
+
+// A woven voice under the finger: a tap there may be the first of the two that open its lineage,
+// so the open current is let go only once the double-tap window has passed.
 function wovenVoiceAt(x: number, y: number): boolean {
   const id = getLastFrameHitVoiceIdAt(x, y)
   if (!id) return false
@@ -141,7 +155,7 @@ attachInputHandlers({
   mouse, scrollThread, aperture,
   // Touch: tap a current to open it at the reading line, drag to move its text (loom/reading.ts).
   // The lineage view keeps the lens under the finger.
-  reading: { enabled: () => !isLoomViewActive(), active: isReading, tap: (x, y) => tapCurrent(x, y, wovenVoiceAt(x, y)), drag: dragReading, fling: flingReading, release: closeReading },
+  reading: { enabled: () => !isLoomViewActive(), dragOpens: () => !inlineInHost(), active: isReading, tap: (x, y) => tapCurrent(x, y, wovenVoiceAt(x, y)), drag: dragReading, fling: flingReading, release: closeReading },
 })
 
 // ── Resize ────────────────────────────────────────────
@@ -185,7 +199,7 @@ document.addEventListener('click', (e) => {
             } else {
               pendingTouchLoomId = hitId
               if (pendingTouchLoomTimer) clearTimeout(pendingTouchLoomTimer)
-              pendingTouchLoomTimer = setTimeout(() => { pendingTouchLoomId = null; pendingTouchLoomTimer = null }, 800)
+              pendingTouchLoomTimer = setTimeout(() => { pendingTouchLoomId = null; pendingTouchLoomTimer = null }, DOUBLE_TAP_MS)
             }
           } else {
             enterLoomView(hitId)
@@ -219,7 +233,7 @@ document.addEventListener('keydown', (e) => {
 
 // Mouse-hold >= HOLD_MS on a voice steps it into the conversation via
 // sendMessage. Own document listeners (do NOT touch src/runtime/input.ts).
-// Touch long-press is out of v1 (conflicts with the 800ms double-tap loom gate).
+// Touch long-press is out of v1 (conflicts with the double-tap loom gate).
 const holdMachine = new HoldMachine()
 let holdTimer: ReturnType<typeof setTimeout> | null = null
 let holdX = 0
@@ -539,6 +553,7 @@ function render(now: number) {
     renderLoom(ctx, vw, vh, now, dt, mouse)
     sketch.frame(now, vw, vh)
     checkWitness()
+    syncTouchAction()
   } catch (e) {
     console.error('[vellum] render error:', e)
   }
@@ -558,7 +573,7 @@ document.addEventListener('visibilitychange', () => {
 
 // ── Ext-apps SDK ──────────────────────────────────────
 
-const app = new App({ name: 'Vellum Pensieve', version: '0.4.1' })
+const app = new App({ name: 'Vellum Pensieve', version: '0.4.2' })
 
 const fsBtn = document.getElementById('fs') as HTMLButtonElement | null
 const szEl = document.getElementById('sz') as HTMLDivElement | null

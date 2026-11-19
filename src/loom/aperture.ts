@@ -3,8 +3,19 @@ import { TEXTURE_LINE_H, TEXTURE_SCALE, type ApertureConfig } from './types.js'
 
 export const MIN_RESTING_WIDTH_PX = 34
 
-export function aperture(vw: number): ApertureConfig {
+/** Below this height (px) the lens is drawn smaller, down to SHORT_LENS at SHORT_FLOOR_PX. */
+export const SHORT_FROM_PX = 600
+export const SHORT_FLOOR_PX = 300
+export const SHORT_LENS = 0.78
+
+/**
+ * `vh` matters only for a short window (an inline ext-app is about 320 px tall):
+ * the lens was sized from the width alone, so there its type filled the window
+ * and the fall-off to the resting size never finished. From 600 px up nothing changes.
+ */
+export function aperture(vw: number, vh = SHORT_FROM_PX): ApertureConfig {
   const t = smoothstep(vw / 1440)
+  const short = lerp(SHORT_LENS, 1, smoothstep((vh - SHORT_FLOOR_PX) / (SHORT_FROM_PX - SHORT_FLOOR_PX)))
   return {
     t,
     visibleThreads: Math.max(8, Math.min(12, Math.round(lerp(8, 12, t)))),
@@ -21,9 +32,9 @@ export function aperture(vw: number): ApertureConfig {
     spreadEdge: lerp(0.1, 0.2, t),
     voiceSeparation: smoothstep(Math.max(0, (t - 0.3) / 0.5)),
     textureScale: TEXTURE_SCALE,
-    diveScale: lerp(1.4, 1.7, t),
+    diveScale: lerp(1.4, 1.7, t) * short,
     textureLineH: TEXTURE_LINE_H,
-    diveLineH: lerp(28, 36, t),
+    diveLineH: lerp(28, 36, t) * short,
     maxThreads: Math.max(8, Math.min(12, Math.round(lerp(8, 12, t)))),
   }
 }

@@ -44,7 +44,7 @@ export function closeReading(): void {
 /**
  * A tap at (x, y). On a current at rest: it opens. On the open current: it is let
  * go, unless `keep` (the tap is on a woven voice, where a second tap opens its
- * lineage). On or beside another current: that one opens instead. On bare paper:
+ * lineage; the caller lets go if none comes). On or beside another current: that one opens instead. On bare paper:
  * the open one closes.
  */
 export function tapCurrent(x: number, y: number, keep = false): TapResult {
@@ -98,10 +98,20 @@ export function driveReading(mouse: MouseState): void {
   mouse.prevY = mouse.y
 }
 
-/** While one current is read by touch, the others keep their wash and print no words. */
+/** A sheet narrower or shorter than this has no room for the others' words beside an open current. */
+export const SMALL_SHEET_W = 760
+export const SMALL_SHEET_H = 520
+
+/**
+ * While one current is read, the others keep their wash and print no words: always
+ * when it is held by touch, and on a small sheet (a phone, an inline ext-app)
+ * however it was opened, a mouse included.
+ */
 export function wordlessWhileReading(thread: Thread): boolean {
-  if (loomState.readingKey === null || loomState.loomViewActive) return false
-  const open = readingThread()
+  if (loomState.loomViewActive) return false
+  let open: Thread | null = null
+  if (loomState.readingKey !== null) open = readingThread()
+  else if (loomState.VW < SMALL_SHEET_W || loomState.VH < SMALL_SHEET_H) open = loomState.touchedThread
   return open !== null && open !== thread && open.proximity > WORDLESS_PROXIMITY
 }
 

@@ -46,7 +46,7 @@ export function scrollThreadToVoice(threadIdx: number, voiceId: string): void {
   const lineIdx = findLineForVoice(thread, found.family, found.voiceIndex)
   if (lineIdx < 0) return
 
-  const ac = aperture(loomState.VW)
+  const ac = aperture(loomState.VW, loomState.VH)
   const center = loomState.VH / 2
   const sigma = DIVE_SIGMA_LINES * ac.diveLineH
   let yPos = 0

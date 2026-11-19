@@ -31,6 +31,14 @@
   html.paper.night #c { mix-blend-mode: screen }
   html.paper.night .u { color: #a4a9cf; opacity: .6 }
   html.paper.night #tr:hover, html.paper.night #fs:hover { color: #e4e6f6 }
+  html, body { -webkit-touch-callout: none }
+  /* A finger needs a larger mark than a pointer, on a patch of bare paper clear of the currents. */
+  @media (pointer: coarse) {
+    .u { font-size: 12px }
+    #fs { top: 8px; right: 8px; width: 44px; height: 44px; font-size: 17px; border-radius: 22px }
+    #tr { bottom: 12px; right: 12px; padding: 4px 8px; border-radius: 10px }
+    html.paper #fs, html.paper #tr { background: color-mix(in srgb, var(--paper, #f2ead9) 86%, transparent); opacity: .92 }
+  }
 </style>
 </head>
 <body>
