@@ -61,6 +61,16 @@ export interface Thread {
   _proxStep: number                         // |proximity change| this frame at 60fps pace; > 0 while the lens opens or closes
   balancedWidth: number
   _path: PathPoint[]
+  /**
+   * On paper, the text being read is laid out from the reading line outward
+   * (render/thread.ts): the line that starts at `cursor` sits at `y`. `scroll` is
+   * thread.scroll when it was set (the reader's own scrolling moves it); `top`
+   * is where the top line on the sheet began; `width` and `prox` are the read
+   * line's layout width and the proximity when it was last laid out (0 and -1
+   * before it has been). Absent: laid out from the top.
+   */
+  _lag?: number                             // ms this current's path has stood still while read (path.ts); 0 in the old look
+  _anchor?: { cursor: LayoutCursor, y: number, scroll: number, top: LayoutCursor, width: number, prox: number }
   hasRTL: boolean
   segVoiceUid: number[]
   familyNames: string[]

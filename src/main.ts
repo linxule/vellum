@@ -1,10 +1,11 @@
 // Vellum — The Pensieve
 // Entry point: canvas, input, sound, animation loop, polling, witness reporting
 
-import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, scrollThreadToVoice, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, triggerPhantomHover, tapCurrent, closeReading, isReading, dragReading, flingReading, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, findThreadIndexForFamily, type MouseState } from './loom.js'
+import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, scrollThreadToVoice, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, triggerPhantomHover, tapCurrent, closeReading, isReading, isReceding, dragReading, flingReading, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, findThreadIndexForFamily, type MouseState } from './loom.js'
 import { fetchState, findVoice, getVersion, getVoiceIdSets, isLive, getState, setSurface, getSurface, surfaceFromPathname, surfacePathPrefix, highlightUrlFor } from './content.js'
 import { emitOceanEvent } from './events.js'
-import { attachInputHandlers, DOUBLE_TAP_MS } from './runtime/input'
+import { createSheetTap } from './runtime/sheet-tap'
+import { attachInputHandlers } from './runtime/input'
 import { setupCanvas } from './runtime/canvas'
 import { createWitnessReporter } from './runtime/witness'
 import { computeNewVoiceInfo, applyResonanceFromNewVoices, fetchStateWithTimeout } from './runtime/poll-core'
@@ -25,6 +26,7 @@ import { initStrudelSound, modulateSound, toggleStrudelSound, isStrudelReady, is
 import { preloadStrudelScript } from './audio/strudel-loader.js'
 import { setupSketch } from './sketch.js'
 import { paper } from './loom/paper.js'
+import { dropsAudioState } from './audio/drops.js'
 
 // Sketch: paper look and the drop instrument. ?look=old keeps the sea and the drone.
 // The page decides the look before first paint (index.html); follow it.
@@ -35,13 +37,15 @@ const sketch = document.documentElement.classList.contains('paper') ? setupSketc
 // ?probe: frame timing in the corner label, with switches to find what a slow device is slow
 // at (dpr=1..3, water=0, wash=0, blend=0). A diagnostic: nothing here runs unless asked for.
 const probeQuery = new URLSearchParams(location.search)
-const probe = probeQuery.has('probe') ? { n: 0, since: 0, worst: 0, text: 0, wash: 0, resizes: 0, wash0: probeQuery.get('wash') === '0' } : null
+const probe = probeQuery.has('probe') ? { n: 0, since: 0, worst: 0, text: 0, wash: 0, resizes: 0, clicks: 0, wash0: probeQuery.get('wash') === '0' } : null
 const { canvas: sheetCanvas, ctx, syncCanvasSize } = setupCanvas(probe ? Number(probeQuery.get('dpr')) || 3 : 3)
 if (probe) {
   paper.noWater = probeQuery.get('water') === '0'
   if (probeQuery.get('blend') === '0') sheetCanvas.style.mixBlendMode = 'normal'
   // A phone browser can resize the page when its bars move; every resize rebuilds the sheet.
   window.addEventListener('resize', () => { probe.resizes++ })
+  // Does this browser follow a tap on the sheet with a click at all? And is the drops' audio running?
+  document.addEventListener('click', () => { probe.clicks++ }, true)
 }
 let prevNow = 0
 const frameHandle: {
@@ -90,20 +94,17 @@ function nextVisiblePollDelay(): number {
 
 // A woven voice under the finger: a tap there may be the first of the two that open its lineage,
 // so the open current is let go only once the double-tap window has passed.
-function wovenVoiceAt(x: number, y: number): boolean {
-  const id = getLastFrameHitVoiceIdAt(x, y)
-  if (!id) return false
-  for (const thread of getState()?.threads ?? []) {
-    const voice = thread.voices.find(v => v.id === id)
-    if (voice) return Boolean(voice.weave_from) || voice.weave_count > 0
-  }
-  return false
-}
+const isWoven = (id: string | null): boolean =>
+  (getState()?.threads ?? []).some(t => t.voices.some(v => v.id === id && (Boolean(v.weave_from) || v.weave_count > 0)))
+const wovenVoiceAt = (x: number, y: number): boolean => isWoven(getLastFrameHitVoiceIdAt(x, y))
 attachInputHandlers({
   mouse, scrollThread, aperture,
-  // Touch: tap a current to open it at the reading line, drag to move its text (loom/reading.ts).
+  // Touch: tap a current to open it where the tap fell (a drop falls there), drag to move its text (loom/reading.ts).
   // The lineage view keeps the lens under the finger.
-  reading: { enabled: () => !isLoomViewActive(), active: isReading, tap: (x, y) => tapCurrent(x, y, wovenVoiceAt(x, y)), drag: dragReading, fling: flingReading, release: closeReading },
+  reading: { enabled: () => !isLoomViewActive(), active: isReading, receding: isReceding, tap: (x, y, byDrag) => tapCurrent(x, y, wovenVoiceAt(x, y), byDrag), dropped: (x, y) => sketch?.tapDrop(x, y), drag: dragReading, fling: flingReading, release: closeReading },
+  // Every tap on the sheet, from the touch itself or from a click (never both): see sheetTap below.
+  onTap: (x, y, e) => sheetTap(x, y, e),
+  onDrag: () => lineageTap.clearPending(),
 })
 
 const soundEl = document.getElementById('sn')!
@@ -112,6 +113,8 @@ function showSound(on: boolean): void {
   soundEl.classList.toggle('on', on)
 }
 let cancelSoundAutoStart: () => void = () => {}
+// Armed until the sound has been started once (or the reader chose with the button).
+let soundAutoStart: ((e: Event) => void) | null = null
 async function handleSoundToggleGesture(e?: Event): Promise<void> {
   e?.preventDefault?.()
   e?.stopPropagation?.()
@@ -141,6 +144,7 @@ soundEl.addEventListener('click', (e) => { void handleSoundToggleGesture(e) })
 
 // On paper, sound is on unless the reader turned it off. A browser lets audio start only from
 // a gesture, so it starts with the reader's first tap, click or key press anywhere on the page.
+// A drag's touchend does not start it: whether iOS counts one as the unlocking gesture is unchecked.
 if (sketch) {
   let preference: string | null = null
   try { preference = localStorage.getItem('vellum-sound') } catch { /* private mode */ }
@@ -155,8 +159,13 @@ if (sketch) {
     cancelSoundAutoStart = () => {
       document.removeEventListener('click', start, true)
       document.removeEventListener('keydown', start, true)
+      soundAutoStart = null
       cancelSoundAutoStart = () => {}
     }
+    // A click or key press anywhere; a tap on the sheet also starts it from its touchend
+    // (sheetTap), since iOS need not follow a tap on the canvas with a click. Whichever
+    // comes first starts it and disarms the other.
+    soundAutoStart = start
     document.addEventListener('click', start, true)
     document.addEventListener('keydown', start, true)
   }
@@ -177,69 +186,31 @@ window.addEventListener('resize', resizeLoom)
 
 // ── Loom view interaction ────────────────────────────
 
-// Double-tap gating for touch: first tap shows dive lens, second tap enters loom view
-let pendingTouchLoomId: string | null = null
-let pendingTouchLoomTimer: ReturnType<typeof setTimeout> | null = null
+const showHighlight = (id: string) => history.replaceState(null, '', highlightUrlFor(location.pathname, id))
+// What a tap does to the lineage view (runtime/sheet-tap.ts): by touch, two taps on a woven voice open it.
+const lineageTap = createSheetTap({
+  touch: () => mouse.touch,
+  hitAt: (x, y) => getLastFrameHitVoiceIdAt(x, y),
+  woven: isWoven,
+  loomActive: isLoomViewActive,
+  loomSeed: getCurrentLoomSeed,
+  enter: (id) => { enterLoomView(id); showHighlight(id) },
+  recenter: (id) => { recenterLoomView(id); showHighlight(id) },
+  exit: () => { exitLoomView(); history.replaceState(null, '', location.pathname) },
+})
 
-document.addEventListener('click', (e) => {
+// A tap on the sheet: a click, or a touch tap at its touchend (runtime/input.ts calls this once per
+// tap either way, so sound starts and a double tap opens the lineage whether or not iOS sends clicks).
+function sheetTap(x: number, y: number, e: Event): void {
   const targetId = (e.target as HTMLElement)?.id
   if (targetId === 'sn' || targetId === 'ip') return
+  if (e.type === 'touchend') soundAutoStart?.(e)
   // Cancel pending highlight auto-loom on any user click
   if (highlightAutoLoomTimeout) { clearTimeout(highlightAutoLoomTimeout); highlightAutoLoomTimeout = null }
   if (isSoundOn()) resumeAudioContext()
   sketch?.resume()
-  const hitId = getLastFrameHitVoiceIdAt(e.clientX, e.clientY)
-  if (isLoomViewActive()) {
-    if (hitId && hitId !== getCurrentLoomSeed()) {
-      recenterLoomView(hitId)
-      history.replaceState(null, '', highlightUrlFor(location.pathname, hitId))
-    } else if (!hitId) {
-      // Exit only on blank space tap — tapping the seed node does nothing
-      exitLoomView()
-      history.replaceState(null, '', location.pathname)
-    }
-    return
-  }
-  if (hitId) {
-    const state = getState()
-    if (state) {
-      for (const thread of state.threads) {
-        const voice = thread.voices.find(v => v.id === hitId)
-        if (voice && (voice.weave_from || voice.weave_count > 0)) {
-          // Touch: require double-tap (first tap = hover, second tap = enter)
-          if (mouse.touch) {
-            if (pendingTouchLoomId === hitId) {
-              enterLoomView(hitId)
-              history.replaceState(null, '', highlightUrlFor(location.pathname, hitId))
-              pendingTouchLoomId = null
-              if (pendingTouchLoomTimer) { clearTimeout(pendingTouchLoomTimer); pendingTouchLoomTimer = null }
-            } else {
-              pendingTouchLoomId = hitId
-              if (pendingTouchLoomTimer) clearTimeout(pendingTouchLoomTimer)
-              pendingTouchLoomTimer = setTimeout(() => { pendingTouchLoomId = null; pendingTouchLoomTimer = null }, DOUBLE_TAP_MS)
-            }
-          } else {
-            enterLoomView(hitId)
-            history.replaceState(null, '', highlightUrlFor(location.pathname, hitId))
-          }
-          break
-        }
-      }
-    }
-  } else {
-    // Tapped elsewhere — clear pending
-    pendingTouchLoomId = null
-    if (pendingTouchLoomTimer) { clearTimeout(pendingTouchLoomTimer); pendingTouchLoomTimer = null }
-  }
-})
-
-// Scroll/drag cancels pending double-tap
-document.addEventListener('touchmove', () => {
-  if (pendingTouchLoomId !== null) {
-    pendingTouchLoomId = null
-    if (pendingTouchLoomTimer) { clearTimeout(pendingTouchLoomTimer); pendingTouchLoomTimer = null }
-  }
-}, { passive: true })
+  lineageTap.tap(x, y)
+}
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && isLoomViewActive()) {
@@ -385,7 +356,7 @@ function render(now: number) {
         if (++probe.n && now - probe.since >= 1000) {
           const label = document.getElementById('tr')!
           label.style.cssText = 'font-size:13px;opacity:1;bottom:40px'
-          label.textContent = `${(probe.n * 1000 / (now - probe.since)).toFixed(0)} fps \u00b7 worst ${probe.worst.toFixed(0)} \u00b7 text ${(probe.text / probe.n).toFixed(1)} \u00b7 wash ${(probe.wash / probe.n).toFixed(1)} ms \u00b7 ${sheetCanvas.width}x${sheetCanvas.height} \u00b7 resized ${probe.resizes}`
+          label.textContent = `${(probe.n * 1000 / (now - probe.since)).toFixed(0)} fps \u00b7 worst ${probe.worst.toFixed(0)} \u00b7 text ${(probe.text / probe.n).toFixed(1)} \u00b7 wash ${(probe.wash / probe.n).toFixed(1)} ms \u00b7 ${sheetCanvas.width}x${sheetCanvas.height} \u00b7 resized ${probe.resizes} \u00b7 clicks ${probe.clicks} \u00b7 audio ${dropsAudioState()}`
           probe.n = probe.text = probe.wash = probe.worst = 0
           probe.since = now
         }
@@ -437,7 +408,7 @@ document.fonts.ready.then(async () => {
       const voice = thread?.voices[found.voiceIndex]
       if (voice && (voice.weave_from || voice.weave_count > 0)) {
         // Woven voice: show the lineage tree after a brief moment to let the ocean settle
-        highlightAutoLoomTimeout = setTimeout(() => { highlightAutoLoomTimeout = null; enterLoomView(highlightId!); history.replaceState(null, '', highlightUrlFor(location.pathname, highlightId!)) }, 800)
+        highlightAutoLoomTimeout = setTimeout(() => { highlightAutoLoomTimeout = null; enterLoomView(highlightId!); showHighlight(highlightId!) }, 800)
       } else {
         // Non-woven voice: land the dive lens on it
         const threadIdx = findThreadIndexForFamily(found.family)

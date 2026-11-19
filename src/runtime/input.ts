@@ -7,12 +7,18 @@ export interface TouchReading {
   /** False where a drag on a resting sheet belongs to the page around it (an inline ext-app in a scrolling chat). Default: true. */
   dragOpens?(): boolean
   active(): boolean
-  tap(x: number, y: number): 'opened' | 'kept' | 'closed'
+  /** A current let go by touch, still easing shut (it keeps the lens until then). */
+  receding?(): boolean
+  /** A tap at (x, y); `byDrag`: a drag opening a current from rest, the thumb still down. */
+  tap(x: number, y: number, byDrag?: boolean): 'opened' | 'kept' | 'closed'
+  /** A tap opened a current at (x, y): a drop falls there. Called at the tap's end, never at touchstart or for a drag. */
+  dropped?(x: number, y: number): void
   /** The finger moved by dy px while dragging. */
   drag(dy: number): void
   /** The finger lifted mid-drag, moving at this many px per frame. */
   fling(pxPerFrame: number): void
-  release(): void
+  /** Lets the current go: `recede` eases it shut where it was read (a touch); otherwise at once (a pointer takes over). */
+  release(recede?: boolean): void
 }
 
 /** A finger must travel this far (px) before a touch is a drag and not a tap. */
@@ -35,17 +41,27 @@ const SYNTHETIC_MOUSE_MS = 800
  * scrollThread is injected so this module doesn't depend on the loom barrel.
  *
  * With `reading`, touch works differently from the mouse: a tap chooses a
- * current, which opens at a fixed reading line and stays open; a drag moves its
- * text and never moves the lens; a touch on a control (`.u`, `#info`) reaches
- * only that control.
+ * current, which opens where the tap fell and stays open (a drop falls there,
+ * `dropped`); a drag moves its text and never moves the lens; letting go
+ * recedes; a touch on a control (`.u`, `#info`) reaches only that control.
+ *
+ * `onTap` is a finished tap on the sheet, once per tap: from the touch itself
+ * (a touch that neither travelled DRAG_SLOP_PX nor lasted TAP_MAX_MS, called at
+ * touchend), or from a click that no touch tap has just accounted for (a mouse,
+ * a keyboard). It never waits for the click a browser may make up after a touch:
+ * iOS Safari need not send one for a canvas with no listener of its own.
  */
 export function attachInputHandlers(opts: {
   mouse: MouseState
   scrollThread: (dy: number, dx?: number) => void
   aperture: (vw: number) => { touchPersistence: number }
   reading?: TouchReading
+  /** A finished tap on the sheet at (x, y); `e` is the touchend or the click. */
+  onTap?: (x: number, y: number, e: Event) => void
+  /** A touch on the sheet became a drag. */
+  onDrag?: () => void
 }): () => void {
-  const { mouse, scrollThread, aperture, reading } = opts
+  const { mouse, scrollThread, aperture, reading, onTap, onDrag } = opts
   let touchEndTimeout: ReturnType<typeof setTimeout> | null = null
   let keptTimeout: ReturnType<typeof setTimeout> | null = null
   const clearKept = () => { if (keptTimeout !== null) { clearTimeout(keptTimeout); keptTimeout = null } }
@@ -57,14 +73,22 @@ export function attachInputHandlers(opts: {
     }
   }
   const park = () => { mouse.x = -9e3; mouse.y = -9e3; mouse.prevX = -9e3; mouse.prevY = -9e3 }
+  // After a touch let go: a receding current keeps the lens until it has shut (and parks it then); otherwise park now.
+  const letGo = () => { if (!reading?.receding?.()) park() }
 
   let lastTouchAt = -1e9
   const afterTouch = () => performance.now() - lastTouchAt < SYNTHETIC_MOUSE_MS
+  // The click a browser may make up after a touch tap is the same tap: it has already acted.
+  let touchTapAt = -1e9
+  const handleClick = (e: MouseEvent) => {
+    if (performance.now() - touchTapAt < SYNTHETIC_MOUSE_MS) return
+    onTap?.(e.clientX, e.clientY, e)
+  }
 
   const handleMouseMove = (e: MouseEvent) => {
     if (afterTouch()) return
-    // A real pointer takes the lens back from a current held by touch.
-    if (reading?.active()) reading.release()
+    // A real pointer takes the lens back from a current held (or receding) by touch.
+    if (reading && (reading.active() || reading.receding?.())) reading.release()
     mouse.x = e.clientX; mouse.y = e.clientY
   }
   const handleMouseLeave = () => { if (!afterTouch()) park() }
@@ -101,16 +125,17 @@ export function attachInputHandlers(opts: {
     lastTouchX = t.clientX
     lastTouchY = t.clientY
     mouse.down = true; mouse.downStart = now; mouse.touch = true
+    startX = t.clientX; startY = t.clientY; startAt = now
+    dragging = false
     if (reading?.enabled()) {
       mode = 'reading'
-      startX = t.clientX; startY = t.clientY; startAt = now
-      dragging = false; velocity = 0; lastMoveAt = now
+      velocity = 0; lastMoveAt = now
       // An arriving voice may be holding the lens (phantom hover): the hand takes over.
       mouse.lastMove = now
       return
     }
     mode = 'follow'
-    if (reading?.active()) reading.release()
+    if (reading && (reading.active() || reading.receding?.())) reading.release()
     mouse.x = t.clientX; mouse.y = t.clientY
   }
   const handleTouchMove = (e: TouchEvent) => {
@@ -126,8 +151,9 @@ export function attachInputHandlers(opts: {
     if (mode === 'reading' && reading) {
       if (!dragging && Math.hypot(t.clientX - startX, t.clientY - startY) > DRAG_SLOP_PX) {
         dragging = true
+        onDrag?.()
         // A drag that begins on a resting sheet picks up the current under it.
-        if (!reading.active() && (reading.dragOpens?.() ?? true)) reading.tap(startX, startY)
+        if (!reading.active() && (reading.dragOpens?.() ?? true)) reading.tap(startX, startY, true)
       }
       if (dragging && reading.active()) {
         const now = performance.now()
@@ -137,34 +163,40 @@ export function attachInputHandlers(opts: {
       }
       return
     }
+    if (!dragging && Math.hypot(t.clientX - startX, t.clientY - startY) > DRAG_SLOP_PX) { dragging = true; onDrag?.() }
     mouse.x = t.clientX; mouse.y = t.clientY
     if (Math.abs(dy) > 1 || Math.abs(dx) > 1) scrollThread(dy * -0.8, dx ? dx * -0.8 : undefined)
   }
-  const handleTouchEnd = () => {
+  const handleTouchEnd = (e: TouchEvent) => {
     const now = performance.now()
     lastTouchAt = now
     if (mode === 'control') return
     mouse.down = false
     clearTouchEndTimeout()
+    // After the reading has had the tap (a current opened, its drop fell), the page has it.
+    const tapped = e.type === 'touchend' && !dragging && now - startAt < TAP_MAX_MS
+    const tapDone = () => { if (tapped && onTap) { touchTapAt = now; onTap(startX, startY, e) } }
     if (mode === 'reading' && reading) {
       if (dragging) {
         // Only a finger still moving when it lifts carries the text on.
         if (reading.active() && now - lastMoveAt < 60) reading.fling(velocity * 16.7)
       } else if (now - startAt < TAP_MAX_MS) {
         const result = reading.tap(startX, startY)
-        if (result === 'closed') park()
+        if (result === 'opened') reading.dropped?.(startX, startY)
+        else if (result === 'closed') letGo()
         else if (result === 'kept') {
           // On a woven voice: wait for the second tap (the lineage). If none comes, this was a tap to let go.
           keptTimeout = setTimeout(() => {
             keptTimeout = null
-            if (reading.enabled() && reading.active()) { reading.release(); park() }
+            if (reading.enabled() && reading.active()) { reading.release(true); letGo() }
           }, DOUBLE_TAP_MS)
         }
       }
       touchEndTimeout = setTimeout(() => {
         touchEndTimeout = null
-        if (reading.active()) { reading.release(); park() }
+        if (reading.active()) { reading.release(true); letGo() }
       }, READING_IDLE_MS)
+      tapDone()
       return
     }
     const persistence = aperture(innerWidth).touchPersistence * 1000
@@ -172,6 +204,7 @@ export function attachInputHandlers(opts: {
       park()
       touchEndTimeout = null
     }, persistence)
+    tapDone()
   }
 
   const handleWheel = (e: WheelEvent) => {
@@ -194,6 +227,7 @@ export function attachInputHandlers(opts: {
   document.addEventListener('touchend', handleTouchEnd, { passive: true })
   document.addEventListener('touchcancel', handleTouchEnd, { passive: true })
   document.addEventListener('wheel', handleWheel, { passive: false })
+  if (onTap) document.addEventListener('click', handleClick)
 
   return () => {
     clearTouchEndTimeout()
@@ -207,5 +241,6 @@ export function attachInputHandlers(opts: {
     document.removeEventListener('touchend', handleTouchEnd)
     document.removeEventListener('touchcancel', handleTouchEnd)
     document.removeEventListener('wheel', handleWheel)
+    document.removeEventListener('click', handleClick)
   }
 }

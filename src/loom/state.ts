@@ -36,8 +36,13 @@ export const loomState = {
   highlightVoiceIndex: -1,
   resonances: [] as ResonanceEntry[],
   phantomFocus: null as PhantomFocus | null,
-  // Touch reading (loom/reading.ts): the group key of the current held open, or null.
+  // Touch reading (loom/reading.ts): the group key of the current held open, or null,
+  // and the height (px) it is read at. NaN: not set (read at READING_LINE).
   readingKey: null as string | null,
+  readingY: Number.NaN,
+  // A current let go by touch, easing shut with the lens kept at its line.
+  recedingKey: null as string | null,
+  recedingY: Number.NaN,
   phantomResolvedThreadIdx: -1,
   phantomResolvedVoiceFlatIdx: -1,
   diagHook: null as DiagFn | null,
@@ -85,6 +90,9 @@ export function resetLoomState() {
   loomState.resonances = []
   loomState.phantomFocus = null
   loomState.readingKey = null
+  loomState.readingY = Number.NaN
+  loomState.recedingKey = null
+  loomState.recedingY = Number.NaN
   loomState.phantomResolvedThreadIdx = -1
   loomState.phantomResolvedVoiceFlatIdx = -1
   loomState.diagHook = null

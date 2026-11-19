@@ -1,8 +1,10 @@
 import { findVoice, getState } from '../content.js'
 import type { OceanEvent } from '../events.js'
 import { loomState } from './state.js'
+import type { Thread } from './types.js'
 import { initLoom } from './init.js'
 import { scrollThreadToVoice } from './scroll.js'
+import { scrollForTop } from './text.js'
 import { triggerPhantomHover } from './phantom.js'
 
 // Stable signature for a thread's group membership. Used to key preserved
@@ -66,12 +68,14 @@ export function refreshLoom(newVoiceInfo?: { hasNew: boolean, newIds: Set<string
     emergenceStart: number,
     emergenceDepthFrom: number,
     emergenceVoiceUids: Set<number>,
+    lag?: number,
+    anchor: Thread['_anchor'],
+    segments: number,
   }>()
   for (const t of loomState.threads) {
     const key = threadGroupKey(t.familyNames)
     prevByGroupKey.set(key, {
       xCenter: t.xCenter,
-      scroll: t.scroll,
       restingDepth: t.restingDepth,
       pathSeed: t.pathSeed,
       scrollVel: t.scrollVel,
@@ -85,6 +89,12 @@ export function refreshLoom(newVoiceInfo?: { hasNew: boolean, newIds: Set<string
       emergenceStart: t.emergenceStart,
       emergenceDepthFrom: t.emergenceDepthFrom,
       emergenceVoiceUids: new Set(t.emergenceVoiceUids),
+      // The text being read stays where it is (render/thread.ts): its anchor goes
+      // on if its text is unchanged, else the scroll takes over where the text lay.
+      scroll: t._anchor ? scrollForTop(t, t._anchor.top) : t.scroll,
+      lag: t._lag,
+      anchor: t._anchor,
+      segments: t.prepared.segments.length,
     })
   }
   const hadPrevThreads = prevByGroupKey.size > 0
@@ -96,6 +106,8 @@ export function refreshLoom(newVoiceInfo?: { hasNew: boolean, newIds: Set<string
     if (!p) continue
     thread.xCenter = p.xCenter
     thread.scroll = p.scroll
+    thread._lag = p.lag
+    if (p.anchor && thread.prepared.segments.length === p.segments) thread._anchor = { ...p.anchor, scroll: p.scroll }
     thread.restingDepth = p.restingDepth
     thread.pathSeed = p.pathSeed
     thread.scrollVel = p.scrollVel

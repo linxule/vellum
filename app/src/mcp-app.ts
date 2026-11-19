@@ -3,11 +3,12 @@
 // Dual-mode: iframe (SDK) or standalone (URL param highlight).
 
 import { App } from '@modelcontextprotocol/ext-apps'
-import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, tapCurrent, closeReading, isReading, dragReading, flingReading, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, type MouseState } from '../../src/loom.js'
+import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, tapCurrent, closeReading, isReading, isReceding, dragReading, flingReading, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, type MouseState } from '../../src/loom.js'
 import { fetchState, findVoice, getVersion, getVoiceIdSets, isLive, setBaseUrl, getState } from '../../src/content.js'
 import { emitOceanEvent, onOceanEvent } from '../../src/events.js'
 import { HoldMachine, HOLD_MS, composeHeldMessage, composeDigest, deriveDigestInputs } from './threshold.js'
-import { attachInputHandlers, DOUBLE_TAP_MS } from '../../src/runtime/input'
+import { createSheetTap } from '../../src/runtime/sheet-tap'
+import { attachInputHandlers } from '../../src/runtime/input'
 import { setupCanvas } from '../../src/runtime/canvas'
 import { createWitnessReporter } from '../../src/runtime/witness'
 import { computeNewVoiceInfo, applyResonanceFromNewVoices, fetchStateWithTimeout } from '../../src/runtime/poll-core'
@@ -153,9 +154,12 @@ function wovenVoiceAt(x: number, y: number): boolean {
 }
 attachInputHandlers({
   mouse, scrollThread, aperture,
-  // Touch: tap a current to open it at the reading line, drag to move its text (loom/reading.ts).
+  // Touch: tap a current to open it where the tap fell (a drop falls there), drag to move its text (loom/reading.ts).
   // The lineage view keeps the lens under the finger.
-  reading: { enabled: () => !isLoomViewActive(), dragOpens: () => !inlineInHost(), active: isReading, tap: (x, y) => tapCurrent(x, y, wovenVoiceAt(x, y)), drag: dragReading, fling: flingReading, release: closeReading },
+  reading: { enabled: () => !isLoomViewActive(), dragOpens: () => !inlineInHost(), active: isReading, receding: isReceding, tap: (x, y, byDrag) => tapCurrent(x, y, wovenVoiceAt(x, y), byDrag), dropped: (x, y) => sketch.tapDrop(x, y), drag: dragReading, fling: flingReading, release: closeReading },
+  // Every tap on the sheet, from the touch itself or from a click (never both): see sheetTap below.
+  onTap: (x, y, e) => sheetTap(x, y, e),
+  onDrag: () => lineageTap.clearPending(),
 })
 
 // ── Resize ────────────────────────────────────────────
@@ -164,63 +168,27 @@ window.addEventListener('resize', resizeLoom)
 
 // ── Loom view interaction ────────────────────────────
 
-// Double-tap gating for touch: first tap shows dive lens, second tap enters loom view
-let pendingTouchLoomId: string | null = null
-let pendingTouchLoomTimer: ReturnType<typeof setTimeout> | null = null
+// What a tap does to the lineage view (runtime/sheet-tap.ts): by touch, two taps on a woven voice open it.
+const lineageTap = createSheetTap({
+  touch: () => mouse.touch,
+  hitAt: (x, y) => getLastFrameHitVoiceIdAt(x, y),
+  woven: (id) => (getState()?.threads ?? []).some(t => t.voices.some(v => v.id === id && (Boolean(v.weave_from) || v.weave_count > 0))),
+  loomActive: isLoomViewActive,
+  loomSeed: getCurrentLoomSeed,
+  enter: (id) => { enterLoomView(id); history.replaceState(null, '', '?highlight=' + id) },
+  recenter: (id) => { recenterLoomView(id); history.replaceState(null, '', '?highlight=' + id) },
+  exit: () => { exitLoomView(); history.replaceState(null, '', location.pathname) },
+})
 
-document.addEventListener('click', (e) => {
+// A tap on the sheet: a click, or a touch tap at its touchend (runtime/input.ts calls this once per
+// tap either way, so a double tap opens the lineage whether or not the host's browser sends clicks).
+function sheetTap(x: number, y: number, e: Event): void {
   // A completed hold already acted (sendMessage); swallow the trailing click so
   // it doesn't also enter/recenter the loom view.
   if (holdJustFired) { holdJustFired = false; return }
   if ((e.target as HTMLElement)?.id === 'fs') return
-  const hitId = getLastFrameHitVoiceIdAt(e.clientX, e.clientY)
-  if (isLoomViewActive()) {
-    if (hitId && hitId !== getCurrentLoomSeed()) {
-      recenterLoomView(hitId)
-      history.replaceState(null, '', '?highlight=' + hitId)
-    } else if (!hitId) {
-      exitLoomView()
-      history.replaceState(null, '', location.pathname)
-    }
-    return
-  }
-  if (hitId) {
-    const state = getState()
-    if (state) {
-      for (const thread of state.threads) {
-        const voice = thread.voices.find(v => v.id === hitId)
-        if (voice && (voice.weave_from || voice.weave_count > 0)) {
-          if (mouse.touch) {
-            if (pendingTouchLoomId === hitId) {
-              enterLoomView(hitId)
-              history.replaceState(null, '', '?highlight=' + hitId)
-              pendingTouchLoomId = null
-              if (pendingTouchLoomTimer) { clearTimeout(pendingTouchLoomTimer); pendingTouchLoomTimer = null }
-            } else {
-              pendingTouchLoomId = hitId
-              if (pendingTouchLoomTimer) clearTimeout(pendingTouchLoomTimer)
-              pendingTouchLoomTimer = setTimeout(() => { pendingTouchLoomId = null; pendingTouchLoomTimer = null }, DOUBLE_TAP_MS)
-            }
-          } else {
-            enterLoomView(hitId)
-            history.replaceState(null, '', '?highlight=' + hitId)
-          }
-          break
-        }
-      }
-    }
-  } else {
-    pendingTouchLoomId = null
-    if (pendingTouchLoomTimer) { clearTimeout(pendingTouchLoomTimer); pendingTouchLoomTimer = null }
-  }
-})
-
-document.addEventListener('touchmove', () => {
-  if (pendingTouchLoomId !== null) {
-    pendingTouchLoomId = null
-    if (pendingTouchLoomTimer) { clearTimeout(pendingTouchLoomTimer); pendingTouchLoomTimer = null }
-  }
-}, { passive: true })
+  lineageTap.tap(x, y)
+}
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && isLoomViewActive()) {

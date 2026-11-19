@@ -14,7 +14,7 @@ const RELIFT = 0.85
 const CROSSING_MIN_STUB = 34
 import { loomState } from '../state.js'
 import { paper } from '../paper.js'
-import { copyCursor, isLineRTL, voiceGroupIndex, voiceSpanForLine, wholeWordWidth } from '../text.js'
+import { compareCursors, copyCursor, isLineRTL, lineEndingAt, scrollForTop, voiceGroupIndex, voiceSpanForLine, wholeWordWidth } from '../text.js'
 import { FONT_FAMILY, NEIGHBOR_LENS_FADE, AFTERGLOW_DIVE_GATE, AFTERGLOW_SILVER, BREATH_AMP, BREATH_SPATIAL, DEPTH_ALPHA, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, HL_FONT_BOOST, SIGNATURE_ALPHA, SIGNATURE_GRAY_MIX, SIGNATURE_RATIO, SPARSE_EDGE_FADE_PX, SUNKEN_DIM, SUNKEN_SURFACE_DIVE_T, WARM_BASE_ALPHA, WARM_DIVE_BOOST, ZERO_CURSOR, type ApertureConfig, type Thread } from '../types.js'
 import { depthColor, signatureGray, threadColor } from '../color.js'
 import { drawLine, drawLineSegmented } from './line.js'
@@ -38,6 +38,23 @@ type LaidOutLine = {
   diveT: number
   neighborFade: number
 }
+
+type Slot = {
+  x: number
+  y: number
+  lineH: number
+  width: number
+  layoutWidth: number
+  fontSize: number
+  fontScale: number
+  fontRatio: number
+  diveT: number
+  neighborFade: number
+}
+
+/** Where the line nearest the top of the sheet starts: an unanchored layout puts that line at y = 0. */
+const topLineStart = (lines: LaidOutLine[]): LayoutCursor =>
+  lines.reduce((best, l) => (Math.abs(l.y) < Math.abs(best.y) ? l : best)).lineStart
 
 function resolveVoiceIdForAnchor(thread: Thread, anchorUid: number): string | null {
   if (anchorUid < 0) return null
@@ -104,8 +121,6 @@ export function renderThread(
   }
   if (thread.totalLines === 0) return
 
-  const scrollOffset = ((Math.floor(thread.scroll * 3) % thread.totalLines) + thread.totalLines) % thread.totalLines
-  let cursor = scrollOffset === 0 ? copyCursor(ZERO_CURSOR) : copyCursor(thread.lineEndCursors[scrollOffset - 1] ?? ZERO_CURSOR)
   const diveSigma = DIVE_SIGMA_LINES * ac.diveLineH
 
   if (prox > 0.1) {
@@ -119,6 +134,32 @@ export function renderThread(
     ctx.fillStyle = bgGlow
     ctx.fillRect(cx - extent, cy - extent, extent * 2, extent * 2)
   }
+
+  // The text being read, on paper, is laid out from the reading line outward
+  // (thread._anchor): the line under the lens keeps its words and its place while
+  // the lens opens and closes and while the lines breathe, which re-wrap only the
+  // lines around it. The reader's own scrolling (drag, glide, wheel) moves it, at
+  // reading size. It lasts while the current is held or touched, then hands back
+  // to thread.scroll where the text lies. The old look never anchors.
+  let anchor = paper.on && !thread.sparse ? thread._anchor : undefined
+  if (anchor) {
+    const period = thread.totalLines / 3
+    let moved = thread.scroll - anchor.scroll
+    moved -= Math.round(moved / period) * period
+    const jump = Math.abs(moved * 3) > 12 // resting lines in one frame: a jump to a voice, not reading
+    anchor.y -= moved * 3 * ac.diveLineH
+    anchor.scroll = thread.scroll
+    const keep = thread.touched || (isPrimary && prox > 0.01)
+    if (jump || !keep || anchor.y < 0 || anchor.y > loomState.VH || anchor.cursor.segmentIndex >= thread.prepared.segments.length) {
+      // A jump (scrollThreadToVoice, a rebuild) is the scroll's own; otherwise hand the text back where it lies.
+      if (!jump) thread.scroll = scrollForTop(thread, anchor.top)
+      thread._anchor = undefined
+      anchor = undefined
+    }
+  }
+
+  const scrollOffset = ((Math.floor(thread.scroll * 3) % thread.totalLines) + thread.totalLines) % thread.totalLines
+  let cursor = scrollOffset === 0 ? copyCursor(ZERO_CURSOR) : copyCursor(thread.lineEndCursors[scrollOffset - 1] ?? ZERO_CURSOR)
 
   const laidOutLines: LaidOutLine[] = []
   let hoveredLineIndex = -1
@@ -142,27 +183,8 @@ export function renderThread(
     })
   }
 
-  // Sparse blocks float centered in the column — air above AND below, a voice in
-  // the water, not a heading pinned to the (clipped) top edge (top-alignment reads
-  // as vertical truncation, and a 1-line whisper at y=0 gets zeroed by the real-
-  // edge fade). Center on the texture-scale block height; a dive expands the block
-  // downward from the centered start, which is acceptable. The Math.max floor keeps
-  // a block taller than the viewport clear of the top edge. Non-sparse columns tile
-  // the whole height, so they still start at y=0.
-  let yPos = thread.sparse
-    ? Math.max(SPARSE_EDGE_FADE_PX, (loomState.VH - thread.totalLines * ac.textureLineH) / 2)
-    : 0
-  const minLineH = Math.max(1, ac.textureLineH * (1 + lineBreath * 0.08))
-  const maxLines = Math.ceil((loomState.VH + ac.diveLineH) / minLineH) + 2
-  // Sparse threads (Phase 14 Part B) paint exactly one contiguous copy of the
-  // prepared text. The scroll offset may start us mid-text, so track where we
-  // began and whether the cursor-reset wrap has already fired once — a copy is
-  // complete when the wrap catches back up to the start. Hoisted here (not inside
-  // the loop) so the outer termination check can see them.
-  const startCursor = copyCursor(cursor)
-  const startIsZero = scrollOffset === 0
-  let sparseWrapped = false
-  while (yPos < loomState.VH + ac.diveLineH && laidOutLines.length < maxLines) {
+  // Where a line centred at yPos runs, how wide and how big, before its text.
+  const slotAt = (yPos: number): Slot => {
     const lineY = Math.min(yPos, loomState.VH)
     let diveT = (isPrimary && prox > 0.05 && mouse.x > -1000) ? prox * diveGaussian(lineY, mouse.y, diveSigma) : 0
     // Ember (Phase 14): a warm current reaches reading scale at lower proximity
@@ -171,14 +193,15 @@ export function renderThread(
     diveT = Math.min(1, diveT * (1 + clamp01(apiWarm) * WARM_DIVE_BOOST))
     const lineFontScale = lerp(ac.textureScale, ac.diveScale, diveT)
     const lineLineH = lerp(ac.textureLineH, ac.diveLineH, diveT) * (1 + lineBreath * 0.08)
-    const t = Math.min(1, yPos / loomState.VH)
+    // Only an anchored layout reaches above the sheet (yPos < 0).
+    const t = Math.max(0, Math.min(1, yPos / loomState.VH))
     const pathIndex = t * path.length - t
     const pi = Math.floor(pathIndex)
     const pf = pathIndex - pi
     const p0 = path[Math.min(pi, path.length - 1)]!
     const p1 = path[Math.min(pi + 1, path.length - 1)]!
     const x = p0.x + (p1.x - p0.x) * pf
-    const y = p0.y + (p1.y - p0.y) * pf
+    const y = yPos < 0 ? yPos : p0.y + (p1.y - p0.y) * pf
 
     const openW = Math.min(thread.balancedWidth, ac.openWidth)
     const breathRestW = ac.restingWidth * (1 + BREATH_AMP * (1 - prox) * Math.sin(now * thread.breathRate + thread.pathSeed + y * BREATH_SPATIAL))
@@ -208,8 +231,101 @@ export function renderThread(
     const lineFontSize = fontSizeForScale(lineFontScale)
     const lineFontRatio = lineFontSize / 15
     const layoutWidth = Math.max(width / lineFontRatio, 20)
+    return { x, y, lineH: lineLineH, width, layoutWidth, fontSize: lineFontSize, fontScale: lineFontScale, fontRatio: lineFontRatio, diveT, neighborFade }
+  }
+  // `wide`: a whole word wider than the column, which the line runs past it to keep.
+  const makeLine = (sl: Slot, lineStart: LayoutCursor, lineEnd: LayoutCursor, text: string, contentWidth: number, wide: boolean): LaidOutLine => {
+    const lineVoice = voiceSpanForLine(thread, lineStart, lineEnd)
+    return {
+      ...sl,
+      text,
+      // A widened line is centred on the spine, not hung off the column's left edge.
+      width: wide ? Math.max(sl.width, contentWidth * sl.fontRatio) : sl.width,
+      contentWidth,
+      lineStart,
+      lineEnd: copyCursor(lineEnd),
+      lineVoiceAnchorUid: lineVoice.anchorUid,
+      lineVoiceUids: [...lineVoice.uids],
+      rtl: thread.hasRTL && isLineRTL(thread.prepared, lineStart, lineEnd),
+    }
+  }
+  // Lines are recorded top to bottom.
+  const record = (line: LaidOutLine) => {
+    if (phantomTracksThisThread && !phantomTargetMeasured && line.lineVoiceAnchorUid >= 0 && ((line.lineVoiceAnchorUid % phantomVoiceCount) === phantomTarget!.voiceFlatIdx)) {
+      if (phantomFocus!.diagFrames < 8) {
+        loomState.diagHook?.('phantom-capture', { frame: phantomFocus!.diagFrames, targetY: line.y, mouseY: mouse.y, delta: line.y - mouse.y, scroll: thread.scroll })
+      }
+      phantomFocus!.capturedY = line.y
+      phantomFocus!.settledFrames++
+      phantomTargetMeasured = true
+    }
+    laidOutLines.push(line)
+    if (isPrimary && prox > 0.2) {
+      const lineIndex = laidOutLines.length - 1
+      const distance = Math.abs(mouse.y - line.y)
+      if (distance < closestLineDistance) { closestLineDistance = distance; closestLineIndex = lineIndex }
+      if (mouse.y >= line.y - line.lineH / 2 && mouse.y < line.y + line.lineH / 2) hoveredLineIndex = lineIndex
+    }
+  }
+
+  // Sparse blocks float centered in the column — air above AND below, a voice in
+  // the water, not a heading pinned to the (clipped) top edge (top-alignment reads
+  // as vertical truncation, and a 1-line whisper at y=0 gets zeroed by the real-
+  // edge fade). Center on the texture-scale block height; a dive expands the block
+  // downward from the centered start, which is acceptable. The Math.max floor keeps
+  // a block taller than the viewport clear of the top edge. Non-sparse columns tile
+  // the whole height, so they still start at y=0.
+  let yPos = thread.sparse
+    ? Math.max(SPARSE_EDGE_FADE_PX, (loomState.VH - thread.totalLines * ac.textureLineH) / 2)
+    : 0
+  const minLineH = Math.max(1, ac.textureLineH * (1 + lineBreath * 0.08))
+  const maxLines = Math.ceil((loomState.VH + ac.diveLineH) / minLineH) + 2
+  if (anchor) {
+    // Above the reading line: each line ends where the one below it starts.
+    const prepared = thread.prepared
+    const above: LaidOutLine[] = []
+    let end = copyCursor(anchor.cursor)
+    let below = anchor.y
+    let belowH = slotAt(below).lineH
+    while (above.length < maxLines) {
+      // A line sits its own height above the one below it.
+      const h = slotAt(below - belowH).lineH
+      const sl = slotAt(below - h)
+      if (below - h < -sl.lineH) break
+      // The text wraps around: before its start comes its end.
+      if (end.segmentIndex === 0 && end.graphemeIndex === 0) end = { segmentIndex: prepared.segments.length, graphemeIndex: 0 }
+      const back = lineEndingAt(prepared, sl.layoutWidth, end)
+      if (!back) break
+      above.push(makeLine(sl, back.start, end, back.text, back.width, back.width > sl.layoutWidth + 0.01))
+      end = back.start
+      below -= h
+      belowH = sl.lineH
+    }
+    above.reverse().forEach(record)
+    // From the reading line down, forwards, in the loop below.
+    cursor = copyCursor(anchor.cursor)
+    yPos = anchor.y
+  }
+  // Sparse threads (Phase 14 Part B) paint exactly one contiguous copy of the
+  // prepared text. The scroll offset may start us mid-text, so track where we
+  // began and whether the cursor-reset wrap has already fired once — a copy is
+  // complete when the wrap catches back up to the start. Hoisted here (not inside
+  // the loop) so the outer termination check can see them.
+  const startCursor = copyCursor(cursor)
+  const startIsZero = scrollOffset === 0
+  let sparseWrapped = false
+  const lineCap = laidOutLines.length + maxLines
+  while (yPos < loomState.VH + ac.diveLineH && laidOutLines.length < lineCap) {
+    const sl = slotAt(yPos)
+    if (anchor && yPos === anchor.y) {
+      // The read line widens while the lens opens and narrows while it closes;
+      // the breath in its width must not take a word off and give it back.
+      sl.layoutWidth = prox >= anchor.prox ? Math.max(sl.layoutWidth, anchor.width) : Math.min(sl.layoutWidth, anchor.width)
+      anchor.width = sl.layoutWidth
+      anchor.prox = prox
+    }
     let lineStart = copyCursor(cursor)
-    let ln = layoutNextLine(thread.prepared, layoutWidth, cursor)
+    let ln = layoutNextLine(thread.prepared, sl.layoutWidth, cursor)
     if (!ln) {
       // End of the prepared text. A sparse thread that began at the top (scroll
       // offset 0) or has already wrapped once has now shown its whole whisper —
@@ -219,63 +335,39 @@ export function renderThread(
       cursor = copyCursor(ZERO_CURSOR)
       lineStart = copyCursor(ZERO_CURSOR)
       if (thread.sparse) sparseWrapped = true
-      ln = layoutNextLine(thread.prepared, layoutWidth, cursor)
+      ln = layoutNextLine(thread.prepared, sl.layoutWidth, cursor)
       if (!ln) break
     }
     // A long word alone on a narrow line would be split mid-word; re-lay that
     // line at the word's width and let it run wider than the column.
-    const wordW = wholeWordWidth(thread.prepared, lineStart, ln.end, layoutWidth)
+    const wordW = wholeWordWidth(thread.prepared, lineStart, ln.end, sl.layoutWidth)
     if (wordW > 0) ln = layoutNextLine(thread.prepared, wordW, copyCursor(lineStart)) ?? ln
     cursor = ln.end
-    const rtl = thread.hasRTL && isLineRTL(thread.prepared, lineStart, ln.end)
-    const lineVoice = voiceSpanForLine(thread, lineStart, cursor)
-
-    if (phantomTracksThisThread && !phantomTargetMeasured && lineVoice.anchorUid >= 0 && ((lineVoice.anchorUid % phantomVoiceCount) === phantomTarget!.voiceFlatIdx)) {
-      if (phantomFocus!.diagFrames < 8) {
-        loomState.diagHook?.('phantom-capture', { frame: phantomFocus!.diagFrames, targetY: y, mouseY: mouse.y, delta: y - mouse.y, scroll: thread.scroll })
-      }
-      phantomFocus!.capturedY = y
-      phantomFocus!.settledFrames++
-      phantomTargetMeasured = true
-    }
-
-    laidOutLines.push({
-      text: ln.text,
-      x,
-      y,
-      lineH: lineLineH,
-      // A widened line is centred on the spine, not hung off the column's left edge.
-      width: wordW > 0 ? Math.max(width, ln.width * lineFontRatio) : width,
-      contentWidth: ln.width,
-      lineStart,
-      lineEnd: copyCursor(cursor),
-      lineVoiceAnchorUid: lineVoice.anchorUid,
-      lineVoiceUids: [...lineVoice.uids],
-      rtl,
-      fontSize: lineFontSize,
-      fontScale: lineFontScale,
-      fontRatio: lineFontRatio,
-      diveT,
-      neighborFade,
-    })
-
-    if (isPrimary && prox > 0.2) {
-      const lineIndex = laidOutLines.length - 1
-      const distance = Math.abs(mouse.y - y)
-      if (distance < closestLineDistance) { closestLineDistance = distance; closestLineIndex = lineIndex }
-      if (mouse.y >= y - lineLineH / 2 && mouse.y < y + lineLineH / 2) hoveredLineIndex = lineIndex
-    }
-    yPos += lineLineH
+    record(makeLine(sl, lineStart, cursor, ln.text, ln.width, wordW > 0))
+    yPos += sl.lineH
 
     // Sparse one-copy stop: after the wrap, once the cursor has caught back up to
     // where the scroll offset started us, the whole (contiguous) copy is on
     // screen. Cursor comparison — not a fixed line count — because a dive re-lays
     // the same text at a different width, so "one copy" is not a constant #lines.
-    if (thread.sparse && sparseWrapped && (
-      cursor.segmentIndex > startCursor.segmentIndex ||
-      (cursor.segmentIndex === startCursor.segmentIndex && cursor.graphemeIndex >= startCursor.graphemeIndex)
-    )) break
+    if (thread.sparse && sparseWrapped && compareCursors(cursor, startCursor) >= 0) break
   }
+
+  // Under the lens, on paper: the line nearest the reading line is where the
+  // text is anchored next frame (where it is now, so nothing moves). From the
+  // first touch (prox 0.01, where widthAtY starts to widen the lines), so not
+  // even the first widening moves it.
+  if (paper.on && !thread.sparse && isPrimary && prox > 0.01 && mouse.x > -1000) {
+    let l: LaidOutLine | undefined
+    for (const c of laidOutLines) {
+      if (c.y >= 0 && c.y <= loomState.VH && (!l || Math.abs(c.y - mouse.y) < Math.abs(l.y - mouse.y))) l = c
+    }
+    // A new line under the lens starts a new anchor; the same line keeps its own.
+    if (l && !(anchor && compareCursors(anchor.cursor, l.lineStart) === 0)) {
+      thread._anchor = { cursor: l.lineStart, y: l.y, scroll: thread.scroll, top: l.lineStart, width: 0, prox: -1 }
+    }
+  }
+  if (thread._anchor && laidOutLines.length > 0) thread._anchor.top = topLineStart(laidOutLines)
 
   let activeUid = -1
   if (isPrimary && prox > 0.2) {

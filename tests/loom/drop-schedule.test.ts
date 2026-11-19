@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { cancelDrops, configureDrops, dropsPending, notesFor, playVoice, recentlyPlayed, resetDropsForTest, tickDrops, type DropVoice } from '../../src/audio/drops'
+import { cancelDrops, configureDrops, dropsPending, dropTap, notesFor, playVoice, recentlyPlayed, resetDropsForTest, TAP_PHRASE_GAP_MS, TAP_RING, tapNoteIdx, tickDrops, type DropVoice } from '../../src/audio/drops'
+import { CURRENT_SOUNDS } from '../../src/audio/phrase'
 
 // The schedule runs without sound (no AudioContext here, as in the ext-app):
 // each note that falls is reported to the listener, which draws its ring.
@@ -11,7 +12,7 @@ const voices: DropVoice[] = [
 const lookup = (id: string) => voices.find(v => v.id === id) ?? null
 
 let clock = 0
-let fallen: Array<{ family: string, at: number }> = []
+let fallen: Array<{ family: string, at: number, x: number, y: number, strength: number }> = []
 const realNow = performance.now
 const point = () => ({ x: 100, y: 100 })
 const noIdle = () => null
@@ -29,7 +30,7 @@ beforeEach(() => {
   fallen = []
   performance.now = () => clock
   resetDropsForTest()
-  configureDrops({ lookup, onDrop: (family) => { fallen.push({ family, at: clock }) } })
+  configureDrops({ lookup, onDrop: (family, p, strength) => { fallen.push({ family, at: clock, x: p.x, y: p.y, strength }) } })
   resetDropsForTest()
 })
 afterEach(() => { performance.now = realNow })
@@ -161,5 +162,64 @@ describe('the lens as playhead', () => {
     playVoice('v:b', { point, group: 'lineage' })
     run(600, lensA)
     expect(dropsPending('lineage')).toBe(false)
+  })
+})
+
+describe('a tap is a drop', () => {
+  const lensA = { id: 'v:a', x: 50, y: 60 }
+
+  test('one drop falls at the finger on the next frame, its ring a full drop\'s, without any AudioContext', () => {
+    const at = clock
+    dropTap('attention', { x: 210, y: 640 })
+    run(16)
+    expect(fallen).toHaveLength(1)
+    expect(fallen[0]).toMatchObject({ family: 'attention', x: 210, y: 640 })
+    expect(fallen[0]!.strength).toBeCloseTo(TAP_RING, 9)
+    expect(fallen[0]!.at - at).toBeLessThanOrEqual(16)
+    run(3000)
+    expect(fallen).toHaveLength(1)
+  })
+
+  test('with no sound yet, its note waits a moment for the sound the tap is starting, then gives up; the ring falls once, on time', () => {
+    dropTap('light', { x: 30, y: 40 })
+    run(16)
+    expect(fallen).toHaveLength(1)
+    // Still queued, unstruck: if the audio starts running now, the note sounds at the same point.
+    run(200)
+    expect(dropsPending('lens')).toBe(true)
+    expect(fallen).toHaveLength(1)
+    run(200)
+    expect(dropsPending('lens')).toBe(false)
+    expect(fallen).toHaveLength(1)
+  })
+
+  test('its note is the tonic in the current\'s own register', () => {
+    for (const [family, sound] of Object.entries(CURRENT_SOUNDS)) {
+      const idx = tapNoteIdx(family)
+      expect(idx % 5).toBe(0)
+      expect(sound.home - idx).toBeGreaterThanOrEqual(0)
+      expect(sound.home - idx).toBeLessThan(5)
+    }
+  })
+
+  test('what the lens was playing stops at the tap; the opened voice\'s phrase follows, not on top of the drop', () => {
+    const lensB = { id: 'v:b', x: 70, y: 80 }
+    run(700, lensA)
+    expect(dropsPending('lens')).toBe(true)
+    const before = fallen.length
+    const tapped = clock
+    dropTap('memory', { x: 1, y: 2 })
+    // The lens settles on the opened voice at once (the fastest it can).
+    run(6000, lensB)
+    const after = fallen.slice(before)
+    // Nothing more of the old phrase falls beyond the notes already handed to the audio clock.
+    expect(after.filter(f => f.family === 'attention' && f.at > tapped + 216)).toHaveLength(0)
+    const tap = after.filter(f => f.x === 1 && f.y === 2)
+    expect(tap).toHaveLength(1)
+    expect(tap[0]!.at - tapped).toBeLessThanOrEqual(16)
+    const phrase = after.filter(f => f.family === 'memory' && f.x !== 1)
+    expect(phrase.length).toBe(notesFor(voices[1]!, lookup).length)
+    expect(phrase[0]!.at).toBeGreaterThanOrEqual(tapped + TAP_PHRASE_GAP_MS)
+    expect(phrase[0]!.at).toBeLessThan(tapped + TAP_PHRASE_GAP_MS + 40)
   })
 })
