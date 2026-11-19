@@ -88,6 +88,18 @@ cd worker && bun run dev   # local worker
 
 Deploy sequence, flags, migrations, and smoke probes: `docs/LAUNCH_RUNBOOK.md`. Design and phase history: `docs/`.
 
+## 0.5.0 — 2026-11-19
+
+- **The lens is a drop of clean water.** Where you read, the water pushes the wash away and leaves
+  clear paper; the pigment gathers unevenly at its edge, and when you leave, a fine tide line
+  stays where the water stopped and fades over about half a minute. The text being read no
+  longer shimmers or gets nudged by passing rings.
+- **Wet and dry.** A current at rest is a slim, still stain around its words, with bare paper
+  between it and its neighbours. Water widens and deepens it and sets its edge moving, redrawn
+  eight times a second like hand animation; it settles again as it dries.
+- **Dry brush.** A fast scroll or drag breaks the wash into streaks that heal within a second.
+- `?look=old` is unchanged.
+
 ## 0.4.2 — 2026-11-19
 
 - **Small windows.** In a short window (an ext-app inline in a conversation) the lens type shrinks
