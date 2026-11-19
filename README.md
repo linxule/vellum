@@ -88,6 +88,13 @@ cd worker && bun run dev   # local worker
 
 Deploy sequence, flags, migrations, and smoke probes: `docs/LAUNCH_RUNBOOK.md`. Design and phase history: `docs/`.
 
+## 0.5.1 — 2026-11-19
+
+- Dry-brush streaks are gaps in the scrolling current's own wash. They used to cut through every
+  wash beneath it, which on a phone meant white scratches across the whole sheet during a fast drag.
+- Where another current crosses a line and the read current's water lies elsewhere on the same
+  line, the words between the two print again.
+
 ## 0.5.0 — 2026-11-19
 
 - **The lens is a drop of clean water.** Where you read, the water pushes the wash away and leaves
