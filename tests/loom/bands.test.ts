@@ -55,8 +55,42 @@ function outerWidth(paths: ReturnType<typeof paintedPaths>, k = N >> 1): number 
   const pts = glazes(paths)[0]!.points
   return pts[2 * N - 1 - k]![0] - pts[k]![0]
 }
-/** Strokes that lift paint off the sheet: the dry brush. */
-const dryStrokes = (calls: PaintCall[]) => calls.filter(c => c.op === 'stroke' && c.comp === 'destination-out')
+/**
+ * The dry brush's lanes: the shapes a rough band cuts out of its own clip (the
+ * sheet's rectangle with the lanes inside it, clipped even-odd), as point lists.
+ */
+function dryLanes(calls: PaintCall[]): Array<Array<[number, number]>> {
+  const out: Array<Array<[number, number]>> = []
+  let shapes: Array<Array<[number, number]>> | null = null
+  for (const c of calls) {
+    if (c.op === 'beginPath') shapes = null
+    else if (c.op === 'rect') shapes = []
+    else if (shapes && c.op === 'moveTo') shapes.push([[c.args[0] as number, c.args[1] as number]])
+    else if (shapes && c.op === 'lineTo') shapes.at(-1)!.push([c.args[0] as number, c.args[1] as number])
+    else if (c.op === 'clip') {
+      if (shapes && c.args[0] === 'evenodd') out.push(...shapes)
+      shapes = null
+    }
+  }
+  return out
+}
+/** Each fill and stroke, with whether a clip was in force when it was made (the recorder keeps no state stack). */
+function marksWithClip(calls: PaintCall[]): Array<PaintCall & { clipped: boolean }> {
+  const stack: boolean[] = []
+  let clipped = false
+  const out: Array<PaintCall & { clipped: boolean }> = []
+  for (const c of calls) {
+    if (c.op === 'save') stack.push(clipped)
+    else if (c.op === 'restore') clipped = stack.pop() ?? false
+    else if (c.op === 'clip') clipped = true
+    else if (c.op === 'fill' || c.op === 'stroke') out.push({ ...c, clipped })
+  }
+  return out
+}
+/** A band's painted paths, comparable across frames (gradients are new objects each frame). */
+const shapeOf = (paths: ReturnType<typeof paintedPaths>) => paths.map(p => ({ op: p.op, points: p.points, comp: p.comp, style: typeof p.style === 'string' ? p.style : 'gradient' }))
+// One band is three glazes, two tide lines and four contours.
+const BAND_PATHS = 9
 
 let wet = 0
 beforeEach(() => {
@@ -153,17 +187,74 @@ describe('dry brush', () => {
   }
 
   test('a fast scroll breaks the wash into streaks; a slow one does not', () => {
-    expect(dryStrokes(flick(15).calls)).toHaveLength(0)
-    expect(dryStrokes(flick(200).calls).length).toBeGreaterThan(5)
+    expect(dryLanes(flick(15).calls)).toHaveLength(0)
+    expect(dryLanes(flick(200).calls).length).toBeGreaterThan(5)
   })
 
-  test('the streaks lift paint only inside the band, and the blend is put back after', () => {
+  test('the streaks are long thin runs inside the band, and the lanes it only thinned are painted again, fainter', () => {
     const { calls } = flick(200)
-    const lift = calls.findIndex(c => c.comp === 'destination-out')
-    expect(calls.slice(0, lift).some(c => c.op === 'clip')).toBe(true)
-    expect(calls.at(-1)).toMatchObject({ op: 'set:globalCompositeOperation', args: ['source-over'] })
-    const after = calls.slice(lift).filter(c => c.op === 'fill')
-    expect(after.every(c => c.comp !== 'destination-out')).toBe(true)
+    const lanes = dryLanes(calls)
+    const outer = glazes(paintedPaths(calls))[0]!.points.map(([x]) => x)
+    const [lo, hi] = [Math.min(...outer), Math.max(...outer)]
+    for (const lane of lanes) {
+      for (const [x] of lane) expect(x >= lo - 3 && x <= hi + 3).toBe(true)
+      // Down the band and back up: a lane is taller than it is wide.
+      const ys = lane.map(([, y]) => y)
+      const xs = lane.map(([x]) => x)
+      if (ys.length >= 4) expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(Math.max(...xs) - Math.min(...xs))
+    }
+    // Clipped to the lanes alone (nonzero), the glazes again, at less than full strength.
+    const thinned = calls.findIndex(c => c.op === 'clip' && c.args[0] === undefined)
+    expect(thinned).toBeGreaterThan(-1)
+    expect(calls.slice(thinned).some(c => c.op === 'fill')).toBe(true)
+  })
+
+  test('nothing the rough band does removes paint: a band beneath it is untouched', () => {
+    // The lower band (painted first) and the rough one cross over the same column.
+    const frame = (linesPerSecond: number) => {
+      resetWashForTest()
+      setWetnessForTest(() => wet)
+      const lower = current(700, { familyNames: ['memory'], baseColor: [180, 40, 40], pathSeed: 4.2 })
+      const upper = current(712)
+      stage([lower, upper])
+      paint([lower, upper], 1000)
+      upper.scroll += (linesPerSecond * 0.1) / 3
+      return paint([lower, upper], 1100)
+    }
+    const smooth = frame(15)
+    const rough = frame(200)
+    expect(dryLanes(rough.calls).length).toBeGreaterThan(5)
+    expect(rough.calls.some(c => c.comp === 'destination-out')).toBe(false)
+    expect(rough.calls.some(c => c.op === 'set:globalCompositeOperation' && c.args[0] !== 'multiply' && c.args[0] !== 'source-over')).toBe(false)
+    expect(shapeOf(rough.paths.slice(0, BAND_PATHS))).toEqual(shapeOf(smooth.paths.slice(0, BAND_PATHS)))
+    expect(marksWithClip(rough.calls).slice(0, BAND_PATHS).every(m => !m.clipped && m.comp === 'multiply')).toBe(true)
+  })
+
+  test('a band painted after the rough one carries the normal blend and none of its clip', () => {
+    const frame = (linesPerSecond: number) => {
+      resetWashForTest()
+      setWetnessForTest(() => wet)
+      const rough = current(700)
+      const after = current(1000, { familyNames: ['memory'], baseColor: [180, 40, 40], pathSeed: 4.2 })
+      stage([rough, after])
+      paint([rough, after], 1000)
+      rough.scroll += (linesPerSecond * 0.1) / 3
+      return paint([rough, after], 1100)
+    }
+    const smooth = frame(15)
+    const rough = frame(200)
+    expect(dryLanes(rough.calls).length).toBeGreaterThan(5)
+    const marks = marksWithClip(rough.calls)
+    const later = marks.slice(-BAND_PATHS)
+    expect(later.every(m => m.comp === 'multiply' && !m.clipped)).toBe(true)
+    expect(shapeOf(rough.paths.slice(-BAND_PATHS))).toEqual(shapeOf(smooth.paths.slice(-BAND_PATHS)))
+    // Every save is restored, and the frame ends as it began.
+    expect(rough.calls.filter(c => c.op === 'save').length).toBe(rough.calls.filter(c => c.op === 'restore').length)
+    expect(rough.calls.at(-1)).toMatchObject({ op: 'set:globalCompositeOperation', args: ['source-over'] })
+  })
+
+  test('a smooth band uses no clip at all', () => {
+    expect(flick(15).calls.some(c => c.op === 'clip' || c.op === 'save')).toBe(false)
   })
 
   test('the streaks heal within about a second and a half once the text slows', () => {
@@ -172,7 +263,7 @@ describe('dry brush', () => {
     let last = Infinity
     while (t < 2600) {
       t += 33
-      last = dryStrokes(paint([c], t).calls).length
+      last = dryLanes(paint([c], t).calls).length
       if (last === 0) break
     }
     expect(last).toBe(0)
@@ -180,7 +271,7 @@ describe('dry brush', () => {
   })
 
   test('a jump of the text (a wrap, a voice brought into view) is not a stroke', () => {
-    expect(dryStrokes(flick(5000).calls)).toHaveLength(0)
+    expect(dryLanes(flick(5000).calls)).toHaveLength(0)
   })
 
   test('a band not painted for a while (the lineage view, a hidden tab) does not come back streaked', () => {
@@ -189,7 +280,7 @@ describe('dry brush', () => {
     paint([c], 1000)
     // A minute of the text's own slow drift, none of it painted.
     c.scroll += 60 * 0.12
-    expect(dryStrokes(paint([c], 61000).calls)).toHaveLength(0)
+    expect(dryLanes(paint([c], 61000).calls)).toHaveLength(0)
   })
 
   test('the scroll wrapping at the end of a short text is not a stroke', () => {
@@ -198,6 +289,6 @@ describe('dry brush', () => {
     paint([c], 1000)
     // Dragged back past its start: the scroll jumps by a whole lap, the text by a fraction of a line.
     c.scroll += 12 / 3 - 0.06
-    expect(dryStrokes(paint([c], 1100).calls)).toHaveLength(0)
+    expect(dryLanes(paint([c], 1100).calls)).toHaveLength(0)
   })
 })
