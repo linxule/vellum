@@ -102,17 +102,24 @@ export function driveReading(mouse: MouseState): void {
 export const SMALL_SHEET_W = 760
 export const SMALL_SHEET_H = 520
 
+/** Below this the read current's openness no longer quiets the others: their words fade back in between the two. */
+export const WORDLESS_FROM = 0.2
+
 /**
  * While one current is read, the others keep their wash and print no words: always
  * when it is held by touch, and on a small sheet (a phone, an inline ext-app)
- * however it was opened, a mouse included.
+ * however it was opened, a mouse included. 1 once the read current is open past
+ * WORDLESS_PROXIMITY; between WORDLESS_FROM and that, the words fade (they come
+ * back gently as it closes). Applied by the water's rule (render/water.ts, waterOver).
  */
-export function wordlessWhileReading(thread: Thread): boolean {
-  if (loomState.loomViewActive) return false
+export function wordlessAmount(thread: Thread): number {
+  if (loomState.loomViewActive) return 0
   let open: Thread | null = null
   if (loomState.readingKey !== null) open = readingThread()
   else if (loomState.VW < SMALL_SHEET_W || loomState.VH < SMALL_SHEET_H) open = loomState.touchedThread
-  return open !== null && open !== thread && open.proximity > WORDLESS_PROXIMITY
+  if (open === null || open === thread) return 0
+  if (open.proximity > WORDLESS_PROXIMITY) return 1
+  return Math.max(0, (open.proximity - WORDLESS_FROM) / (WORDLESS_PROXIMITY - WORDLESS_FROM))
 }
 
 /**

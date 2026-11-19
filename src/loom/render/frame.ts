@@ -410,9 +410,10 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
     for (let i = 0; i < visAlpha.length; i++) visAlpha[i]! *= oceanAlpha
   }
 
-  // On paper, neighbouring currents printed through the open lens make the text
-  // being read hard to follow (dim light text on a dark sea did not). So the
-  // current under the lens is drawn last, onto water cleared of the others.
+  // On paper the current under the lens is drawn last, over the others. Their
+  // words are not printed under its clean water (render/water.ts, waterOver).
+  // Before it prints, its own last prints under the lens are lifted, so the text
+  // being read is this frame's alone: no trail, however slowly its lines drift.
   const paperLens = paper.on && lensThread !== null && lensThread.proximity > 0.05 && mouse.x > -1000 ? lensThread : null
   for (const threadIndex of loomState.sortedThreadIndices) {
     const thread = loomState.threads[threadIndex]!

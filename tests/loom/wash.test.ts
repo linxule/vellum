@@ -8,6 +8,7 @@ import {
   addRipple, beginCrossing, beginWashProfile, grainTile, hiddenSpan, markWashLine, paintWash,
   pointOnCurrent, randomCurrent, resetWashForTest, ringsOnLine,
 } from '../../src/loom/render/wash.js'
+import { setWaterCanvasForTest } from '../../src/loom/render/water.js'
 import { paintedPaths, paintRecorder, rgbaAlpha } from './paint-recorder.js'
 
 const VW = 1440
@@ -294,12 +295,25 @@ describe('crossings', () => {
     expect(from).toBeGreaterThanOrEqual(to)
   })
 
-  test('a current being read lies over too: the others part around its pool', () => {
+  test('a current being read lies over by its order alone, like any other', () => {
     for (const proximity of [0.19, 0.2, 1]) {
       over.proximity = proximity
       beginCrossing(under)
       expect([...hiddenSpan(600, 800, 450, NOW)]).toEqual([655, 745])
     }
+  })
+
+  test('a current being read lies over too, wherever it sorts: the others part around its whole pool', () => {
+    loomState.sortedThreadIndices = [1, 0]
+    for (const proximity of [0.26, 1]) {
+      over.proximity = proximity
+      beginCrossing(under)
+      expect([...hiddenSpan(600, 800, 450, NOW)]).toEqual([655, 745])
+    }
+    over.proximity = 0.2
+    beginCrossing(under)
+    const [from, to] = hiddenSpan(600, 800, 450, NOW)
+    expect(from).toBeGreaterThanOrEqual(to)
   })
 
   test('a profile older than 400 ms is not trusted', () => {
@@ -352,73 +366,118 @@ describe('crossings', () => {
   })
 })
 
-// ── The wash band and its stain ───────────────────────────────────────────────
+// ── Water on the wash ─────────────────────────────────────────────────────────
 
-describe('the drying stain', () => {
-  // Fills drawn in a flat colour: the stain. Glazes are filled with a gradient, and no ring is falling.
-  const stains = (now: number) => paint(now).paths.filter(p => p.op === 'fill' && typeof p.style === 'string')
-  const xs = (fills: ReturnType<typeof stains>) => fills.flatMap(f => f.points.map(([x]) => x))
+/** Mask canvases that hold their pixels and record nothing; the wash records the drawImage. */
+function maskCanvases(): void {
+  setWaterCanvasForTest((w, h) => ({
+    width: w,
+    height: h,
+    getContext: () => ({
+      createImageData: (iw: number, ih: number) => ({ data: new Uint8ClampedArray(iw * ih * 4), width: iw, height: ih }),
+      putImageData() {},
+    }) as unknown as CanvasRenderingContext2D,
+  }))
+}
 
-  // Reads the current from `from` to `to`, then lets go for one frame.
-  function read(thread: Thread, from: number, to: number, step = 100): void {
-    thread.proximity = 0.5
-    for (let t = from; t <= to; t += step) paint(t)
-    thread.proximity = 0
-    paint(to + step / 2)
+describe('water on the wash', () => {
+  const NOW = 1000
+  let read: Thread
+  let other: Thread
+
+  beforeEach(() => {
+    maskCanvases()
+    enablePaper()
+    read = current(700, { familyNames: ['attention'] })
+    other = current(710, { familyNames: ['memory'] })
+    stage([other, read])
+  })
+  afterEach(() => setWaterCanvasForTest(null))
+
+  /** Opens the lens on `read` at the middle of the sheet, its lines 200 px either side. */
+  function open(proximity = 0.9): void {
+    read.proximity = proximity
+    loomState.touchedThread = read
+    loomState.currentMouse = { x: 700, y: 450 } as typeof loomState.currentMouse
   }
+  function letGo(): void {
+    read.proximity = 0
+    loomState.touchedThread = null
+    loomState.currentMouse = { x: -9999, y: -9999 } as typeof loomState.currentMouse
+  }
+  /** Paints frames from `from` to `to`, the text painter marking the read current's lines each frame. */
+  function frames(from: number, to: number) {
+    let last = paint(from)
+    for (let t = from; t <= to; t += 33) {
+      profileOf(read, 200, t)
+      last = paint(t)
+    }
+    return last
+  }
+  const drawn = (calls: ReturnType<typeof paint>['calls']) => calls.filter(c => c.op === 'drawImage')
 
-  test('where a current was opened and read, a stain stays behind and dries away', () => {
-    const c = current(700)
-    stage([c])
-    profileOf(c, 200, 0)
-    c.proximity = 0.5
-    expect(stains(1000)).toHaveLength(0) // not while it is read
-    c.proximity = 0
-    const wet = stains(2000)
-    expect(wet.length).toBeGreaterThan(0)
-    const drying = stains(15000)
-    expect(drying.length).toBeGreaterThan(0)
-    expect(rgbaAlpha(drying[0]!.style)).toBeLessThan(rgbaAlpha(wet[0]!.style))
-    expect(stains(1000 + 26001)).toHaveLength(0)
+  test('a dry sheet paints no water', () => {
+    expect(drawn(paint(NOW).calls)).toHaveLength(0)
   })
 
-  test('a current read only at its resting width leaves no stain', () => {
-    const c = current(700)
-    stage([c])
-    profileOf(c, loomState.currentAperture!.restingWidth * 0.5, 0)
-    read(c, 1000, 1500)
-    expect(stains(2000)).toHaveLength(0)
+  test('under the lens the pigment is cleared after both currents are washed, then the pushed pigment is laid on', () => {
+    open()
+    const { calls } = frames(NOW, NOW + 600)
+    const [clear, rim] = drawn(calls)
+    expect(clear!.comp).toBe('destination-out')
+    expect(rim!.comp).toBe('multiply')
+    const at = calls.indexOf(clear!)
+    // Three glazes each, both before the water.
+    expect(calls.slice(0, at).filter(c => c.op === 'fill')).toHaveLength(6)
+    expect(calls.slice(at).filter(c => c.op === 'fill')).toHaveLength(0)
+    // Drawn where the lens is: the water's box takes in the reading line.
+    const [, , , , , dx, dy, dw, dh] = clear!.args as number[]
+    expect(dx).toBeLessThan(700)
+    expect(dx + dw).toBeGreaterThan(700)
+    expect(dy).toBeLessThan(450)
+    expect(dy + dh).toBeGreaterThan(450)
+    expect(calls.findLast(c => c.op === 'set:globalAlpha')!.args[0]).toBe(1)
   })
 
-  test('the stain stays where it lay on the sheet; the current moves on', () => {
-    const c = current(700)
-    stage([c])
-    profileOf(c, 200, 0)
-    read(c, 1000, 1500)
-    c._path = current(250)._path
-    expect(Math.min(...xs(stains(2000)))).toBeGreaterThan(400)
+  test('on a night sheet the pushed pigment glows: screen, not multiply', () => {
+    setNight(true)
+    open()
+    const [, rim] = drawn(frames(NOW, NOW + 300).calls)
+    expect(rim!.comp).toBe('screen')
   })
 
-  test('while a read goes on, the stain keeps its widest reach', () => {
-    const c = current(700)
-    stage([c])
-    profileOf(c, 200, 0)
-    read(c, 1000, 1100)
-    c._path = current(250)._path
-    read(c, 1200, 1300)
-    const reach = xs(stains(2000))
-    expect(Math.min(...reach)).toBeLessThan(100)
-    expect(Math.max(...reach)).toBeGreaterThan(900)
+  test('drops are drawn over the water, never cleared by it', () => {
+    open()
+    addRipple('attention', 700, 450, 1, NOW + 500)
+    const { calls } = frames(NOW, NOW + 600)
+    const water = calls.findIndex(c => c.op === 'drawImage')
+    const drop = calls.findIndex(c => c.op === 'arc')
+    expect(drop).toBeGreaterThan(water)
   })
 
-  test('once a stain has dried, the next read starts a new one', () => {
-    const c = current(700)
-    stage([c])
-    profileOf(c, 200, 0)
-    read(c, 1000, 1100)
-    c._path = current(250)._path
-    read(c, 1100 + 26001, 1100 + 26101)
-    expect(Math.max(...xs(stains(1100 + 26200)))).toBeLessThan(600)
+  test('once it dries, a tide line stays: fine strokes in the current\'s ink', () => {
+    // The band strokes its own edges and contours too: the tide line is what a read adds to those.
+    const resting = paintedPaths(paint(NOW - 33).calls).filter(p => p.op === 'stroke').length
+    open()
+    frames(NOW, NOW + 600)
+    letGo()
+    for (let t = NOW + 633; t < NOW + 12000; t += 33) paint(t)
+    const lines = paintedPaths(paint(NOW + 12000).calls).filter(p => p.op === 'stroke')
+    expect(lines.length).toBeGreaterThan(resting)
+    expect(lines.every(p => typeof p.style === 'string' && p.style.startsWith('rgba(0,108,182,'))).toBe(true)
+    expect(Math.max(...lines.map(p => rgbaAlpha(p.style)))).toBeLessThanOrEqual(0.26)
+  })
+
+  test('the water fades with the ocean as the lineage view opens', () => {
+    open()
+    frames(NOW, NOW + 600)
+    loomState.loomViewTransition = 0.5
+    const { calls } = paint(NOW + 633)
+    const clear = drawn(calls)[0]!
+    const alphaBefore = calls.slice(0, calls.indexOf(clear)).findLast(c => c.op === 'set:globalAlpha')
+    expect(alphaBefore!.args[0]).toBeCloseTo(0.5, 6)
+    loomState.loomViewTransition = 1
+    expect(drawn(paint(NOW + 666).calls)).toHaveLength(0)
   })
 })
 
@@ -450,22 +509,6 @@ describe('painting the wash', () => {
     stage([current(700)])
     loomState.frameVisibilityAlpha[0] = 0
     expect(paint(100).paths).toHaveLength(0)
-  })
-
-  test('under the lens the other currents\' ink is cleared, then the current being read is washed on top', () => {
-    const read = current(700, { proximity: 0.8 })
-    const other = current(710)
-    stage([read, other])
-    loomState.touchedThread = read
-    loomState.currentMouse = { x: 700, y: 450 } as typeof loomState.currentMouse
-    const { calls } = paint(100)
-    const clear = calls.findIndex(c => c.op === 'fillRect' && c.comp === 'destination-out')
-    expect(clear).toBeGreaterThan(0)
-    const fillsBefore = calls.slice(0, clear).filter(c => c.op === 'fill').length
-    const fillsAfter = calls.slice(clear).filter(c => c.op === 'fill').length
-    // Three glazes each: the other current's before the clear, the read one's after.
-    expect(fillsBefore).toBe(3)
-    expect(fillsAfter).toBe(3)
   })
 })
 

@@ -1,5 +1,6 @@
 import { threadColor } from '../color.js'
 import { depthLerp } from '../math.js'
+import { paper } from '../paper.js'
 import { loomState } from '../state.js'
 import { graphemeSegmenter, letterAdvances } from '../text.js'
 import { DEPTH_BRIGHTNESS, SCRIPT_SHIMMER, SPARSE_EDGE_FADE_PX, type Thread } from '../types.js'
@@ -27,6 +28,17 @@ function nativeWidth(ctx: CanvasRenderingContext2D, text: string): number {
   return w
 }
 export const LOD_LETTER_SHIMMER_PX = 0.6
+/** On paper the current being read is still by this proximity: its letters stop shimmering as its lens opens. */
+export const STILL_LENS_PROXIMITY = 0.3
+
+/**
+ * How much of its per-letter shimmer a line keeps. In the sea look the lens damps
+ * it to 20%; on paper the text being read is dead still once its lens is open.
+ */
+export function shimmerKeep(thread: Thread, proximity: number): number {
+  if (paper.on && thread === loomState.touchedThread) return Math.max(0, 1 - proximity / STILL_LENS_PROXIMITY)
+  return 1 - proximity * 0.8
+}
 
 export function drawLine(
   ctx: CanvasRenderingContext2D,
@@ -138,6 +150,7 @@ export function drawLineSegmented(
   }
 
   const breakableW = letterAdvances(thread.prepared)
+  const keep = shimmerKeep(thread, proximity)
   let curSpacing = 0
   let base: DOMMatrix | null = null
   let transformed = false
@@ -164,10 +177,10 @@ export function drawLineSegmented(
       // Level of detail. Per-letter painting is what makes magnified text ripple,
       // but the whole primary column takes this path — including the far, texture-
       // scale lines, where the per-letter shimmer is sub-pixel once the lens has
-      // settled (it damps to 20% at full proximity). There a word painted rigidly at
+      // settled (it damps to 20% at full proximity, to none on paper). There a word painted rigidly at
       // its own centre's shimmer + glow is indistinguishable, and costs one fillText
       // instead of one per letter (~5.5k → ~2.6k calls/frame at 1440w with the lens open).
-      const shimmerDampenLod = 1 - proximity * 0.8
+      const shimmerDampenLod = keep
       const shimmerAmpPx = (2.1 * scAmp + scSway) * shimmerDampenLod
       const wholeWord = gStart === 0 && gEnd === graphemes.length
       if (wholeWord && diveT <= LOD_LETTER_DIVE_T && shimmerAmpPx <= LOD_LETTER_SHIMMER_PX) {
@@ -225,7 +238,7 @@ export function drawLineSegmented(
         const gw = bw[gi]! * fontRatio
         const gCenter = xPos + (rtl ? -gw / 2 : gw / 2)
         const cursorGlow = Math.max(0, 1 - Math.abs(mouseX - gCenter) / 25) * proximity * 0.45
-        const shimmerDampen = 1 - proximity * 0.8
+        const shimmerDampen = keep
         const shimmerPhase = xPos * 0.09 + now * thread.breathRate * 1.8 * scFreq + thread.pathSeed
         const shimmerY = (Math.sin(shimmerPhase) * 1.5 * scAmp + Math.sin(shimmerPhase * 1.7 + 2.3) * 0.6 * scAmp) * shimmerDampen
         const shimmerX = scSway > 0 ? Math.sin(shimmerPhase * 0.6 + 1.1) * scSway * shimmerDampen : 0
@@ -250,7 +263,7 @@ export function drawLineSegmented(
     xPos += rtl ? -prefixW : prefixW
     const segCenter = xPos + (rtl ? -renderedW / 2 : renderedW / 2)
     const cursorGlow = Math.max(0, 1 - Math.abs(mouseX - segCenter) / 25) * proximity * 0.45
-    const shimmerDampen = 1 - proximity * 0.8
+    const shimmerDampen = keep
     const shimmerPhase = xPos * 0.09 + now * thread.breathRate * 1.8 * scFreq + thread.pathSeed
     const shimmerY = (Math.sin(shimmerPhase) * 1.5 * scAmp + Math.sin(shimmerPhase * 1.7 + 2.3) * 0.6 * scAmp) * shimmerDampen
     const shimmerX = scSway > 0 ? Math.sin(shimmerPhase * 0.6 + 1.1) * scSway * shimmerDampen : 0

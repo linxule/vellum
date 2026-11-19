@@ -3,8 +3,8 @@
 // Each current is a band of floated ink that follows the thread's path: a few
 // overlapping glazes with uneven edges and uneven strength, a darker tide line
 // where the pigment settled, and hairline contours inside, as in suminagashi.
-// Bands multiply, so two currents overprint where they cross. Under the lens
-// the other currents' ink clears, so the one being read sits on clean paper.
+// Bands multiply, so two currents overprint where they cross. Where a current is
+// read, clean water clears the pigment and pushes it into a rim (render/water.ts).
 // A drop leaves a ring that spreads and fades; a phrase leaves one per note.
 //
 // Painted on its own low-resolution canvas beneath the text canvas, a few times
@@ -14,7 +14,8 @@ import { clamp01 } from '../math.js'
 import { paper, PAPER_RGB } from '../paper.js'
 import { pathXAtY } from '../path.js'
 import { loomState } from '../state.js'
-import { DEFAULT_COLOR, DIVE_SIGMA_LINES, FAMILY_COLOR, type ApertureConfig, type Thread } from '../types.js'
+import { DEFAULT_COLOR, DIVE_SIGMA_LINES, FAMILY_COLOR, WARM_DIVE_BOOST, type ApertureConfig, type Thread } from '../types.js'
+import { paintWater, resetWater, stepWater, wetnessOf, type LensPour } from './water.js'
 
 interface Ripple {
   family: string
@@ -95,8 +96,9 @@ export function beginCrossing(thread: Thread): void {
   for (const index of loomState.sortedThreadIndices) {
     const other = loomState.threads[index]!
     if (other === thread) { later = true; continue }
-    // A current that is open lies over all the others, wherever it sorts
-    // (it is painted last): their words part around its pool.
+    // A current that is open lies over all the others, wherever it sorts (it is
+    // painted last): their words part around its whole pool. Its clean water
+    // (render/water.ts) covers only the readable core and lingers after it closes.
     if (later || other.proximity > OPEN_PROXIMITY) lyingOver.push(other)
   }
 }
@@ -253,6 +255,9 @@ export function ringsOnLine(x0: number, x1: number, y: number, now: number): [nu
 export function resetWashForTest(): void {
   ripples.length = 0
   lyingOver.length = 0
+  resetWater()
+  bandStates.clear()
+  wetSource = wetnessOf
 }
 
 /** A point on a current, for drops that fall without a hand: the family's thread at height yFrac. */
@@ -299,16 +304,146 @@ function wobble(y: number, seed: number, t: number): number {
 const GLAZE_WIDTH = [0.68, 0.5, 0.3] as const
 const GLAZE_ALPHA = [0.5, 0.55, 0.7] as const
 const GLAZE_BULGE = [1, 0.6, 0.25] as const
-// Where a current was opened and read, its pool stays behind as a stain with a
-// darker edge, and dries away: the sheet shows where it has been read.
-interface Stain { left: Float32Array, right: Float32Array, at: number, wet: boolean }
-const stains = new WeakMap<Thread, Stain>()
-const STAIN_LIFE_MS = 26000
-const STAIN_PROX = 0.3
-
-// How far each glaze reaches past the text it lies under.
+// How far each glaze reaches past the text it lies under, wet.
 const GLAZE_WRAP = [1.34, 1.02, 0.62] as const
 const GLAZE_MARGIN = [12, 5, 0] as const
+
+// Dry and wet (water.ts says how wet). A dry band is a narrow, pale stain that
+// hugs its words, with a crisp edge, and holds still; water spreads it to the
+// glazes above and deepens it, and its edge is redrawn on a slow clock, as in
+// hand-drawn animation. Text moving fast breaks it into dry-brush streaks.
+const DRY_WRAP = [1.02, 0.8, 0.48] as const
+const DRY_MARGIN = [2, 0, 0] as const
+const DRY_DEPTH = 0.9
+const WET_DEPTH = 1.2
+/** The slow clock: a wet edge is redrawn this often (ms). */
+const BOIL_MS = 125
+/** How far (px) a fully wet outer edge wanders per drawing; the inner glazes less. */
+const BOIL_PX = 2.2
+/** Wetness eases toward water.ts's value: quickly as it wets, more slowly as it dries (ms). */
+const WET_RISE_MS = 250
+const WET_DRY_MS = 900
+/** Text speed (lines a second) where the brush starts to run dry, and where it is fully broken. */
+const ROUGH_FROM = 30
+const ROUGH_FULL = 150
+/** Faster than this is a jump (a wrap, a voice brought into view), not a stroke. */
+const ROUGH_JUMP = 600
+const ROUGH_HEAL_MS = 350
+/** Dry-brush lanes are about this far apart (px), between 6 and 28 of them across a band. */
+const DRY_LANE_PX = 7
+
+interface BandState { wet: number, rough: number, scroll: number, at: number, tick: number, tickAt: number, clock: number }
+// Kept by family group, so a current rebuilt when voices arrive keeps its state.
+const bandStates = new Map<string, BandState>()
+const bandKeys = new WeakMap<Thread, string>()
+let wetSource: (thread: Thread) => number = wetnessOf
+/** Test-only: how wet each current is, in place of water.ts. */
+export function setWetnessForTest(source: ((thread: Thread) => number) | null): void { wetSource = source ?? wetnessOf }
+
+/** How wet and how rough a band is now, and its own clock, which runs only while it is wet. */
+function bandState(thread: Thread, now: number): BandState {
+  let key = bandKeys.get(thread)
+  if (key === undefined) { key = thread.familyNames.join('|'); bandKeys.set(thread, key) }
+  const target = wetSource(thread)
+  const tick = Math.floor(now / BOIL_MS)
+  let s = bandStates.get(key)
+  if (!s) {
+    s = { wet: target, rough: 0, scroll: thread.scroll, at: now, tick, tickAt: now, clock: 0 }
+    bandStates.set(key, s)
+    return s
+  }
+  // After a gap (the lineage view, a hidden tab, a current out of sight) nothing is measured across it.
+  const gap = now - s.at > 250
+  const dt = Math.max(0, Math.min(250, now - s.at))
+  s.at = now
+  s.wet += (target - s.wet) * (1 - Math.exp(-dt / (target > s.wet ? WET_RISE_MS : WET_DRY_MS)))
+  if (Math.abs(target - s.wet) < 0.002) s.wet = target
+  if (dt > 0) {
+    // The scroll wraps at the end of the text: the shorter way round is how far it moved.
+    let moved = Math.abs(thread.scroll - s.scroll)
+    const lap = thread.totalLines / 3
+    if (lap > 0 && moved > lap / 2) moved = Math.abs(lap - (moved % lap))
+    const rate = (moved * 3 * 1000) / dt
+    const stroke = !gap && rate < ROUGH_JUMP && !loomState.phantomFocus ? clamp01((rate - ROUGH_FROM) / (ROUGH_FULL - ROUGH_FROM)) : 0
+    s.rough = Math.max(stroke, s.rough * Math.exp(-dt / ROUGH_HEAL_MS))
+    if (s.rough < 0.02) s.rough = 0
+  }
+  s.scroll = thread.scroll
+  if (tick !== s.tick) {
+    s.clock += Math.min(BOIL_MS * 2, now - s.tickAt) * 0.00012 * s.wet
+    s.tick = tick
+    s.tickAt = now
+  }
+  return s
+}
+
+function hash(n: number): number {
+  const s = Math.sin(n * 127.1 + 311.7) * 43758.5453
+  return s - Math.floor(s)
+}
+/** Smooth value noise in [-1, 1]. */
+function vnoise(x: number): number {
+  const i = Math.floor(x)
+  const f = x - i
+  const u = f * f * (3 - 2 * f)
+  return (hash(i) * (1 - u) + hash(i + 1) * u) * 2 - 1
+}
+
+/**
+ * Dry brush: paper shows through the band in broken streaks along its run,
+ * riding with its text. Lifted out of this band's outline only.
+ */
+function dryBrush(ctx: CanvasRenderingContext2D, path: readonly { x: number, y: number }[], left: number[], right: number[], rough: number, flow: number, seed: number): void {
+  const n = path.length
+  ctx.save()
+  ctx.beginPath()
+  ctx.moveTo(left[0]!, path[0]!.y)
+  for (let k = 1; k < n; k++) ctx.lineTo(left[k]!, path[k]!.y)
+  for (let k = n - 1; k >= 0; k--) ctx.lineTo(right[k]!, path[k]!.y)
+  ctx.closePath()
+  ctx.clip()
+  ctx.globalCompositeOperation = 'destination-out'
+  ctx.lineCap = 'round'
+  const mid = n >> 1
+  const span = right[mid]! - left[mid]!
+  const lanes = Math.max(6, Math.min(28, Math.round(span / DRY_LANE_PX)))
+  const stretch = 0.6 + 1.2 * rough
+  for (let j = 0; j < lanes; j++) {
+    const h = hash(seed * 31 + j * 7.3)
+    const f = (j + 0.5) / lanes + ((h - 0.5) * 0.4) / lanes
+    const edge = Math.abs(f - 0.5) * 2
+    const strength = clamp01(rough * (0.55 + 0.6 * edge) * (0.6 + 0.6 * hash(seed + j * 3.1)))
+    if (strength < 0.03) continue
+    // Bristle gaps: long thin runs of bare paper, longer the faster it goes, with short breaks.
+    const on = (40 + 160 * hash(seed + j * 5.7)) * stretch
+    const period = on + (8 + 40 * hash(seed + j * 9.1)) / stretch
+    const phase = flow + 200 * hash(seed + j * 1.3)
+    ctx.strokeStyle = `rgba(0,0,0,${strength})`
+    ctx.lineWidth = 0.8 + (span / lanes) * 0.4 * h
+    ctx.beginPath()
+    let down = false
+    let px = 0
+    let py = 0
+    for (let k = 0; k < n; k++) {
+      const y = path[k]!.y
+      const pos = (((y + phase) % period) + period) % period
+      if (pos >= on) { down = false; continue }
+      // Along the band's smoothed outline: a bristle does not follow every ripple of the edge.
+      const a = k > 0 ? k - 1 : k
+      const b = k < n - 1 ? k + 1 : k
+      const l = (left[a]! + 2 * left[k]! + left[b]!) / 4
+      const x = l + ((right[a]! + 2 * right[k]! + right[b]!) / 4 - l) * f
+      // A streak runs with the current: where the band swings out sideways (a pool's rim), it breaks.
+      if (down && Math.abs(x - px) <= Math.abs(y - py)) ctx.lineTo(x, y); else ctx.moveTo(x, y)
+      down = true
+      px = x
+      py = y
+    }
+    ctx.stroke()
+  }
+  ctx.restore()
+  ctx.globalCompositeOperation = paper.night ? 'screen' : 'multiply'
+}
 
 function paintBand(ctx: CanvasRenderingContext2D, thread: Thread, visibility: number, ac: ApertureConfig, t: number, ocean: number, sigma: number, now: number): void {
   const path = thread._path
@@ -328,57 +463,13 @@ function paintBand(ctx: CanvasRenderingContext2D, thread: Thread, visibility: nu
   // The wash's grain rides with the text instead of standing still under it.
   const flow = fromText ? thread.scroll * 3 * ac.textureLineH : 0
 
-  if (fromText) {
-    let stain = stains.get(thread)
-    if (!stain || stain.left.length !== path.length) {
-      stain = { left: new Float32Array(path.length), right: new Float32Array(path.length), at: -1e12, wet: false }
-      stains.set(thread, stain)
-    }
-    const reading = thread.proximity > STAIN_PROX
-    if (reading) {
-      // A fresh pool starts a fresh stain; while it is read, the stain keeps its
-      // widest reach. It is kept where it lay on the sheet: currents move on.
-      const fresh = !stain.wet && now - stain.at > STAIN_LIFE_MS
-      for (let k = 0; k < path.length; k++) {
-        const h = eased(profile.half, k, 0) * GLAZE_WRAP[0] + GLAZE_MARGIN[0]
-        const l = path[k]!.x - h
-        const r = path[k]!.x + h
-        if (fresh || l < stain.left[k]!) stain.left[k] = l
-        if (fresh || r > stain.right[k]!) stain.right[k] = r
-      }
-      stain.at = now
-    }
-    stain.wet = reading
-    const dry = (now - stain.at) / STAIN_LIFE_MS
-    if (!reading && dry < 1) {
-      const fade = 1 - dry
-      // Only where the current was opened: wider than a resting band.
-      const opened = ac.restingWidth * GLAZE_WRAP[0] + GLAZE_MARGIN[0] * 2 + 30
-      ctx.fillStyle = `rgba(${ink},${Math.min(0.3, alpha * 1.1 * fade)})`
-      ctx.strokeStyle = `rgba(${ink},${Math.min(0.6, alpha * 3 * fade)})`
-      ctx.lineWidth = 1.6
-      let from = -1
-      for (let k = 0; k <= path.length; k++) {
-        const wide = k < path.length && stain.right[k]! - stain.left[k]! > opened
-        if (wide && from < 0) from = k
-        if (!wide && from >= 0) {
-          const to = k - 1
-          if (to > from) {
-            ctx.beginPath()
-            for (let j = from; j <= to; j++) {
-              const x = stain.left[j]! + 5 * wobble(path[j]!.y, seed + 31.7, 0)
-              if (j === from) ctx.moveTo(x, path[j]!.y); else ctx.lineTo(x, path[j]!.y)
-            }
-            for (let j = to; j >= from; j--) ctx.lineTo(stain.right[j]! + 5 * wobble(path[j]!.y, seed + 47.3, 0), path[j]!.y)
-            ctx.closePath()
-            ctx.fill()
-            ctx.stroke()
-          }
-          from = -1
-        }
-      }
-    }
-  }
+  // Its own clock (still while dry), how wet, and the drawing it is on.
+  const band = bandState(thread, now)
+  const w = band.wet
+  const bt = band.clock
+  const drawing = band.tick
+  // A brush running dry carries its pigment strong, in broken strokes.
+  const depth = (DRY_DEPTH + (WET_DEPTH - DRY_DEPTH) * w) * (1 + 0.9 * band.rough)
 
   let outerLeft: number[] = []
   let outerRight: number[] = []
@@ -386,29 +477,38 @@ function paintBand(ctx: CanvasRenderingContext2D, thread: Thread, visibility: nu
     const left: number[] = []
     const right: number[] = []
     const ls = seed + layer * 2.3
+    const wrap = DRY_WRAP[layer]! + (GLAZE_WRAP[layer]! - DRY_WRAP[layer]!) * w
+    const margin = DRY_MARGIN[layer]! + (GLAZE_MARGIN[layer]! - DRY_MARGIN[layer]!) * w
+    const boil = BOIL_PX * w * (1 - layer * 0.3)
     for (let k = 0; k < path.length; k++) {
       const p = path[k]!
       const wy = p.y + flow
-      let base = ac.restingWidth * 1.3 * GLAZE_WIDTH[layer]!
+      let base = ac.restingWidth * 1.3 * GLAZE_WIDTH[layer]! * (0.75 + 0.25 * w)
       let bulge = 0
       let swellAmp = 0.38
+      let ragged = 1
       if (fromText) {
         // The glaze lies under the lines actually drawn here: it widens where
         // they widen (the lens, a passing ring) and narrows where they narrow.
-        base = eased(profile.half, k, ac.restingWidth * 0.5) * GLAZE_WRAP[layer]! + GLAZE_MARGIN[layer]!
-        swellAmp = 0.16
+        base = eased(profile.half, k, ac.restingWidth * 0.5) * wrap + margin
+        swellAmp = 0.12 + 0.04 * w
+        ragged = 0.2 + 0.3 * w
       } else {
         // Ink pools where the page is being read.
         const dy = mouse && prox > 0 ? (p.y - mouse.y) / sigma : 9
         bulge = prox * openW * 0.52 * Math.exp(-dy * dy * 0.5) * GLAZE_BULGE[layer]!
       }
       // Each glaze sits a little off the one below it, so the strength is uneven across the band.
-      const shift = layer === 0 ? 0 : Math.min(base, ac.restingWidth) * 0.3 * wobble(wy * 0.7, ls + 11.3, t * 0.7)
+      const shift = layer === 0 ? 0 : Math.min(base, ac.restingWidth) * (0.15 + 0.15 * w) * wobble(wy * 0.7, ls + 11.3, bt * 0.7)
       // Slow swelling and thinning along the band, plus a finer ragged edge.
-      const swell = 1 + swellAmp * wobble(wy * 0.45, ls + 3.7, t * 0.5)
-      const ragged = fromText ? 0.5 : 1
-      const hl = (base * swell + bulge) * (1 + ragged * (0.24 * wobble(wy, ls, t) + 0.07 * wobble(wy * 3.6, ls + 1.9, t * 2)))
-      const hr = (base * swell + bulge) * (1 + ragged * (0.24 * wobble(wy, ls + 7.9, t) + 0.07 * wobble(wy * 3.6, ls + 5.2, t * 2)))
+      const swell = 1 + swellAmp * wobble(wy * 0.45, ls + 3.7, bt * 0.5)
+      let hl = (base * swell + bulge) * (1 + ragged * (0.24 * wobble(wy, ls, bt) + 0.07 * wobble(wy * 3.6, ls + 1.9, bt * 2)))
+      let hr = (base * swell + bulge) * (1 + ragged * (0.24 * wobble(wy, ls + 7.9, bt) + 0.07 * wobble(wy * 3.6, ls + 5.2, bt * 2)))
+      if (boil > 0) {
+        // Each drawing redraws the wet edge with a little fresh wander.
+        hl += boil * vnoise(wy * 0.055 + drawing * 17.31 + layer * 5.1)
+        hr += boil * vnoise(wy * 0.055 + drawing * 23.77 + layer * 3.3 + 40)
+      }
       left.push(p.x + shift - hl)
       right.push(p.x + shift + hr)
     }
@@ -418,7 +518,7 @@ function paintBand(ctx: CanvasRenderingContext2D, thread: Thread, visibility: nu
     for (let k = path.length - 1; k >= 0; k--) ctx.lineTo(right[k]!, path[k]!.y)
     ctx.closePath()
     // Pigment settles unevenly down the length of a wash.
-    const a = alpha * GLAZE_ALPHA[layer]!
+    const a = alpha * depth * GLAZE_ALPHA[layer]!
     const settle = ctx.createLinearGradient(0, top, 0, bottom)
     const stops = fromText ? 14 : 6
     for (let s = 0; s <= stops; s++) {
@@ -426,16 +526,16 @@ function paintBand(ctx: CanvasRenderingContext2D, thread: Thread, visibility: nu
       // Pigment gathers under fresh and woven voices and thins under sunken ones.
       const carried = fromText ? 0.45 + 0.6 * eased(profile.ink, Math.round(f * (path.length - 1)), 1) : 1
       const uneven = fromText ? 0.2 : 0.42
-      settle.addColorStop(f, `rgba(${ink},${a * carried * (1 + uneven * wobble(f * 900 + flow, ls + 23.1, t * 0.4))})`)
+      settle.addColorStop(f, `rgba(${ink},${a * carried * (1 + uneven * wobble(f * 900 + flow, ls + 23.1, bt * 0.4))})`)
     }
     ctx.fillStyle = settle
     ctx.fill()
     if (layer === 0) { outerLeft = left; outerRight = right }
   }
 
-  // Tide line: pigment gathers at the edge of a wash as it dries.
+  // Tide line: pigment gathers at the edge of a wash as it dries. A dry edge is a fine, crisp line.
   ctx.strokeStyle = `rgba(${ink},${alpha * 1.5})`
-  ctx.lineWidth = 1.3
+  ctx.lineWidth = 0.9 + 0.4 * w
   for (const edge of [outerLeft, outerRight]) {
     ctx.beginPath()
     ctx.moveTo(edge[0]!, path[0]!.y)
@@ -443,8 +543,8 @@ function paintBand(ctx: CanvasRenderingContext2D, thread: Thread, visibility: nu
     ctx.stroke()
   }
 
-  // Contours: the rings of floated ink, drawn out long by the current.
-  ctx.strokeStyle = `rgba(${ink},${alpha * 1.1})`
+  // Contours: the rings of floated ink, drawn out long by the current. Fainter on a dry band.
+  ctx.strokeStyle = `rgba(${ink},${alpha * (0.6 + 0.5 * w)})`
   ctx.lineWidth = 0.9
   for (let j = 0; j < 4; j++) {
     const frac = (j + 0.5) / 4
@@ -452,10 +552,28 @@ function paintBand(ctx: CanvasRenderingContext2D, thread: Thread, visibility: nu
     for (let k = 0; k < path.length; k++) {
       const p = path[k]!
       const span = outerRight[k]! - outerLeft[k]!
-      const x = outerLeft[k]! + span * (frac + 0.1 * wobble((p.y + flow) * 1.7, seed + j * 4.1, t * 1.6))
+      const x = outerLeft[k]! + span * (frac + 0.1 * wobble((p.y + flow) * 1.7, seed + j * 4.1, bt * 1.6))
       if (k === 0) ctx.moveTo(x, p.y); else ctx.lineTo(x, p.y)
     }
     ctx.stroke()
+  }
+
+  if (band.rough > 0) dryBrush(ctx, path, outerLeft, outerRight, band.rough, flow, seed)
+}
+
+/** The open current's readable block, as its text was last laid out, for the water to pour under. */
+function lensPour(touched: Thread | null, mouse: { x: number, y: number } | null, ac: ApertureConfig, now: number): LensPour | null {
+  if (!touched || !mouse || mouse.x <= -1000 || touched.proximity <= 0.05 || loomState.loomViewActive) return null
+  const profile = profiles.get(touched)
+  // As for crossings: a column not drawn lately (its current is out of sight) is not trusted.
+  if (!profile || now - profile.at > 400 || profile.half.length !== touched._path.length || touched._path.length < 2) return null
+  return {
+    thread: touched,
+    half: (k: number) => eased(profile.half, k, 0),
+    y: mouse.y,
+    sigma: DIVE_SIGMA_LINES * ac.diveLineH,
+    amount: touched.proximity,
+    reach: 1 + clamp01(touched.apiWarmth) * WARM_DIVE_BOOST,
   }
 }
 
@@ -477,6 +595,9 @@ export function paintWash(ctx: CanvasRenderingContext2D, scale: number, now: num
   const sigma = DIVE_SIGMA_LINES * ac.diveLineH * 1.25
   const touched = loomState.touchedThread
 
+  // The water first: the bands ask it how wet they are.
+  stepWater(now, lensPour(touched, mouse, ac, now))
+
   if (ocean > 0.01) {
     let touchedVisibility = 0
     for (let ti = 0; ti < loomState.threads.length; ti++) {
@@ -486,27 +607,9 @@ export function paintWash(ctx: CanvasRenderingContext2D, scale: number, now: num
       if (thread === touched) { touchedVisibility = v; continue }
       paintBand(ctx, thread, v, ac, t, ocean, sigma, now)
     }
-    if (touched && touchedVisibility > 0) {
-      if (touched.proximity > 0.05 && mouse && mouse.x > -1000) {
-        // Clear water under the lens: there, only the current being read keeps its ink.
-        const lx = pathXAtY(touched._path, mouse.y)
-        const rx = Math.max(40, Math.min(touched.balancedWidth, ac.openWidth) * 0.66)
-        const ry = sigma * 1.5
-        const strength = Math.min(1, touched.proximity * 1.4) * 0.92
-        ctx.save()
-        ctx.globalCompositeOperation = 'destination-out'
-        ctx.translate(lx, mouse.y)
-        ctx.scale(1, ry / rx)
-        const clear = ctx.createRadialGradient(0, 0, 0, 0, 0, rx)
-        clear.addColorStop(0, `rgba(0,0,0,${strength})`)
-        clear.addColorStop(0.72, `rgba(0,0,0,${strength * 0.85})`)
-        clear.addColorStop(1, 'rgba(0,0,0,0)')
-        ctx.fillStyle = clear
-        ctx.fillRect(-rx, -rx, rx * 2, rx * 2)
-        ctx.restore()
-      }
-      paintBand(ctx, touched, touchedVisibility, ac, t, ocean, sigma, now)
-    }
+    if (touched && touchedVisibility > 0) paintBand(ctx, touched, touchedVisibility, ac, t, ocean, sigma, now)
+    // Clean water where a current is read: the pigment under it cleared into a rim.
+    paintWater(ctx, ocean, paper.night ? 'screen' : 'multiply')
   }
 
   // Drops.

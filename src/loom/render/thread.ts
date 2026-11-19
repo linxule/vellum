@@ -14,11 +14,11 @@ const RELIFT = 0.85
 const CROSSING_MIN_STUB = 34
 import { loomState } from '../state.js'
 import { paper } from '../paper.js'
-import { wordlessWhileReading } from '../reading.js'
 import { copyCursor, isLineRTL, voiceGroupIndex, voiceSpanForLine, wholeWordWidth } from '../text.js'
 import { FONT_FAMILY, NEIGHBOR_LENS_FADE, AFTERGLOW_DIVE_GATE, AFTERGLOW_SILVER, BREATH_AMP, BREATH_SPATIAL, DEPTH_ALPHA, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, HL_FONT_BOOST, SIGNATURE_ALPHA, SIGNATURE_GRAY_MIX, SIGNATURE_RATIO, SPARSE_EDGE_FADE_PX, SUNKEN_DIM, SUNKEN_SURFACE_DIVE_T, WARM_BASE_ALPHA, WARM_DIVE_BOOST, ZERO_CURSOR, type ApertureConfig, type Thread } from '../types.js'
 import { depthColor, signatureGray, threadColor } from '../color.js'
 import { drawLine, drawLineSegmented } from './line.js'
+import { waterOver } from './water.js'
 
 type LaidOutLine = {
   text: string
@@ -339,8 +339,6 @@ export function renderThread(
   // A current that is being read is never cut by one that crosses it.
   const crossing = paper.on && washProfile !== null && thread.proximity < 0.15
   if (crossing) beginCrossing(thread)
-  // Read by touch, another current is open: this one keeps its wash and prints no words.
-  const wordless = paper.on && wordlessWhileReading(thread)
 
   for (let i = 0; i < laidOutLines.length; i++) {
     const line = laidOutLines[i]!
@@ -425,41 +423,57 @@ export function renderThread(
       if (ring[0] > 0.01) {
         lineAlpha = Math.min(1, lineAlpha + 0.5 * ring[0])
         paper.lineInk = Math.min(1, ring[0] * 1.6)
-        drawX += ring[1]
+        // The lines being read stay still: a ring gives them ink, never a push.
+        if (!(isPrimary && prox > 0.05)) drawX += ring[1]
       }
     }
 
     // 0.18 of the sheet's ink is cleared each frame, so print builds up to l / (0.18 + 0.82 l).
     if (relift > 0) lineAlpha += (Math.min(1, lineAlpha / (0.18 + 0.82 * lineAlpha)) - lineAlpha) * relift
 
-    // Passing under another current: the covered stretch of this line is not
-    // printed. A stub too short to read is dropped with it.
+    // What lies over this line is not printed: another current passing over it, or
+    // another current's clean water (render/water.ts). Thin or drying water only
+    // dims it, so words come back gently. A stub too short to read is dropped.
     let clipped = false
-    let unseen = wordless
-    if (crossing && !unseen) {
+    let unseen = false
+    let hideFrom = 0
+    let hideTo = 0
+    if (paper.on) {
       const x0 = drawX - halfW
       const x1 = drawX + halfW
-      const span = hiddenSpan(x0, x1, line.y, now)
-      if (span[0] < span[1]) {
-        const left = span[0] - x0
-        const right = x1 - span[1]
-        const keepLeft = left >= CROSSING_MIN_STUB
-        const keepRight = right >= CROSSING_MIN_STUB
-        if (!keepLeft && !keepRight) unseen = true
-        else {
-          const rowH = Math.abs((laidOutLines[i + 1]?.y ?? line.y + drawFontSize * 1.4) - line.y) + 4
-          ctx.save()
-          ctx.beginPath()
-          if (keepLeft) ctx.rect(x0 - 20, line.y - rowH * 0.5, left + 20, rowH)
-          if (keepRight) ctx.rect(span[1], line.y - rowH * 0.5, right + 20, rowH)
-          ctx.clip()
-          clipped = true
-        }
+      if (crossing) {
+        const span = hiddenSpan(x0, x1, line.y, now)
+        hideFrom = span[0]
+        hideTo = span[1]
+      }
+      const water = waterOver(thread, x0, x1, line.y)
+      if (water[0] < water[1]) {
+        if (hideFrom < hideTo) { hideFrom = Math.min(hideFrom, water[0]); hideTo = Math.max(hideTo, water[1]) }
+        else { hideFrom = water[0]; hideTo = water[1] }
+      }
+      if (water[2] > 0) lineAlpha *= 1 - water[2]
+    }
+    if (hideFrom < hideTo) {
+      const x0 = drawX - halfW
+      const x1 = drawX + halfW
+      const left = hideFrom - x0
+      const right = x1 - hideTo
+      const keepLeft = left >= CROSSING_MIN_STUB
+      const keepRight = right >= CROSSING_MIN_STUB
+      if (!keepLeft && !keepRight) unseen = true
+      else {
+        const rowH = Math.abs((laidOutLines[i + 1]?.y ?? line.y + drawFontSize * 1.4) - line.y) + 4
+        ctx.save()
+        ctx.beginPath()
+        if (keepLeft) ctx.rect(x0 - 20, line.y - rowH * 0.5, left + 20, rowH)
+        if (keepRight) ctx.rect(hideTo, line.y - rowH * 0.5, right + 20, rowH)
+        ctx.clip()
+        clipped = true
       }
     }
 
     if (unseen) {
-      // under another current: nothing is printed
+      // under another current, or its water: nothing is printed
     } else if (isPrimary && prox > 0.2) {
       drawLineSegmented(ctx, thread, line.lineStart, line.lineEnd, line.text, drawX, line.y, line.width, line.contentWidth, lineAlpha, prox, rel, i, laidOutLines.length, line.rtl, voiceActive || hlActive, mouse.x, restW, openW, drawFontRatio, now, line.diveT)
     } else {

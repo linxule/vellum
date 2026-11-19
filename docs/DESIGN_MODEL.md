@@ -42,7 +42,7 @@ Two old Japanese crafts, one for the ear and one for the eye. **Suikinkutsu**: a
 - the wash takes its outline and its strength from the words on it, and moves with them;
 - a ring spreads from where its note fell, rides along with its current's text, leans with the current, and darkens the lines it passes through;
 - where two currents cross, one passes over: the lower one's words stop at its edge and only its colour carries on beneath;
-- reading a current opens it into a pool, and the others part around the pool; when the reader leaves, the pool's outline stays on the sheet as a stain and dries over about half a minute;
+- the pointer, or a finger, is a drop of clean water: where a current is read, the wash's pigment is pushed out from under its readable lines into an uneven rim, and the other currents' words are not printed under that water; when the reader leaves, the water dries from its thin edges, the words come back, and a fine tide line stays where the water stopped and fades over about half a minute (see Water below);
 - a lineage is floated ink: the seed is a pool, each generation a ring around it, ancestors above, descendants sharing the rest.
 
 **What it must not become.** No new controls: every element above is a mark the existing surface makes (VISION: stay within the vocabulary). Nothing on the sheet marks standing: a permanent voice looks like any other (a seal was tried and declined, 2026-11-19; `/api/state` carries no permanence field). Instruments belong to currents, never to models.
@@ -54,11 +54,51 @@ Two old Japanese crafts, one for the ear and one for the eye. **Suikinkutsu**: a
 | `WASH_SCALE` | `sketch.ts` | 0.6 | wash canvas resolution; painted every other frame |
 | `RING_STRETCH` | `render/wash.ts` | 0.45 | how far a ring stretches along its current |
 | `GLAZE_WRAP` / `GLAZE_MARGIN` | `render/wash.ts` | 1.34, 1.02, 0.62 / 12, 5, 0 | the three glazes' width relative to the text column |
-| `STAIN_LIFE_MS` | `render/wash.ts` | 26000 | drying time of a read pool's stain |
 | `CROSSING_MIN_STUB` | `render/thread.ts` | 34 px | a covered line's leftover piece shorter than this is not printed |
 | `RING_PUSH` | `render/wash.ts` | 7 px | how far a passing ring pushes a line aside (widening the column under a ring was tried and dropped: the re-wrap leaves doubled print) |
 | `paper.alphaGain` | `loom/paper.ts` | 1.3 day, 1.12 night | thin dark type reads fainter than light type on dark |
 
+
+### Water: wet and dry (2026-11-19)
+
+Touch wets, time dries. A coarse grid of water lies over the sheet (`render/water.ts`), fixed to the sheet, not to the currents: they move on, the water stays where it fell.
+
+- **The clear is the lens's, not the physics'.** While a current is open, clean water is held under its readable lines (those the lens magnifies past `READABLE`), as wide as they are plus a margin, narrowing where they fall back to resting size. Its edge is lobed by the paper's grain. The spreading only moves water where paper is already wet (flux grows with wetness to the power 1.5, more easily along the fibres), so the block keeps its shape; physics shapes the edges, the drying and the tide line.
+- **Pigment pushed out.** The water clears the wash under it (to `CLEAR_MAX`, a breath of tint stays) and the pigment gathers at its thin front: heavier low and on one side (chosen per read), thin or missing in stretches, so the rim never reads as a frame. Multiply by day, screen by night.
+- **Words under water.** One rule (`waterOver`), used by the text painter: another current's words are not printed where water at least `HIDING_WATER` deep lies over them; thinner water dims them, so they come back gently as it dries. The current being read is never covered by its own water. Held by touch, or on a small sheet, the open current's water counts as covering the whole sheet (`wordlessAmount`, fading in between `WORDLESS_FROM` and `WORDLESS_PROXIMITY`).
+- **Drying.** Thin water goes first; a read's water is gone in about seven seconds. Where it reached, a tide line (marching squares over the "reached" mask, stroked fine in the owner's ink) stays exactly in place and fades over `TIDE_LIFE_MS`. After that the sheet is dry and the water costs nothing.
+- **Wetness.** `wetnessOf(thread)` (0 dry to 1 standing water) is the water lying along a current: it rises fast while read and dries over seconds. The bands read it; nothing else does.
+- **Still lens.** On paper the current being read stops shimmering once its lens is open (`STILL_LENS_PROXIMITY`), and a ring gives its lines ink but never pushes them.
+- **Not yet.** Warmth does not wet a current (`WARMTH_DAMPNESS` is 0 on purpose: livelier edges where a current is read more would be a mark of standing). Finished reads are recorded (`readRecords`: outline, owner, time, at most `READ_RECORDS`) but not painted.
+
+| Constant | Where | Value | Meaning |
+|---|---|---|---|
+| `WATER_CELL` | `render/water.ts` | 6 px | grid cell |
+| `READABLE` | `render/water.ts` | 0.4 | lens magnification (the text painter's diveT) a line needs for water to lie under it |
+| `CLEAR_MAX` | `render/water.ts` | 0.94 | how much of the wash the water clears at most |
+| `HIDING_WATER` | `render/water.ts` | 0.25 | water this deep hides another current's words; thinner dims them |
+| `TIDE_LIFE_MS` | `render/water.ts` | 26000 | how long a dried tide line takes to fade |
+| `WARMTH_DAMPNESS` | `render/water.ts` | 0 | where warmth would make paper damp; zero by design |
+| rim alpha | `render/water.ts` `buildMasks` | ≤ 0.36 | pushed pigment, fuller while wet; tide strokes 0.08/0.16/0.26 at 0.9 px |
+| `STILL_LENS_PROXIMITY` | `render/line.ts` | 0.3 | proximity at which the read text is dead still |
+| `WORDLESS_FROM` | `loom/reading.ts` | 0.2 | below this the open current no longer quiets the others' words |
+
+### Dry and wet bands (2026-11-19)
+
+The sheet has one more state, wetness: touch wets, time dries (`render/water.ts` owns the water; the bands only ask `wetnessOf`). Water is what spreads paint, so the bands follow it.
+
+- **Dry is thin and still.** A current at rest is its column of words on a narrow, pale stain that reaches only a little past them, with a fine tide line, and bare paper between it and its neighbours. Its shape rides with its text but has no motion of its own: the band's clock runs only while it is wet. On a 1440 px sheet about 26% of the wash canvas carries ink at rest (was 39%); on a 390 px phone about 51% (was 78%).
+- **Wet spreads and moves.** As a current gets wet its glazes widen to their full reach, deepen, and its edge is redrawn on a slow clock, eight drawings a second, a couple of pixels of fresh wander each time, in proportion to wetness, as in hand-drawn animation. Text is never redrawn on that clock. Wetness is eased (a quarter second rising, nearly a second falling) so neither change is a pop.
+- **Speed roughens.** Text moving fast (a flick of the wheel, a drag of the read current) breaks its band into dry-brush streaks: long thin runs of bare paper along the band, riding with its words, and the remaining pigment stronger. They heal within about a second as it slows. A jump of the text (a wrap, a voice brought into view) is not a stroke.
+
+| Constant | Where | Value | Meaning |
+|---|---|---|---|
+| `DRY_WRAP` / `DRY_MARGIN` | `render/wash.ts` | 1.02, 0.8, 0.48 / 2, 0, 0 | the three glazes' reach when dry (wet: `GLAZE_WRAP` / `GLAZE_MARGIN`) |
+| `DRY_DEPTH` / `WET_DEPTH` | `render/wash.ts` | 0.9 / 1.2 | pigment strength, dry and wet |
+| `BOIL_MS` / `BOIL_PX` | `render/wash.ts` | 125 / 2.2 px | the slow clock; how far a fully wet outer edge wanders per drawing (inner glazes less) |
+| `WET_RISE_MS` / `WET_DRY_MS` | `render/wash.ts` | 250 / 900 | easing of wetness on the band's side |
+| `ROUGH_FROM` / `ROUGH_FULL` / `ROUGH_JUMP` | `render/wash.ts` | 30 / 150 / 600 lines/s | where dry brush starts, is full, and where a move counts as a jump |
+| `ROUGH_HEAL_MS` / `DRY_LANE_PX` | `render/wash.ts` | 350 / 7 px | how fast streaks heal; their spacing across a band |
 
 ### Reading by touch (2026-11-19)
 
