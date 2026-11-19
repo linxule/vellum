@@ -8,7 +8,7 @@ import {
   addRipple, beginCrossing, beginWashProfile, grainTile, hiddenSpan, markWashLine, paintWash,
   pointOnCurrent, randomCurrent, resetWashForTest, ringsOnLine,
 } from '../../src/loom/render/wash.js'
-import { setWaterCanvasForTest } from '../../src/loom/render/water.js'
+import { setWaterCanvasForTest, TIDE } from '../../src/loom/render/water.js'
 import { paintedPaths, paintRecorder, rgbaAlpha } from './paint-recorder.js'
 
 const VW = 1440
@@ -465,7 +465,7 @@ describe('water on the wash', () => {
     const lines = paintedPaths(paint(NOW + 12000).calls).filter(p => p.op === 'stroke')
     expect(lines.length).toBeGreaterThan(resting)
     expect(lines.every(p => typeof p.style === 'string' && p.style.startsWith('rgba(0,108,182,'))).toBe(true)
-    expect(Math.max(...lines.map(p => rgbaAlpha(p.style)))).toBeLessThanOrEqual(0.26)
+    expect(Math.max(...lines.map(p => rgbaAlpha(p.style)))).toBeLessThanOrEqual(TIDE[2])
   })
 
   test('the water fades with the ocean as the lineage view opens', () => {

@@ -5,7 +5,7 @@ import { shimmerKeep, STILL_LENS_PROXIMITY } from '../../src/loom/render/line.js
 import { resetWashForTest } from '../../src/loom/render/wash.js'
 import {
   contour, HIDING_WATER, newField, pour, readRecords, resetWater, rimBias, stepField, stepWater,
-  TIDE_LIFE_MS, WATER_CELL, waterForTest, waterOver, wetnessOf, type Bloom, type LensPour,
+  TIDE_HOLD, TIDE_LIFE_MS, tideStrength, WATER_CELL, waterForTest, waterOver, wetnessOf, type Bloom, type LensPour,
 } from '../../src/loom/render/water.js'
 import { loomState, resetLoomState } from '../../src/loom/state.js'
 import type { Thread } from '../../src/loom/types.js'
@@ -90,9 +90,37 @@ describe('the field', () => {
     newField(600, 600)
     pour(block(150, 200, 300, 50), 0, 1, 1)
     pour(block(450, 200, 300, 50), 1, 0.2, 1)
-    steps(10)
+    steps(15)
     expect(sumWater(0, 299)).toBeGreaterThan(10)
     expect(sumWater(300, 600)).toBe(0)
+  })
+
+  test('let go, a pool dries from its edge inward: its middle stays wet longest', () => {
+    newField(600, 600)
+    pour(block(300, 150, 450, 120), 0, 1, 1)
+    const f = waterForTest()
+    const at = (x: number, y: number) => f.water[Math.round(y / WATER_CELL) * f.gw + Math.round(x / WATER_CELL)]!
+    steps(20) // 2 s
+    expect(at(300, 300)).toBeGreaterThan(0.9)
+    expect(at(300, 160)).toBe(0) // near its top
+    expect(at(395, 300)).toBe(0) // near its side
+    expect(at(300, 230)).toBeGreaterThan(0.9) // further in: not yet
+    steps(50)
+    expect(sumWater(0, 600)).toBe(0)
+  })
+
+  test('water never poured, spread into the paper, dries as slowly as it always did', () => {
+    // A thin film placed by hand (no pour, no soak): dw/dt = -(0.05 + 0.22 (1 - w)).
+    newField(600, 600)
+    pour(block(300, 200, 300, 40), 0, 1, 1)
+    const f = waterForTest()
+    // Just below the block, inside the box that is worked on, beside dry paper.
+    const i = Math.round(318 / WATER_CELL) * f.gw + Math.round(300 / WATER_CELL)
+    f.water[i] = 0.2
+    f.owner[i] = 0
+    stepField(0.1, null)
+    // The slow law leaves about 0.18; the drying of let-go water would leave nothing.
+    expect(f.water[i]).toBeGreaterThan(0.14)
   })
 
   test('a slot\'s water stays its own where another\'s spreads beside it', () => {
@@ -139,6 +167,29 @@ describe('the field', () => {
     }
     expect(own).toBeGreaterThan(0)
     expect(other).toBe(0)
+  })
+})
+
+describe('the tide line', () => {
+  test('held at full strength for its first stretch, then fading to nothing', () => {
+    expect(tideStrength(1, 0, 1, 0)).toBe(1)
+    expect(tideStrength(1, 0, 1 - TIDE_HOLD, 0)).toBe(1) // TIDE_HOLD of its life in: still full
+    const mid = tideStrength(1, 0, (1 - TIDE_HOLD) / 2, 0)
+    expect(mid).toBeGreaterThan(0.3)
+    expect(mid).toBeLessThan(0.7)
+    expect(tideStrength(1, 0, 0, 0)).toBe(0)
+  })
+
+  test('broken where little pigment gathered: faint only where the grain is open, absent where it is closed', () => {
+    expect(tideStrength(0, 0.2, 1, 0)).toBe(0)
+    const open = tideStrength(0, 0.9, 1, 0)
+    expect(open).toBeGreaterThan(0)
+    expect(open).toBeLessThan(0.5) // weaker than where pigment gathered
+    expect(tideStrength(0.5, 0.2, 1, 0)).toBe(1)
+  })
+
+  test('only where the paper is dry', () => {
+    expect(tideStrength(1, 1, 1, 0.2)).toBe(0)
   })
 })
 
@@ -261,6 +312,157 @@ describe('how wet a current is', () => {
     const xs = [...record!.outline].filter((_, i) => i % 2 === 0)
     expect(Math.min(...xs)).toBeGreaterThan(450)
     expect(Math.max(...xs)).toBeLessThan(950)
+  })
+})
+
+/** Cells of the pale patch (the wash cleared by more than a third). */
+function patch(): number {
+  let n = 0
+  for (const c of waterForTest().clear) if (c > 0.3) n++
+  return n
+}
+
+describe('drying that can be watched', () => {
+  test('while a current is read, the water under its lines holds still and does not start drying', () => {
+    const read = current(700)
+    stage([read])
+    let t = run(1000, 3000, lens(read))
+    const f = waterForTest()
+    const before = [Float32Array.from(f.water), Float32Array.from(f.clear)]
+    t = run(t, t + 1500, lens(read))
+    const after = waterForTest()
+    let most = 0
+    let held = 0
+    for (let i = 0; i < before[0]!.length; i++) {
+      if (before[0]![i]! < 0.9) continue // the pool's thin tips creep a little, as they always have
+      held++
+      most = Math.max(most, Math.abs(after.water[i]! - before[0]![i]!), Math.abs(after.clear[i]! - before[1]![i]!))
+    }
+    expect(held).toBeGreaterThan(1000)
+    expect(most).toBeLessThan(0.02)
+    // Poured water dries only by the slow law: under the lines it stays all but full.
+    expect(after.water.filter(w => w > 0.98).length).toBeGreaterThan(1000)
+  })
+
+  test('let go, the pool recedes from the first second: half gone by 3 s, all by 6.5 s', () => {
+    const read = current(700)
+    stage([read])
+    let t = run(1000, 5000, lens(read))
+    const full = patch()
+    expect(full).toBeGreaterThan(1000)
+    const sizes: number[] = []
+    for (let k = 1; k <= 26; k++) {
+      t = run(t, t + 250, null)
+      sizes.push(patch())
+    }
+    // Within the first second the edge has visibly drawn in.
+    expect(sizes[3]!).toBeLessThan(full * 0.92)
+    // About half by 2 to 3 s, gone by 6.5 s.
+    expect(sizes[7]!).toBeLessThan(full * 0.65)
+    expect(sizes[7]!).toBeGreaterThan(full * 0.25)
+    expect(sizes[25]!).toBe(0)
+    // Steadily: never growing, never losing more than a sixth of the pool in a quarter second.
+    let prev = full
+    for (const n of sizes) {
+      expect(n).toBeLessThanOrEqual(prev)
+      expect(prev - n).toBeLessThan(full / 6)
+      prev = n
+    }
+  })
+
+  test('on a slow phone the water still dries in real time', () => {
+    // 12 frames a second, the wash painted every second one: a step every 166 ms.
+    const read = current(700)
+    stage([read])
+    let t = run(1000, 5000, lens(read))
+    const full = patch()
+    let half = 0
+    for (let k = 1; k <= 39; k++) {
+      t += 166
+      stepWater(t, null)
+      if (k === 15) half = patch() // 2.5 s
+    }
+    expect(half).toBeLessThan(full * 0.65)
+    expect(patch()).toBe(0) // 6.5 s
+  })
+
+  test('the tide line is left where the water reached, not where it last stood', () => {
+    const read = current(700)
+    stage([read])
+    let t = run(1000, 3000, lens(read))
+    const f = waterForTest()
+    const reached = Float32Array.from(f.reach)
+    t = run(t, t + 3000, null)
+    // Most of the pool has dried; everywhere it reached is still marked reached.
+    const now = waterForTest()
+    let lost = 0
+    for (let i = 0; i < reached.length; i++) if (reached[i]! > 0 && now.reach[i] === 0) lost++
+    expect(lost).toBe(0)
+    expect(patch()).toBeLessThan(reached.filter(r => r > 0).length * 0.5)
+  })
+
+  test('another current\'s words come back behind the retreating edge, not all at once', () => {
+    enablePaper()
+    const read = current(700, ['attention'])
+    const other = current(720, ['memory'])
+    stage([read, other])
+    let t = run(1000, 5000, lens(read))
+    const spans = new Set<number>()
+    let first = 0
+    for (let k = 0; k < 40; k++) {
+      t = run(t, t + 150, null)
+      const [from, to] = waterOver(other, 400, 1000, 450)
+      const span = Math.max(0, to - from)
+      if (k === 0) first = span
+      spans.add(span)
+    }
+    expect(first).toBeGreaterThan(200)
+    // The hidden stretch narrowed through many widths on its way to nothing.
+    expect([...spans].filter(s => s > 0 && s < first).length).toBeGreaterThan(5)
+    expect(spans.has(0)).toBe(true)
+  })
+})
+
+describe('a resized sheet', () => {
+  const cellOf = (x: number, y: number) => Math.round(y / WATER_CELL) * waterForTest().gw + Math.round(x / WATER_CELL)
+
+  test('only its height changed: the water stays where it lies', () => {
+    const read = current(700)
+    stage([read])
+    let t = run(1000, 3000, lens(read))
+    const wet = waterForTest().water[cellOf(700, 450)]!
+    expect(wet).toBeGreaterThan(0.9)
+    loomState.VH = VH - 80 // the phone's bars
+    t = run(t, t + 33, null)
+    const f = waterForTest()
+    expect(f.dry).toBe(false)
+    expect(f.gh).toBe(Math.ceil((VH - 80) / WATER_CELL) + 2)
+    expect(f.water[cellOf(700, 450)]).toBeGreaterThan(0.9)
+    expect(f.owner[cellOf(700, 450)]).toBe(0)
+    // And it still dries, then leaves its record.
+    run(t, t + 10000, null)
+    expect(sumWater(0, VW)).toBe(0)
+    expect(readRecords()).toHaveLength(1)
+  })
+
+  test('taller again: the new strip is dry and the water above it carried', () => {
+    const read = current(700)
+    stage([read])
+    let t = run(1000, 3000, lens(read))
+    loomState.VH = VH + 120
+    t = run(t, t + 33, null)
+    const f = waterForTest()
+    expect(f.water[cellOf(700, 450)]).toBeGreaterThan(0.9)
+    expect(f.water[cellOf(700, VH + 60)]).toBe(0)
+  })
+
+  test('its width changed: the sheet starts dry', () => {
+    const read = current(700)
+    stage([read])
+    let t = run(1000, 3000, lens(read))
+    loomState.VW = VW - 200
+    run(t, t + 33, null)
+    expect(waterForTest().dry).toBe(true)
   })
 })
 
