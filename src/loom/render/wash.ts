@@ -340,6 +340,9 @@ let wetSource: (thread: Thread) => number = wetnessOf
 /** Test-only: how wet each current is, in place of water.ts. */
 export function setWetnessForTest(source: ((thread: Thread) => number) | null): void { wetSource = source ?? wetnessOf }
 
+/** Where the text lies along its current, for the wash to ride: the scroll, less any renumbering of it (refresh.ts). */
+const textScroll = (thread: Thread): number => thread.scroll - (thread._scrollBase ?? 0)
+
 /** How wet and how rough a band is now, and its own clock, which runs only while it is wet. */
 function bandState(thread: Thread, now: number): BandState {
   let key = bandKeys.get(thread)
@@ -348,7 +351,7 @@ function bandState(thread: Thread, now: number): BandState {
   const tick = Math.floor(now / BOIL_MS)
   let s = bandStates.get(key)
   if (!s) {
-    s = { wet: target, rough: 0, scroll: thread.scroll, at: now, tick, tickAt: now, clock: 0 }
+    s = { wet: target, rough: 0, scroll: textScroll(thread), at: now, tick, tickAt: now, clock: 0 }
     bandStates.set(key, s)
     return s
   }
@@ -360,7 +363,7 @@ function bandState(thread: Thread, now: number): BandState {
   if (Math.abs(target - s.wet) < 0.002) s.wet = target
   if (dt > 0) {
     // The scroll wraps at the end of the text: the shorter way round is how far it moved.
-    let moved = Math.abs(thread.scroll - s.scroll)
+    let moved = Math.abs(textScroll(thread) - s.scroll)
     const lap = thread.totalLines / 3
     if (lap > 0 && moved > lap / 2) moved = Math.abs(lap - (moved % lap))
     const rate = (moved * 3 * 1000) / dt
@@ -368,7 +371,7 @@ function bandState(thread: Thread, now: number): BandState {
     s.rough = Math.max(stroke, s.rough * Math.exp(-dt / ROUGH_HEAL_MS))
     if (s.rough < 0.02) s.rough = 0
   }
-  s.scroll = thread.scroll
+  s.scroll = textScroll(thread)
   if (tick !== s.tick) {
     s.clock += Math.min(BOIL_MS * 2, now - s.tickAt) * 0.00012 * s.wet
     s.tick = tick
@@ -484,7 +487,7 @@ function paintBand(ctx: CanvasRenderingContext2D, thread: Thread, visibility: nu
   const profile = profiles.get(thread)
   const fromText = profile !== undefined && profile.half.length === path.length
   // The wash's grain rides with the text instead of standing still under it.
-  const flow = fromText ? thread.scroll * 3 * ac.textureLineH : 0
+  const flow = fromText ? textScroll(thread) * 3 * ac.textureLineH : 0
 
   // Its own clock (still while dry), how wet, and the drawing it is on.
   const band = bandState(thread, now)
