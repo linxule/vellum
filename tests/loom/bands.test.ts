@@ -182,4 +182,22 @@ describe('dry brush', () => {
   test('a jump of the text (a wrap, a voice brought into view) is not a stroke', () => {
     expect(dryStrokes(flick(5000).calls)).toHaveLength(0)
   })
+
+  test('a band not painted for a while (the lineage view, a hidden tab) does not come back streaked', () => {
+    const c = current(700)
+    stage([c])
+    paint([c], 1000)
+    // A minute of the text's own slow drift, none of it painted.
+    c.scroll += 60 * 0.12
+    expect(dryStrokes(paint([c], 61000).calls)).toHaveLength(0)
+  })
+
+  test('the scroll wrapping at the end of a short text is not a stroke', () => {
+    const c = current(700, { totalLines: 12, scroll: 0.05 })
+    stage([c])
+    paint([c], 1000)
+    // Dragged back past its start: the scroll jumps by a whole lap, the text by a fraction of a line.
+    c.scroll += 12 / 3 - 0.06
+    expect(dryStrokes(paint([c], 1100).calls)).toHaveLength(0)
+  })
 })

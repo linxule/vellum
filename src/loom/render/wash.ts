@@ -96,8 +96,10 @@ export function beginCrossing(thread: Thread): void {
   for (const index of loomState.sortedThreadIndices) {
     const other = loomState.threads[index]!
     if (other === thread) { later = true; continue }
-    // An open current's pool is water, not a crossing: render/water.ts hides the words under it.
-    if (later) lyingOver.push(other)
+    // A current that is open lies over all the others, wherever it sorts (it is
+    // painted last): their words part around its whole pool. Its clean water
+    // (render/water.ts) covers only the readable core and lingers after it closes.
+    if (later || other.proximity > OPEN_PROXIMITY) lyingOver.push(other)
   }
 }
 
@@ -350,19 +352,25 @@ function bandState(thread: Thread, now: number): BandState {
     bandStates.set(key, s)
     return s
   }
+  // After a gap (the lineage view, a hidden tab, a current out of sight) nothing is measured across it.
+  const gap = now - s.at > 250
   const dt = Math.max(0, Math.min(250, now - s.at))
   s.at = now
   s.wet += (target - s.wet) * (1 - Math.exp(-dt / (target > s.wet ? WET_RISE_MS : WET_DRY_MS)))
   if (Math.abs(target - s.wet) < 0.002) s.wet = target
   if (dt > 0) {
-    const rate = (Math.abs(thread.scroll - s.scroll) * 3 * 1000) / dt
-    const stroke = rate < ROUGH_JUMP && !loomState.phantomFocus ? clamp01((rate - ROUGH_FROM) / (ROUGH_FULL - ROUGH_FROM)) : 0
+    // The scroll wraps at the end of the text: the shorter way round is how far it moved.
+    let moved = Math.abs(thread.scroll - s.scroll)
+    const lap = thread.totalLines / 3
+    if (lap > 0 && moved > lap / 2) moved = Math.abs(lap - (moved % lap))
+    const rate = (moved * 3 * 1000) / dt
+    const stroke = !gap && rate < ROUGH_JUMP && !loomState.phantomFocus ? clamp01((rate - ROUGH_FROM) / (ROUGH_FULL - ROUGH_FROM)) : 0
     s.rough = Math.max(stroke, s.rough * Math.exp(-dt / ROUGH_HEAL_MS))
     if (s.rough < 0.02) s.rough = 0
   }
   s.scroll = thread.scroll
   if (tick !== s.tick) {
-    s.clock += (now - s.tickAt) * 0.00012 * s.wet
+    s.clock += Math.min(BOIL_MS * 2, now - s.tickAt) * 0.00012 * s.wet
     s.tick = tick
     s.tickAt = now
   }
@@ -554,10 +562,11 @@ function paintBand(ctx: CanvasRenderingContext2D, thread: Thread, visibility: nu
 }
 
 /** The open current's readable block, as its text was last laid out, for the water to pour under. */
-function lensPour(touched: Thread | null, mouse: { x: number, y: number } | null, ac: ApertureConfig): LensPour | null {
+function lensPour(touched: Thread | null, mouse: { x: number, y: number } | null, ac: ApertureConfig, now: number): LensPour | null {
   if (!touched || !mouse || mouse.x <= -1000 || touched.proximity <= 0.05 || loomState.loomViewActive) return null
   const profile = profiles.get(touched)
-  if (!profile || profile.half.length !== touched._path.length || touched._path.length < 2) return null
+  // As for crossings: a column not drawn lately (its current is out of sight) is not trusted.
+  if (!profile || now - profile.at > 400 || profile.half.length !== touched._path.length || touched._path.length < 2) return null
   return {
     thread: touched,
     half: (k: number) => eased(profile.half, k, 0),
@@ -587,7 +596,7 @@ export function paintWash(ctx: CanvasRenderingContext2D, scale: number, now: num
   const touched = loomState.touchedThread
 
   // The water first: the bands ask it how wet they are.
-  stepWater(now, lensPour(touched, mouse, ac))
+  stepWater(now, lensPour(touched, mouse, ac, now))
 
   if (ocean > 0.01) {
     let touchedVisibility = 0

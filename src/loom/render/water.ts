@@ -220,6 +220,8 @@ export function stepField(dt: number, bloom: Bloom | null): boolean {
         const a = water[i]!
         // Right neighbour, then the one below: each pair once.
         for (let j = i + 1; j <= i + gw; j += gw - 1) {
+          // Not into the sheet's border cells: they are never stepped, so water there would never dry.
+          if (j === i + 1 ? x >= gw - 2 : y >= gh - 2) continue
           const b = water[j]!
           if (a <= 0.002 && b <= 0.002) continue
           // Water runs only where the paper is already wet (flux ~ w^1.5), more easily
@@ -229,9 +231,9 @@ export function stepField(dt: number, bloom: Bloom | null): boolean {
           const f = Math.min(0.2, 7 * h * m * Math.sqrt(m) * (0.08 + 2.2 * p * p)) * (a - b)
           next[i]! -= f
           next[j]! += f
-          // Dry paper takes the owner of the water it receives.
-          if (f > 0 && owner[j]! < 0) owner[j] = owner[i]!
-          else if (f < 0 && owner[i]! < 0) owner[i] = owner[j]!
+          // Dry paper takes the owner of the water it receives, an old read's dried trace included.
+          if (f > 0 && (owner[j]! < 0 || b <= 0.004)) owner[j] = owner[i]!
+          else if (f < 0 && (owner[i]! < 0 || a <= 0.004)) owner[i] = owner[j]!
         }
       }
     }
@@ -343,7 +345,8 @@ let bloom: Bloom | null = null
 /** Owner slots: a current's group key, so a slot outlives a rebuilt Thread object. */
 const slotKeys: string[] = []
 let slotOfThread = new WeakMap<Thread, number>()
-let wetness = new WeakMap<Thread, number>()
+/** By group key, like the slots: a current rebuilt when voices arrive stays as wet as it was. */
+const wetness = new Map<string, number>()
 let anyWet = false
 
 /** What a finished read leaves behind: where its water reached, whose it was, when it dried. No pixels. */
@@ -374,7 +377,7 @@ function slotOf(thread: Thread, make = false): number {
 
 /** How wet this current is now, 0 (dry: thin, still, crisp) to 1 (under standing water). */
 export function wetnessOf(thread: Thread): number {
-  return clamp01(Math.max(wetness.get(thread) ?? 0, WARMTH_DAMPNESS * clamp01(thread.apiWarmth)))
+  return clamp01(Math.max(wetness.get(threadGroupKey(thread.familyNames)) ?? 0, WARMTH_DAMPNESS * clamp01(thread.apiWarmth)))
 }
 
 /** The open current's readable block, as the text painter last laid it out. */
@@ -442,7 +445,7 @@ export function stepWater(now: number, lens: LensPour | null): void {
   const dt = lastStep > 0 ? Math.max(0, Math.min(0.1, (now - lastStep) / 1000)) : 1 / 30
   lastStep = now
   if (!lens && isDry() && !anyWet) { bloom = null; return }
-  if (fieldW !== vw || fieldH !== vh) newField(vw, vh)
+  if (fieldW !== vw || fieldH !== vh) { newField(vw, vh); ending.clear() }
   const shape = lens && lens.amount > 0.05 ? lensRows(lens, vw) : null
   if (lens && shape) {
     const slot = slotOf(lens.thread, true)
@@ -473,11 +476,12 @@ export function stepWater(now: number, lens: LensPour | null): void {
         lying = Math.max(lying, waterAt(p.x, p.y), waterAt(p.x - reachX, p.y), waterAt(p.x + reachX, p.y))
       }
     }
-    const was = wetness.get(thread) ?? 0
+    const key = threadGroupKey(thread.familyNames)
+    const was = wetness.get(key) ?? 0
     const target = Math.min(1, lying * 1.25)
     let w = was + (target - was) * Math.min(1, dt * (target > was ? 4 : 0.8))
     if (w < 0.002 && target === 0) w = 0
-    wetness.set(thread, w)
+    if (w > 0) wetness.set(key, w); else wetness.delete(key)
     if (w > 0) anyWet = true
   }
 }
@@ -615,7 +619,7 @@ function strokeGroups(ctx: CanvasRenderingContext2D, groups: Map<number, number[
 }
 
 // The tide line once dry: fine and delicate, broken where little pigment reached.
-const TIDE = [0.06, 0.12, 0.2]
+const TIDE = [0.08, 0.16, 0.26]
 
 /**
  * Paints the water onto the wash, after the bands and before the rings: the clean
@@ -676,7 +680,7 @@ export function resetWater(): void {
   anyWet = false
   slotKeys.length = 0
   slotOfThread = new WeakMap()
-  wetness = new WeakMap()
+  wetness.clear()
   records.length = 0
   ending.clear()
   slotInk.length = 0

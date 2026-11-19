@@ -79,7 +79,7 @@ Touch wets, time dries. A coarse grid of water lies over the sheet (`render/wate
 | `HIDING_WATER` | `render/water.ts` | 0.25 | water this deep hides another current's words; thinner dims them |
 | `TIDE_LIFE_MS` | `render/water.ts` | 26000 | how long a dried tide line takes to fade |
 | `WARMTH_DAMPNESS` | `render/water.ts` | 0 | where warmth would make paper damp; zero by design |
-| rim alpha | `render/water.ts` `buildMasks` | ≤ 0.36 | pushed pigment, fuller while wet; tide strokes 0.06/0.12/0.2 at 0.9 px |
+| rim alpha | `render/water.ts` `buildMasks` | ≤ 0.36 | pushed pigment, fuller while wet; tide strokes 0.08/0.16/0.26 at 0.9 px |
 | `STILL_LENS_PROXIMITY` | `render/line.ts` | 0.3 | proximity at which the read text is dead still |
 | `WORDLESS_FROM` | `loom/reading.ts` | 0.2 | below this the open current no longer quiets the others' words |
 

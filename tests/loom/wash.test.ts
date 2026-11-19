@@ -303,9 +303,14 @@ describe('crossings', () => {
     }
   })
 
-  test('a current being read but painted earlier hides nothing by crossing: its water does that', () => {
+  test('a current being read lies over too, wherever it sorts: the others part around its whole pool', () => {
     loomState.sortedThreadIndices = [1, 0]
-    over.proximity = 1
+    for (const proximity of [0.26, 1]) {
+      over.proximity = proximity
+      beginCrossing(under)
+      expect([...hiddenSpan(600, 800, 450, NOW)]).toEqual([655, 745])
+    }
+    over.proximity = 0.2
     beginCrossing(under)
     const [from, to] = hiddenSpan(600, 800, 450, NOW)
     expect(from).toBeGreaterThanOrEqual(to)
@@ -451,14 +456,16 @@ describe('water on the wash', () => {
   })
 
   test('once it dries, a tide line stays: fine strokes in the current\'s ink', () => {
+    // The band strokes its own edges and contours too: the tide line is what a read adds to those.
+    const resting = paintedPaths(paint(NOW - 33).calls).filter(p => p.op === 'stroke').length
     open()
     frames(NOW, NOW + 600)
     letGo()
     for (let t = NOW + 633; t < NOW + 12000; t += 33) paint(t)
     const lines = paintedPaths(paint(NOW + 12000).calls).filter(p => p.op === 'stroke')
-    expect(lines.length).toBeGreaterThan(0)
+    expect(lines.length).toBeGreaterThan(resting)
     expect(lines.every(p => typeof p.style === 'string' && p.style.startsWith('rgba(0,108,182,'))).toBe(true)
-    expect(Math.max(...lines.map(p => rgbaAlpha(p.style)))).toBeLessThanOrEqual(0.2)
+    expect(Math.max(...lines.map(p => rgbaAlpha(p.style)))).toBeLessThanOrEqual(0.26)
   })
 
   test('the water fades with the ocean as the lineage view opens', () => {
