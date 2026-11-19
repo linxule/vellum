@@ -94,6 +94,8 @@ export function resizeLoom() {
     t.totalLines = t.lineEndCursors.length
   })
   crystallizeThreads(ac)
+  // A read line remembers its width so its words hold while the lens opens (render/thread.ts): not across a new sheet width.
+  for (const t of loomState.threads) if (t._anchor) { t._anchor.width = 0; t._anchor.prox = -1 }
   if (held && !loomState.threads.includes(held)) {
     const part = loomState.threads.find(t => t.familyNames.includes(held.familyNames[0]!))
     const key = part ? threadGroupKey(part.familyNames) : null

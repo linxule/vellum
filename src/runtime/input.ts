@@ -145,7 +145,7 @@ export function attachInputHandlers(opts: {
   }
   const handleTouchMove = (e: TouchEvent) => {
     lastTouchAt = performance.now()
-    if (mode === 'control') return
+    if (mode === 'control' || many) return
     const t = e.touches[0]
     if (!t) return
     clearTouchEndTimeout()
@@ -186,7 +186,7 @@ export function attachInputHandlers(opts: {
     if (mode === 'reading' && reading) {
       if (dragging) {
         // Only a finger still moving when it lifts carries the text on.
-        if (reading.active() && now - lastMoveAt < 60) reading.fling(velocity * 16.7)
+        if (reading.active() && !many && now - lastMoveAt < 60) reading.fling(velocity * 16.7)
       } else if (tapped) {
         const result = reading.tap(startX, startY)
         if (result === 'opened') reading.dropped?.(startX, startY)
@@ -216,6 +216,8 @@ export function attachInputHandlers(opts: {
 
   const handleWheel = (e: WheelEvent) => {
     e.preventDefault()
+    // Scrolling is the reader acting: an arriving voice holding the lens (phantom hover) hands over.
+    mouse.lastMove = performance.now()
     const dy = e.deltaMode === 1 ? e.deltaY * 40
               : e.deltaMode === 2 ? e.deltaY * innerHeight
               : e.deltaY

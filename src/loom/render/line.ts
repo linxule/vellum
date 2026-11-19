@@ -172,7 +172,6 @@ export function drawLineSegmented(
     const sc = thread.segScript[s] ?? 0
     const [scFreq, scAmp, scSway] = SCRIPT_SHIMMER[sc]!
     if (bw && bw.length > 1 && graphemes.length === bw.length) {
-      for (let gi = 0; gi < gStart; gi++) xPos += rtl ? -bw[gi]! * fontRatio : bw[gi]! * fontRatio
 
       // Level of detail. Per-letter painting is what makes magnified text ripple,
       // but the whole primary column takes this path — including the far, texture-
@@ -264,11 +263,8 @@ export function drawLineSegmented(
     if (curSpacing !== 0) { (ctx as any).letterSpacing = '0px'; curSpacing = 0 }
     if (transformed) { ctx.setTransform(base!); transformed = false }
     const sliceText = graphemes.slice(gStart, gEnd).join('')
-    const prefixText = gStart > 0 ? graphemes.slice(0, gStart).join('') : ''
     // One-letter words and punctuation have no letter table: measured once per font, not per frame.
     const renderedW = nativeWidth(ctx, sliceText)
-    const prefixW = prefixText ? nativeWidth(ctx, prefixText) : 0
-    xPos += rtl ? -prefixW : prefixW
     const segCenter = xPos + (rtl ? -renderedW / 2 : renderedW / 2)
     const cursorGlow = Math.max(0, 1 - Math.abs(mouseX - segCenter) / 25) * proximity * 0.45
     const shimmerDampen = keep

@@ -87,7 +87,15 @@ export function drivePhantomHover(now: number, mouse: MouseState, ac: ApertureCo
 
   const userTookOver = mouse.lastMove > phantomFocus.start
   if (userTookOver) {
+    // A finger took over. Unless its tap opens a current (reading.ts), nothing on a
+    // touch screen would ever move the lens off the arrival again: it recedes, as
+    // when its hold runs out. A mouse or a wheel keeps the lens where the pointer is.
+    const held = mouse.touch && loomState.readingKey === null && mouse.x > -1000 ? resolvePhantomTarget(phantomFocus) : null
     clearPhantomFocus()
+    if (held) {
+      loomState.recedingKey = threadGroupKey(held.thread.familyNames)
+      loomState.recedingY = mouse.y
+    }
     return
   }
 

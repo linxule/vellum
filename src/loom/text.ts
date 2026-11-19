@@ -244,7 +244,9 @@ export function lineEndingAt(prepared: PreparedTextWithSegments, maxWidth: numbe
   const line = (start: LayoutCursor, width: number) => ({ start, text: materializeLineRange(prepared, { width, start, end }).text, width })
   // The letters of segment `seg` before `upTo` that fit in `room`, from the end backwards (at least one).
   const cut = (seg: number, upTo: number, room: number, used: number) => {
-    const letters = letterAdvances(prepared)[seg]!
+    const letters = letterAdvances(prepared)[seg]
+    // No letter table for it (a one-letter segment cannot be cut): whole.
+    if (!letters) return line({ segmentIndex: seg, graphemeIndex: 0 }, used + (prepared.widths[seg] ?? 0))
     let g = upTo
     let w = 0
     while (g > 0 && (g === upTo || w + letters[g - 1]! <= room + 0.01)) w += letters[--g]!
@@ -262,8 +264,9 @@ export function lineEndingAt(prepared: PreparedTextWithSegments, maxWidth: numbe
   let widthAtBest = 0
   for (; i >= 0; i--) {
     // The line before ended at this break. A tab's width depends on where it falls, which is not known
-    // backwards: the line starts after it (short, and sure to fit).
-    if (kinds[i] === 'hard-break' || kinds[i] === 'tab') break
+    // backwards: the line starts after it (short, and sure to fit). Either way everything back to
+    // here fitted, so the line starts right after it, on a space too (an indented line keeps its indent).
+    if (kinds[i] === 'hard-break' || kinds[i] === 'tab') return line({ segmentIndex: i + 1, graphemeIndex: 0 }, width)
     const own = prepared.widths[i] ?? 0
     const w = width + own
     if (w > maxWidth + 0.01) {
@@ -275,6 +278,6 @@ export function lineEndingAt(prepared: PreparedTextWithSegments, maxWidth: numbe
     width = w
     if (canStartLine(prepared, i)) { best = i; widthAtBest = width }
   }
-  // Nothing a line may start on: only spaces, or nothing at all, back to a break or the start of the text.
-  return best < 0 ? line({ segmentIndex: i + 1, graphemeIndex: 0 }, 0) : line({ segmentIndex: best, graphemeIndex: 0 }, widthAtBest)
+  // The start of the text was reached: the line starts there, on its leading spaces if it has any.
+  return i < 0 ? line({ segmentIndex: 0, graphemeIndex: 0 }, width) : line({ segmentIndex: best, graphemeIndex: 0 }, widthAtBest)
 }

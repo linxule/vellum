@@ -186,7 +186,8 @@ function sheetTap(x: number, y: number, e: Event): void {
   // A completed hold already acted (sendMessage); swallow the trailing click so
   // it doesn't also enter/recenter the loom view.
   if (holdJustFired) { holdJustFired = false; return }
-  if ((e.target as HTMLElement)?.id === 'fs') return
+  // The controls (fullscreen, the trace id) are not the sheet.
+  if ((e.target as Element | null)?.closest?.('.u')) return
   lineageTap.tap(x, y)
 }
 

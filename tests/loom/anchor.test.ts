@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { layoutNextLine, prepareWithSegments } from '@chenglou/pretext'
-import { initLoom, refreshLoom, renderLoom } from '../../src/loom/index.js'
+import { initLoom, refreshLoom, renderLoom, resizeLoom } from '../../src/loom/index.js'
 import { enablePaper, resetPaperForTest } from '../../src/loom/paper.js'
 import { pathXAtY } from '../../src/loom/path.js'
 import { scrollThreadToVoice } from '../../src/loom/scroll.js'
@@ -96,6 +96,15 @@ describe('lineEndingAt: a line laid out backwards', () => {
 
   test('at the very start of the text there is no line before', () => {
     expect(lineEndingAt(prepared, 100, { segmentIndex: 0, graphemeIndex: 0 })).toBeNull()
+  })
+
+  test('an indented line after a break keeps its indent, with no blank line made of it', () => {
+    installViewport(400, 800)
+    const p = prepareWithSegments('one\n   two three ', '400 15px serif', { whiteSpace: 'pre-wrap' })
+    const last = lineEndingAt(p, 200, { segmentIndex: p.segments.length, graphemeIndex: 0 })!
+    expect(last.text).toBe('   two three ')
+    expect(last.width).toBeGreaterThan(0)
+    expect(lineEndingAt(p, 200, last.start)!.text).toBe('one')
   })
 
   // Voices keep their own line breaks and spaces (the thread is prepared pre-wrap), and may hold a URL.
@@ -263,6 +272,22 @@ describe('on paper, the words under the lens stay put', () => {
     expect(Math.abs(mouse.y - VH / 2)).toBeLessThan(VH * 0.1)
     expect(new Set(read)).toEqual(new Set(['n0n1']))
     expect(attention.proximity).toBeGreaterThan(0.9)
+  })
+
+  test('a new sheet width does not keep the read line at its old width', () => {
+    installViewport(844, 390)
+    resizeLoom()
+    frames(6)
+    attention = loomState.threads.find(t => t.familyNames.includes('attention'))!
+    frames(200, () => hold(190))
+    const wide = attention._anchor!.width
+    installViewport(390, 844)
+    resizeLoom()
+    attention = loomState.threads.find(t => t.familyNames.includes('attention'))!
+    if (attention._anchor) expect(attention._anchor.width).toBe(0)
+    frames(30, () => hold(190))
+    // The portrait line is narrower (in layout units: the short landscape sheet has smaller type).
+    expect(attention._anchor!.width).toBeLessThan(wide - 5)
   })
 
   test('the anchor follows a drag exactly: scroll by k resting lines moves the read line by k reading lines', () => {

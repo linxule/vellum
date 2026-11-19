@@ -149,7 +149,9 @@ export function getInteractionState(): { immersion: number, proximity: number, f
   return {
     immersion: loomState.immersion,
     proximity: loomState.touchedThread.proximity,
-    families: [...loomState.touchedThread.families],
+    // A current easing shut by itself (let go by touch, or an arrival the lens let go)
+    // is no longer being read: the witness reporter counts no dwell on it.
+    families: loomState.readingKey === null && loomState.recedingKey !== null ? [] : [...loomState.touchedThread.families],
   }
 }
 

@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { initLoom, renderLoom } from '../../src/loom/index.js'
+import { getLoomState, initLoom, renderLoom } from '../../src/loom/index.js'
 import { enablePaper, resetPaperForTest } from '../../src/loom/paper.js'
 import { pathXAtY } from '../../src/loom/path.js'
 import { clampReadingY, closeReading, dragReading, driveReading, DRAG_LIFT_SIGMAS, flingReading, isReading, isReceding, READING_EDGE_SIGMAS, READING_FOOT, READING_LINE, readingThread, RECEDED_PROXIMITY, recedingThread, tapCurrent, TOUCH_OPEN_RATE, WORDLESS_PROXIMITY } from '../../src/loom/reading.js'
@@ -280,6 +280,17 @@ describe('letting go recedes', () => {
     expect(isReceding()).toBe(false)
     expect(mouse.x).toBe(-9e3)
     expect(mouse.y).toBe(-9e3)
+  })
+
+  test('a current easing shut is no longer witnessed', () => {
+    tapCurrent(xOf(attention, 400), 400)
+    frames(60)
+    expect(getLoomState().families.length).toBeGreaterThan(0)
+    tapCurrent(xOf(attention, 400), 400)
+    frames(3)
+    expect(isReceding()).toBe(true)
+    expect(loomState.touchedThread).toBe(attention)
+    expect(getLoomState().families).toEqual([])
   })
 
   test('a tap on bare paper recedes too', () => {
@@ -630,7 +641,10 @@ describe('touch handlers', () => {
     advance(20)
     handlers.touchstart!({ type: 'touchstart', target: canvas, touches: [a, b] })
     advance(60)
+    // The first finger lifts; the one left moves: neither a drag nor an opening.
     handlers.touchend!({ type: 'touchend', target: canvas, touches: [b] })
+    advance(20)
+    handlers.touchmove!({ type: 'touchmove', target: canvas, touches: [{ clientX: 221, clientY: 700 }] })
     advance(20)
     handlers.touchend!({ type: 'touchend', target: canvas, touches: [] })
     expect(calls).toEqual([])
@@ -640,6 +654,14 @@ describe('touch handlers', () => {
     touch('touchstart', 100, 600); advance(60); touch('touchend', 100, 600)
     expect(calls).toEqual(['tap 100,600', 'drop 100,600'])
     expect(taps).toEqual(['100,600'])
+  })
+
+  test('scrolling by wheel is the reader acting: it takes the lens from an arriving voice', () => {
+    attach(reading())
+    advance(100)
+    handlers.wheel!({ preventDefault: () => {}, deltaMode: 0, deltaY: 30, deltaX: 0 })
+    expect(mouse.lastMove).toBe(clock)
+    expect(scrolled).toEqual([30])
   })
 
   test('a touch on a control reaches only the control', () => {

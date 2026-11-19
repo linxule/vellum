@@ -247,3 +247,27 @@ test('an arrival does not take the lens from a current held by touch', async () 
   // The arrival is still marked where it lies.
   expect(getThreads()[0]!.newVoiceIds.has('m2')).toBe(true)
 })
+
+test('a finger that takes over an arrival lets it recede; a mouse or a wheel keeps the lens where it is', async () => {
+  await seedPhantomFixture()
+  const ac = aperture(960, 640)
+  const mouse = makeMouse()
+  triggerPhantomHover(0, 'm1', 1000)
+  drivePhantomHover(1016, mouse, ac)
+  const y = mouse.y
+  mouse.touch = true
+  mouse.lastMove = 1500
+  drivePhantomHover(1516, mouse, ac)
+  expect(isPhantomActive()).toBe(false)
+  expect(loomState.recedingKey).toBe('memory')
+  expect(loomState.recedingY).toBe(y)
+
+  loomState.recedingKey = null
+  const pointer = makeMouse()
+  triggerPhantomHover(0, 'm1', 2000)
+  drivePhantomHover(2016, pointer, ac)
+  pointer.lastMove = 2500
+  drivePhantomHover(2516, pointer, ac)
+  expect(isPhantomActive()).toBe(false)
+  expect(loomState.recedingKey).toBeNull()
+})
