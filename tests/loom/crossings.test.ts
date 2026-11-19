@@ -5,7 +5,7 @@ import { aperture } from '../../src/loom/aperture.js'
 import { paper, resetPaperForTest } from '../../src/loom/paper.js'
 import { addRipple, beginWashProfile, markWashLine, resetWashForTest } from '../../src/loom/render/wash.js'
 import { renderThread } from '../../src/loom/render/thread.js'
-import { resetWater, stepWater } from '../../src/loom/render/water.js'
+import { resetWater, stepWater, waterOver } from '../../src/loom/render/water.js'
 import { loomState, resetLoomState } from '../../src/loom/state.js'
 import type { ApertureConfig, Thread } from '../../src/loom/types.js'
 import { CanvasContextStub, installViewport, loadState, makeMouse, makeState, parseRgbaAlpha, runFrames, withFixedRandom } from './helpers.js'
@@ -241,6 +241,155 @@ describe('under another current\'s water', () => {
       if (near.length > 0 && Math.max(...near) < fullAlpha * 0.9) dimmed = true
     }
     expect(dimmed).toBe(true)
+    resetWater()
+  })
+
+  /** A narrow pool of clean water from `over` at x: on the 600..800 lines, about x-25..x+23. */
+  function wetNarrow(over: Thread, x: number): void {
+    straight(over, x)
+    withFixedRandom(0.5, () => {
+      for (let t = NOW; t < NOW + 1000; t += 33) stepWater(t, { thread: over, half: () => 4, y: 450, sigma: 120, amount: 1, reach: 1 })
+    })
+  }
+  /** The rows a pool of water lies over, with its stretch on each: [y, from, to]. */
+  function wetRows(under: Thread, rows: number[]): Array<[number, number, number]> {
+    const out: Array<[number, number, number]> = []
+    for (const y of rows) {
+      const [from, to] = waterOver(under, 600, 800, y)
+      if (from < to) out.push([y, from, to])
+    }
+    return out
+  }
+  /** The exact heights of the lines that printed body text. */
+  const lineYs = (ctx: PaperContext) => [...new Set(ctx.fillTextCalls.filter(c => c.text.trim() !== '').map(c => c.y))]
+  /** The clip rectangles, [from, to] in x, of each clip, with the row it is centred on. */
+  function clipsByRow(ctx: PaperContext): { get(y: number): Array<[number, number]> | undefined, has(y: number): boolean, size: number } {
+    const all: Array<[number, Array<[number, number]>]> = []
+    let open: Array<[number, number]> = []
+    let y = 0
+    for (const o of ctx.ops) {
+      if (o.op === 'save') open = []
+      else if (o.op === 'rect') { open.push([o.args[0]!, o.args[0]! + o.args[2]!]); y = o.args[1]! + o.args[3]! / 2 }
+      else if (o.op === 'clip') all.push([y, open])
+    }
+    const get = (row: number) => all.find(([cy]) => Math.abs(cy - row) < 0.01)?.[1]
+    return { get, has: (row: number) => get(row) !== undefined, size: all.length }
+  }
+  const close = (got: Array<[number, number]> | undefined, want: Array<[number, number]>) => {
+    expect(got).toBeDefined()
+    expect(got!).toHaveLength(want.length)
+    got!.forEach(([a, b], i) => { expect(a).toBeCloseTo(want[i]![0], 6); expect(b).toBeCloseTo(want[i]![1], 6) })
+  }
+
+  test('a crossing and water apart on one line: the words between them print', async () => {
+    const [under, over] = await ocean()
+    paper.on = true
+    const full = lineYs(paintUnder(under))
+    wetNarrow(over, 760)
+    // Crossing hidden 625..655: the piece left of it (25 px) is too short, so
+    // merged into one stretch with the water the whole line would go unprinted.
+    lyingOver(over, 640, 10)
+    const ctx = paintUnder(under)
+    const wetted = wetRows(under, full)
+    expect(wetted.length).toBeGreaterThan(10)
+    const clips = clipsByRow(ctx)
+    for (const [y, from, to] of wetted) {
+      expect(from - 655).toBeGreaterThanOrEqual(34)
+      const want: Array<[number, number]> = [[655, from]]
+      if (800 - to >= 34) want.push([to, 820])
+      close(clips.get(y), want)
+    }
+    // And they are printed (unless thin water beside the pool all but fades them).
+    const printed = new Set(lineYs(ctx))
+    const clearRows = wetted.filter(([y]) => waterOver(under, 600, 800, y)[2] < 0.5)
+    expect(clearRows.length).toBeGreaterThan(10)
+    for (const [y] of clearRows) expect(printed.has(y)).toBe(true)
+    expect(ctx.of('save')).toHaveLength(ctx.of('restore').length)
+    resetWater()
+  })
+
+  test('with both ends kept, the words between print as a third piece', async () => {
+    const [under, over] = await ocean()
+    paper.on = true
+    const full = lineYs(paintUnder(under))
+    wetNarrow(over, 740)
+    lyingOver(over, 650, 10) // crossing hidden 635..665: 35 px kept on the left
+    const ctx = paintUnder(under)
+    const clips = clipsByRow(ctx)
+    const wetted = wetRows(under, full)
+    let three = 0
+    for (const [y, from, to] of wetted) {
+      const want: Array<[number, number]> = [[580, 635]]
+      if (from - 665 >= 34) want.push([665, from])
+      if (800 - to >= 34) want.push([to, 820])
+      if (want.length === 3) three++
+      close(clips.get(y), want)
+    }
+    expect(three).toBeGreaterThan(10)
+    resetWater()
+  })
+
+  test('the words between them too few to read are not printed', async () => {
+    const [under, over] = await ocean()
+    paper.on = true
+    const full = lineYs(paintUnder(under))
+    wetNarrow(over, 760)
+    lyingOver(over, 718, 10) // crossing hidden 703..733, just short of the water
+    const ctx = paintUnder(under)
+    const clips = clipsByRow(ctx)
+    let narrow = 0
+    for (const [y, from, to] of wetRows(under, full)) {
+      const gap = from - 733
+      if (gap > 0 && gap < 34) narrow++
+      else continue
+      const want: Array<[number, number]> = [[580, 703]]
+      if (800 - to >= 34) want.push([to, 820])
+      close(clips.get(y), want)
+    }
+    expect(narrow).toBeGreaterThan(10)
+    resetWater()
+  })
+
+  test('a crossing and water overlapping hide one stretch', async () => {
+    const [under, over] = await ocean()
+    paper.on = true
+    const full = lineYs(paintUnder(under))
+    wetNarrow(over, 760)
+    lyingOver(over, 740, 10) // crossing hidden 725..755, inside the water's left part
+    const ctx = paintUnder(under)
+    const clips = clipsByRow(ctx)
+    const wetted = wetRows(under, full)
+    expect(wetted.length).toBeGreaterThan(10)
+    let overlapping = 0
+    for (const [y, from, to] of wetted) {
+      if (from > 755) continue
+      overlapping++
+      const want: Array<[number, number]> = [[580, Math.min(725, from)]]
+      if (800 - Math.max(755, to) >= 34) want.push([Math.max(755, to), 820])
+      close(clips.get(y), want)
+    }
+    expect(overlapping).toBeGreaterThan(10)
+    resetWater()
+  })
+
+  test('water alone hides one stretch, clipped as a crossing is', async () => {
+    const [under, over] = await ocean()
+    paper.on = true
+    const full = lineYs(paintUnder(under))
+    wetNarrow(over, 700)
+    const ctx = paintUnder(under)
+    const clips = clipsByRow(ctx)
+    const wetted = wetRows(under, full)
+    expect(wetted.length).toBeGreaterThan(10)
+    for (const [y, from, to] of wetted) {
+      const want: Array<[number, number]> = []
+      if (from - 600 >= 34) want.push([580, from])
+      if (800 - to >= 34) want.push([to, 820])
+      if (want.length === 0) expect(clips.has(y)).toBe(false)
+      else close(clips.get(y), want)
+    }
+    // Rows the water does not reach print unclipped.
+    expect(clips.size).toBeLessThanOrEqual(wetted.length)
     resetWater()
   })
 
