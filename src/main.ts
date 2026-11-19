@@ -35,11 +35,13 @@ const sketch = document.documentElement.classList.contains('paper') ? setupSketc
 // ?probe: frame timing in the corner label, with switches to find what a slow device is slow
 // at (dpr=1..3, water=0, wash=0, blend=0). A diagnostic: nothing here runs unless asked for.
 const probeQuery = new URLSearchParams(location.search)
-const probe = probeQuery.has('probe') ? { n: 0, since: 0, worst: 0, text: 0, wash: 0, wash0: probeQuery.get('wash') === '0' } : null
+const probe = probeQuery.has('probe') ? { n: 0, since: 0, worst: 0, text: 0, wash: 0, resizes: 0, wash0: probeQuery.get('wash') === '0' } : null
 const { canvas: sheetCanvas, ctx, syncCanvasSize } = setupCanvas(probe ? Number(probeQuery.get('dpr')) || 3 : 3)
 if (probe) {
   paper.noWater = probeQuery.get('water') === '0'
   if (probeQuery.get('blend') === '0') sheetCanvas.style.mixBlendMode = 'normal'
+  // A phone browser can resize the page when its bars move; every resize rebuilds the sheet.
+  window.addEventListener('resize', () => { probe.resizes++ })
 }
 let prevNow = 0
 const frameHandle: {
@@ -357,6 +359,7 @@ function scheduleFrame() {
 
 function render(now: number) {
   try {
+    const sinceLast = prevNow > 0 ? now - prevNow : 16
     const dt = prevNow > 0 ? Math.min(.1, Math.max(0, (now - prevNow) / 1000)) : .016
     prevNow = now
 
@@ -378,11 +381,11 @@ function render(now: number) {
       if (probe) {
         probe.text += t1 - t0
         probe.wash += performance.now() - t1
-        probe.worst = Math.max(probe.worst, dt * 1000)
+        probe.worst = Math.max(probe.worst, sinceLast) // the real gap: dt is capped at 100 ms
         if (++probe.n && now - probe.since >= 1000) {
           const label = document.getElementById('tr')!
           label.style.cssText = 'font-size:13px;opacity:1;bottom:40px'
-          label.textContent = `${(probe.n * 1000 / (now - probe.since)).toFixed(0)} fps \u00b7 worst ${probe.worst.toFixed(0)} \u00b7 text ${(probe.text / probe.n).toFixed(1)} \u00b7 wash ${(probe.wash / probe.n).toFixed(1)} ms \u00b7 ${sheetCanvas.width}x${sheetCanvas.height}`
+          label.textContent = `${(probe.n * 1000 / (now - probe.since)).toFixed(0)} fps \u00b7 worst ${probe.worst.toFixed(0)} \u00b7 text ${(probe.text / probe.n).toFixed(1)} \u00b7 wash ${(probe.wash / probe.n).toFixed(1)} ms \u00b7 ${sheetCanvas.width}x${sheetCanvas.height} \u00b7 resized ${probe.resizes}`
           probe.n = probe.text = probe.wash = probe.worst = 0
           probe.since = now
         }
