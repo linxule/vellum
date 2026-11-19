@@ -3,7 +3,7 @@
 // Dual-mode: iframe (SDK) or standalone (URL param highlight).
 
 import { App } from '@modelcontextprotocol/ext-apps'
-import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, tapCurrent, closeReading, isReading, isReceding, dragReading, flingReading, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, type MouseState } from '../../src/loom.js'
+import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, tapCurrent, closeReading, isReading, isReceding, dragReading, flingReading, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, holdLoomVoice, loomHeldVoice, loomVoiceNear, type MouseState } from '../../src/loom.js'
 import { fetchState, findVoice, getVersion, getVoiceIdSets, isLive, setBaseUrl, getState } from '../../src/content.js'
 import { emitOceanEvent, onOceanEvent } from '../../src/events.js'
 import { HoldMachine, HOLD_MS, composeHeldMessage, composeDigest, deriveDigestInputs } from './threshold.js'
@@ -169,15 +169,22 @@ window.addEventListener('resize', resizeLoom)
 // ── Loom view interaction ────────────────────────────
 
 // What a tap does to the lineage view (runtime/sheet-tap.ts): by touch, two taps on a woven voice open it.
+const parkMouse = () => { mouse.x = -9e3; mouse.y = -9e3; mouse.prevX = -9e3; mouse.prevY = -9e3 }
+// A lineage opened by touch (or on a touch screen) opens with its seed held for reading (as src/main.ts).
+const coarsePointer = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+const readSeed = (id: string, byTouch: boolean) => { if (byTouch && holdLoomVoice(id)) parkMouse() }
 const lineageTap = createSheetTap({
   touch: () => mouse.touch,
   hitAt: (x, y) => getLastFrameHitVoiceIdAt(x, y),
   woven: (id) => (getState()?.threads ?? []).some(t => t.voices.some(v => v.id === id && (Boolean(v.weave_from) || v.weave_count > 0))),
   loomActive: isLoomViewActive,
   loomSeed: getCurrentLoomSeed,
-  enter: (id) => { enterLoomView(id); history.replaceState(null, '', '?highlight=' + id) },
-  recenter: (id) => { recenterLoomView(id); history.replaceState(null, '', '?highlight=' + id) },
-  exit: () => { exitLoomView(); history.replaceState(null, '', location.pathname) },
+  enter: (id) => { enterLoomView(id); history.replaceState(null, '', '?highlight=' + id); readSeed(id, mouse.touch) },
+  recenter: (id) => { recenterLoomView(id); history.replaceState(null, '', '?highlight=' + id); readSeed(id, mouse.touch) },
+  exit: () => { exitLoomView(); history.replaceState(null, '', location.pathname); if (mouse.touch) parkMouse() },
+  hold: (id) => { holdLoomVoice(id); parkMouse() },
+  held: loomHeldVoice,
+  near: (x, y) => loomVoiceNear(x, y),
 })
 
 // A tap on the sheet: a click, or a touch tap at its touchend (runtime/input.ts calls this once per
@@ -460,6 +467,7 @@ async function poll(options: { refresh?: boolean; forceNewVoiceIds?: string[] } 
       setResonance(sourceId, performance.now())
       enterLoomView(sourceId)
       history.replaceState(null, '', '?highlight=' + sourceId)
+      readSeed(sourceId, coarsePointer())
     }
 
     // Phase 13 F12: connect-time brief, once after the first successful poll.

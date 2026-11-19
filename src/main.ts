@@ -1,7 +1,7 @@
 // Vellum — The Pensieve
 // Entry point: canvas, input, sound, animation loop, polling, witness reporting
 
-import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, scrollThreadToVoice, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, triggerPhantomHover, setArrivalHold, tapCurrent, closeReading, isReading, isReceding, dragReading, flingReading, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, findThreadIndexForFamily, type MouseState } from './loom.js'
+import { initLoom, renderLoom, resizeLoom, refreshLoom, scrollThread, scrollThreadToVoice, getLoomState, setHighlight, clearHighlight, setResonance, isPhantomActive, triggerPhantomHover, setArrivalHold, tapCurrent, closeReading, isReading, isReceding, dragReading, flingReading, aperture, enterLoomView, exitLoomView, isLoomViewActive, getCurrentLoomSeed, recenterLoomView, getLastFrameHitVoiceIdAt, findThreadIndexForFamily, holdLoomVoice, loomHeldVoice, loomVoiceNear, type MouseState } from './loom.js'
 import { fetchState, findVoice, getVersion, getVoiceIdSets, isLive, getState, setSurface, getSurface, surfaceFromPathname, surfacePathPrefix, highlightUrlFor } from './content.js'
 import { emitOceanEvent } from './events.js'
 import { createSheetTap } from './runtime/sheet-tap'
@@ -191,16 +191,24 @@ window.addEventListener('resize', resizeLoom)
 // ── Loom view interaction ────────────────────────────
 
 const showHighlight = (id: string) => history.replaceState(null, '', highlightUrlFor(location.pathname, id))
-// What a tap does to the lineage view (runtime/sheet-tap.ts): by touch, two taps on a woven voice open it.
+const parkMouse = () => { mouse.x = -9e3; mouse.y = -9e3; mouse.prevX = -9e3; mouse.prevY = -9e3 }
+// On paper, a lineage opened by touch (or on a touch screen) opens with its seed held for reading:
+// at rest a large lineage is too small to read on a phone. No hand stays where the finger was.
+const coarsePointer = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+const readSeed = (id: string, byTouch: boolean) => { if (byTouch && holdLoomVoice(id)) parkMouse() }
+// What a tap does to the lineage view (runtime/sheet-tap.ts): by touch, two taps on a woven voice open it,
+// and on paper a tap inside it holds a voice open for reading (two taps recentre).
 const lineageTap = createSheetTap({
   touch: () => mouse.touch,
   hitAt: (x, y) => getLastFrameHitVoiceIdAt(x, y),
   woven: isWoven,
   loomActive: isLoomViewActive,
   loomSeed: getCurrentLoomSeed,
-  enter: (id) => { enterLoomView(id); showHighlight(id) },
-  recenter: (id) => { recenterLoomView(id); showHighlight(id) },
-  exit: () => { exitLoomView(); history.replaceState(null, '', location.pathname) },
+  enter: (id) => { enterLoomView(id); showHighlight(id); readSeed(id, mouse.touch) },
+  recenter: (id) => { recenterLoomView(id); showHighlight(id); readSeed(id, mouse.touch) },
+  // Left by touch, the lens is not left behind on the ocean under the finger.
+  exit: () => { exitLoomView(); history.replaceState(null, '', location.pathname); if (mouse.touch) parkMouse() },
+  ...(sketch ? { hold: (id: string | null) => { holdLoomVoice(id); parkMouse() }, held: loomHeldVoice, near: (x: number, y: number) => loomVoiceNear(x, y) } : {}),
 })
 
 // A tap on the sheet: a click, or a touch tap at its touchend (runtime/input.ts calls this once per
@@ -412,7 +420,7 @@ document.fonts.ready.then(async () => {
       const voice = thread?.voices[found.voiceIndex]
       if (voice && (voice.weave_from || voice.weave_count > 0)) {
         // Woven voice: show the lineage tree after a brief moment to let the ocean settle
-        highlightAutoLoomTimeout = setTimeout(() => { highlightAutoLoomTimeout = null; enterLoomView(highlightId!); showHighlight(highlightId!) }, 800)
+        highlightAutoLoomTimeout = setTimeout(() => { highlightAutoLoomTimeout = null; enterLoomView(highlightId!); showHighlight(highlightId!); readSeed(highlightId!, coarsePointer()) }, 800)
       } else {
         // Non-woven voice: land the dive lens on it
         const threadIdx = findThreadIndexForFamily(found.family)

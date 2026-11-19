@@ -57,6 +57,8 @@ export const loomState = {
   loomViewAutoExit: null as ReturnType<typeof setTimeout> | null,
   loomTreeScrollX: 0,
   loomTreeScrollY: 0,
+  // On paper, by touch: the lineage voice held open for reading (the lens stays on it, no finger on the glass).
+  loomHeldId: null as string | null,
   // The voice being read this frame (dive lens or hovered loom node), for sound.
   lensVoiceId: null as string | null,
   lensVoiceX: 0,
@@ -106,6 +108,7 @@ export function resetLoomState() {
   loomState.loomTree = null
   loomState.loomTreeScrollX = 0
   loomState.loomTreeScrollY = 0
+  loomState.loomHeldId = null
   if (loomState.loomViewAutoExit) {
     clearTimeout(loomState.loomViewAutoExit)
     loomState.loomViewAutoExit = null
