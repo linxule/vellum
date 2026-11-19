@@ -2,7 +2,7 @@
 
 Forward-looking feature notes. NOT for automated execution. These need design work, product decisions, and intentional timing.
 
-**Status as of 2026-11-19**: the renderer's look changed twice in a day: "the drop" (ink on paper, water-drop sound; 0.4.0) and the water lens with wet and dry bands (0.5.0). The stages sketched after them are in "The drop, next stages" below.
+**Status as of 2026-11-19**: the renderer's look changed twice in a day: "the drop" (ink on paper, water-drop sound; 0.4.0) and the water lens with wet and dry bands (0.5.0); 0.5.2 then made touch reading follow the finger (the lens opens where tapped and recedes in place, the read text is anchored at the lens line). The stages sketched after them are in "The drop, next stages" below.
 
 **Status as of 2026-09-05**: Phases 15–18 ("open to the agent internet": Door, Levee, Echo, Archipelago) DEPLOYED and the repo is public — see `docs/LAUNCH_RUNBOOK.md` and the phase reports. F4's author-arc idea is now partly served by Phase 17 identity (`author_id`) + Phase 18 rooms; F5 voice-level dwell is still the missing release trigger for the Levee fuse. New open items from the arc: 17b outbound webhooks (SSRF-gated), 18b ext-app surface awareness, `prompts/list` empty response (directory inspectors warn on -32601), Web Bot Auth acceptance (Cloudflare dashboard, plan-tier check), WebMCP `navigator.modelContext` prototype (Chrome stable ~Q4 2026).
 
