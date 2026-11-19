@@ -3,8 +3,8 @@
 // Each current is a band of floated ink that follows the thread's path: a few
 // overlapping glazes with uneven edges and uneven strength, a darker tide line
 // where the pigment settled, and hairline contours inside, as in suminagashi.
-// Bands multiply, so two currents overprint where they cross. Under the lens
-// the other currents' ink clears, so the one being read sits on clean paper.
+// Bands multiply, so two currents overprint where they cross. Where a current is
+// read, clean water clears the pigment and pushes it into a rim (render/water.ts).
 // A drop leaves a ring that spreads and fades; a phrase leaves one per note.
 //
 // Painted on its own low-resolution canvas beneath the text canvas, a few times
@@ -14,7 +14,8 @@ import { clamp01 } from '../math.js'
 import { paper, PAPER_RGB } from '../paper.js'
 import { pathXAtY } from '../path.js'
 import { loomState } from '../state.js'
-import { DEFAULT_COLOR, DIVE_SIGMA_LINES, FAMILY_COLOR, type ApertureConfig, type Thread } from '../types.js'
+import { DEFAULT_COLOR, DIVE_SIGMA_LINES, FAMILY_COLOR, WARM_DIVE_BOOST, type ApertureConfig, type Thread } from '../types.js'
+import { paintWater, resetWater, stepWater, type LensPour } from './water.js'
 
 interface Ripple {
   family: string
@@ -95,9 +96,8 @@ export function beginCrossing(thread: Thread): void {
   for (const index of loomState.sortedThreadIndices) {
     const other = loomState.threads[index]!
     if (other === thread) { later = true; continue }
-    // A current that is open lies over all the others, wherever it sorts
-    // (it is painted last): their words part around its pool.
-    if (later || other.proximity > OPEN_PROXIMITY) lyingOver.push(other)
+    // An open current's pool is water, not a crossing: render/water.ts hides the words under it.
+    if (later) lyingOver.push(other)
   }
 }
 
@@ -253,6 +253,7 @@ export function ringsOnLine(x0: number, x1: number, y: number, now: number): [nu
 export function resetWashForTest(): void {
   ripples.length = 0
   lyingOver.length = 0
+  resetWater()
 }
 
 /** A point on a current, for drops that fall without a hand: the family's thread at height yFrac. */
@@ -299,13 +300,6 @@ function wobble(y: number, seed: number, t: number): number {
 const GLAZE_WIDTH = [0.68, 0.5, 0.3] as const
 const GLAZE_ALPHA = [0.5, 0.55, 0.7] as const
 const GLAZE_BULGE = [1, 0.6, 0.25] as const
-// Where a current was opened and read, its pool stays behind as a stain with a
-// darker edge, and dries away: the sheet shows where it has been read.
-interface Stain { left: Float32Array, right: Float32Array, at: number, wet: boolean }
-const stains = new WeakMap<Thread, Stain>()
-const STAIN_LIFE_MS = 26000
-const STAIN_PROX = 0.3
-
 // How far each glaze reaches past the text it lies under.
 const GLAZE_WRAP = [1.34, 1.02, 0.62] as const
 const GLAZE_MARGIN = [12, 5, 0] as const
@@ -327,58 +321,6 @@ function paintBand(ctx: CanvasRenderingContext2D, thread: Thread, visibility: nu
   const fromText = profile !== undefined && profile.half.length === path.length
   // The wash's grain rides with the text instead of standing still under it.
   const flow = fromText ? thread.scroll * 3 * ac.textureLineH : 0
-
-  if (fromText) {
-    let stain = stains.get(thread)
-    if (!stain || stain.left.length !== path.length) {
-      stain = { left: new Float32Array(path.length), right: new Float32Array(path.length), at: -1e12, wet: false }
-      stains.set(thread, stain)
-    }
-    const reading = thread.proximity > STAIN_PROX
-    if (reading) {
-      // A fresh pool starts a fresh stain; while it is read, the stain keeps its
-      // widest reach. It is kept where it lay on the sheet: currents move on.
-      const fresh = !stain.wet && now - stain.at > STAIN_LIFE_MS
-      for (let k = 0; k < path.length; k++) {
-        const h = eased(profile.half, k, 0) * GLAZE_WRAP[0] + GLAZE_MARGIN[0]
-        const l = path[k]!.x - h
-        const r = path[k]!.x + h
-        if (fresh || l < stain.left[k]!) stain.left[k] = l
-        if (fresh || r > stain.right[k]!) stain.right[k] = r
-      }
-      stain.at = now
-    }
-    stain.wet = reading
-    const dry = (now - stain.at) / STAIN_LIFE_MS
-    if (!reading && dry < 1) {
-      const fade = 1 - dry
-      // Only where the current was opened: wider than a resting band.
-      const opened = ac.restingWidth * GLAZE_WRAP[0] + GLAZE_MARGIN[0] * 2 + 30
-      ctx.fillStyle = `rgba(${ink},${Math.min(0.3, alpha * 1.1 * fade)})`
-      ctx.strokeStyle = `rgba(${ink},${Math.min(0.6, alpha * 3 * fade)})`
-      ctx.lineWidth = 1.6
-      let from = -1
-      for (let k = 0; k <= path.length; k++) {
-        const wide = k < path.length && stain.right[k]! - stain.left[k]! > opened
-        if (wide && from < 0) from = k
-        if (!wide && from >= 0) {
-          const to = k - 1
-          if (to > from) {
-            ctx.beginPath()
-            for (let j = from; j <= to; j++) {
-              const x = stain.left[j]! + 5 * wobble(path[j]!.y, seed + 31.7, 0)
-              if (j === from) ctx.moveTo(x, path[j]!.y); else ctx.lineTo(x, path[j]!.y)
-            }
-            for (let j = to; j >= from; j--) ctx.lineTo(stain.right[j]! + 5 * wobble(path[j]!.y, seed + 47.3, 0), path[j]!.y)
-            ctx.closePath()
-            ctx.fill()
-            ctx.stroke()
-          }
-          from = -1
-        }
-      }
-    }
-  }
 
   let outerLeft: number[] = []
   let outerRight: number[] = []
@@ -459,6 +401,21 @@ function paintBand(ctx: CanvasRenderingContext2D, thread: Thread, visibility: nu
   }
 }
 
+/** The open current's readable block, as its text was last laid out, for the water to pour under. */
+function lensPour(touched: Thread | null, mouse: { x: number, y: number } | null, ac: ApertureConfig): LensPour | null {
+  if (!touched || !mouse || mouse.x <= -1000 || touched.proximity <= 0.05 || loomState.loomViewActive) return null
+  const profile = profiles.get(touched)
+  if (!profile || profile.half.length !== touched._path.length || touched._path.length < 2) return null
+  return {
+    thread: touched,
+    half: (k: number) => eased(profile.half, k, 0),
+    y: mouse.y,
+    sigma: DIVE_SIGMA_LINES * ac.diveLineH,
+    amount: touched.proximity,
+    reach: 1 + clamp01(touched.apiWarmth) * WARM_DIVE_BOOST,
+  }
+}
+
 export function paintWash(ctx: CanvasRenderingContext2D, scale: number, now: number): void {
   const vw = loomState.VW
   const vh = loomState.VH
@@ -477,6 +434,9 @@ export function paintWash(ctx: CanvasRenderingContext2D, scale: number, now: num
   const sigma = DIVE_SIGMA_LINES * ac.diveLineH * 1.25
   const touched = loomState.touchedThread
 
+  // The water first: the bands ask it how wet they are.
+  stepWater(now, lensPour(touched, mouse, ac))
+
   if (ocean > 0.01) {
     let touchedVisibility = 0
     for (let ti = 0; ti < loomState.threads.length; ti++) {
@@ -486,27 +446,9 @@ export function paintWash(ctx: CanvasRenderingContext2D, scale: number, now: num
       if (thread === touched) { touchedVisibility = v; continue }
       paintBand(ctx, thread, v, ac, t, ocean, sigma, now)
     }
-    if (touched && touchedVisibility > 0) {
-      if (touched.proximity > 0.05 && mouse && mouse.x > -1000) {
-        // Clear water under the lens: there, only the current being read keeps its ink.
-        const lx = pathXAtY(touched._path, mouse.y)
-        const rx = Math.max(40, Math.min(touched.balancedWidth, ac.openWidth) * 0.66)
-        const ry = sigma * 1.5
-        const strength = Math.min(1, touched.proximity * 1.4) * 0.92
-        ctx.save()
-        ctx.globalCompositeOperation = 'destination-out'
-        ctx.translate(lx, mouse.y)
-        ctx.scale(1, ry / rx)
-        const clear = ctx.createRadialGradient(0, 0, 0, 0, 0, rx)
-        clear.addColorStop(0, `rgba(0,0,0,${strength})`)
-        clear.addColorStop(0.72, `rgba(0,0,0,${strength * 0.85})`)
-        clear.addColorStop(1, 'rgba(0,0,0,0)')
-        ctx.fillStyle = clear
-        ctx.fillRect(-rx, -rx, rx * 2, rx * 2)
-        ctx.restore()
-      }
-      paintBand(ctx, touched, touchedVisibility, ac, t, ocean, sigma, now)
-    }
+    if (touched && touchedVisibility > 0) paintBand(ctx, touched, touchedVisibility, ac, t, ocean, sigma, now)
+    // Clean water where a current is read: the pigment under it cleared into a rim.
+    paintWater(ctx, ocean, paper.night ? 'screen' : 'multiply')
   }
 
   // Drops.

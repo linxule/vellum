@@ -3,11 +3,12 @@ import type { StateResponse } from '../../src/content.js'
 import { initLoom, renderLoom } from '../../src/loom/index.js'
 import { aperture } from '../../src/loom/aperture.js'
 import { paper, resetPaperForTest } from '../../src/loom/paper.js'
-import { beginWashProfile, markWashLine, resetWashForTest } from '../../src/loom/render/wash.js'
+import { addRipple, beginWashProfile, markWashLine, resetWashForTest } from '../../src/loom/render/wash.js'
 import { renderThread } from '../../src/loom/render/thread.js'
+import { resetWater, stepWater } from '../../src/loom/render/water.js'
 import { loomState, resetLoomState } from '../../src/loom/state.js'
 import type { ApertureConfig, Thread } from '../../src/loom/types.js'
-import { CanvasContextStub, installViewport, loadState, makeMouse, makeState, runFrames, withFixedRandom } from './helpers.js'
+import { CanvasContextStub, installViewport, loadState, makeMouse, makeState, parseRgbaAlpha, runFrames, withFixedRandom } from './helpers.js'
 
 // The text painter on paper: where a current that is painted later crosses
 // over a resting line, the covered stretch is not printed (render/thread.ts).
@@ -204,3 +205,67 @@ describe('crossings', () => {
     expect(ctx.of('clip')).toHaveLength(0)
   })
 })
+
+describe('under another current\'s water', () => {
+  /** Clean water from the read current `over`, its lines 120 px either side of x, poured for a second around y 450. */
+  function wet(over: Thread, x: number): number {
+    straight(over, x)
+    let t = NOW
+    for (; t < NOW + 1000; t += 33) stepWater(t, { thread: over, half: () => 120, y: 450, sigma: 120, amount: 1, reach: 1 })
+    return t
+  }
+  const rowsNear = (rows: number[], y: number, d: number) => rows.filter(r => Math.abs(r - y) < d)
+
+  test('its words are not printed where the water lies; above and below it they are', async () => {
+    const [under, over] = await ocean()
+    paper.on = true
+    const full = paintUnder(under).printedRows()
+    wet(over, X)
+    const rows = paintUnder(under).printedRows()
+    expect(rowsNear(full, 450, 40).length).toBeGreaterThan(0)
+    expect(rowsNear(rows, 450, 40)).toHaveLength(0)
+    expect(rowsNear(rows, 850, 40)).toEqual(rowsNear(full, 850, 40))
+    resetWater()
+  })
+
+  test('as the water dries the words come back, dimmed first', async () => {
+    const [under, over] = await ocean()
+    paper.on = true
+    const alphaNear = (ctx: PaperContext) => ctx.fillTextCalls.filter(c => Math.abs(c.y - 450) < 20 && c.text.trim() !== '').map(c => parseRgbaAlpha(c.fillStyle))
+    const fullAlpha = Math.max(...alphaNear(paintUnder(under)))
+    let t = wet(over, X)
+    let dimmed = false
+    for (let i = 0; i < 400 && !dimmed; i++) {
+      stepWater(t += 33, null)
+      const near = alphaNear(paintUnder(under))
+      if (near.length > 0 && Math.max(...near) < fullAlpha * 0.9) dimmed = true
+    }
+    expect(dimmed).toBe(true)
+    resetWater()
+  })
+
+  test('the lines being read are never pushed by a ring', async () => {
+    const [under] = await ocean()
+    paper.on = true
+    under.proximity = 1
+    loomState.touchedThread = under
+    const mouse = { ...makeMouse(), x: X, y: 450 }
+    const xsOf = () => {
+      const ctx = new PaperContext()
+      renderThread(ctx as unknown as CanvasRenderingContext2D, under, NOW, mouse, wide(), 1)
+      return ctx.fillTextCalls.filter(c => Math.abs(c.y - 450) < 60).map(c => Math.round(c.x * 100) / 100)
+    }
+    const still = xsOf()
+    expect(still.length).toBeGreaterThan(0)
+    addRipple('attention', X + 30, 450, 1, NOW - 600)
+    expect(xsOf()).toEqual(still)
+    // The same ring does push a current at rest.
+    under.proximity = 0
+    loomState.touchedThread = null
+    resetWashForTest()
+    const resting = xsOf()
+    addRipple('attention', X + 30, 450, 1, NOW - 600)
+    expect(xsOf()).not.toEqual(resting)
+  })
+})
+
