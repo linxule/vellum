@@ -89,6 +89,8 @@ export function attachInputHandlers(opts: {
     if (afterTouch()) return
     // A real pointer takes the lens back from a current held (or receding) by touch.
     if (reading && (reading.active() || reading.receding?.())) reading.release()
+    // A real pointer, on a device that has both: the last input is no longer a finger.
+    mouse.touch = false
     mouse.x = e.clientX; mouse.y = e.clientY
   }
   const handleMouseLeave = () => { if (!afterTouch()) park() }
@@ -218,6 +220,7 @@ export function attachInputHandlers(opts: {
     e.preventDefault()
     // Scrolling is the reader acting: an arriving voice holding the lens (phantom hover) hands over.
     mouse.lastMove = performance.now()
+    mouse.touch = false
     const dy = e.deltaMode === 1 ? e.deltaY * 40
               : e.deltaMode === 2 ? e.deltaY * innerHeight
               : e.deltaY

@@ -662,6 +662,13 @@ describe('touch handlers', () => {
     handlers.wheel!({ preventDefault: () => {}, deltaMode: 0, deltaY: 30, deltaX: 0 })
     expect(mouse.lastMove).toBe(clock)
     expect(scrolled).toEqual([30])
+    // ...and a wheel or a real pointer after a touch (a device with both) is no longer a finger.
+    expect(mouse.touch).toBe(false)
+    touch('touchstart', 100, 600); advance(60); touch('touchend', 100, 600)
+    expect(mouse.touch).toBe(true)
+    advance(1000)
+    handlers.mousemove!({ clientX: 50, clientY: 50 })
+    expect(mouse.touch).toBe(false)
   })
 
   test('a touch on a control reaches only the control', () => {

@@ -271,3 +271,23 @@ test('a finger that takes over an arrival lets it recede; a mouse or a wheel kee
   expect(isPhantomActive()).toBe(false)
   expect(loomState.recedingKey).toBeNull()
 })
+
+test('a finger that takes over an arrival which never drove a frame lets go of the current under the lens, not the arrival\'s', async () => {
+  await seedPhantomFixture()
+  const ac = aperture(960, 640)
+  const mouse = makeMouse()
+  mouse.x = 300; mouse.y = 200; mouse.touch = true
+  // Nothing under the lens: nothing recedes.
+  triggerPhantomHover(0, 'm1', 1000)
+  mouse.lastMove = 1001
+  drivePhantomHover(1016, mouse, ac)
+  expect(isPhantomActive()).toBe(false)
+  expect(loomState.recedingKey).toBeNull()
+  // Another current under the lens (an earlier arrival's): that one recedes.
+  loomState.touchedThread = { familyNames: ['attention'] } as unknown as typeof loomState.touchedThread
+  triggerPhantomHover(0, 'm1', 2000)
+  mouse.lastMove = 2001
+  drivePhantomHover(2016, mouse, ac)
+  expect(loomState.recedingKey).toBe('attention')
+  loomState.touchedThread = null
+})
