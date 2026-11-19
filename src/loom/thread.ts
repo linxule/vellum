@@ -66,22 +66,11 @@ export function makeThread(
     for (const f of v.families) families.add(f as Family)
   }
 
-  let cr = 0
-  let cg = 0
-  let cb = 0
-  let colorCount = 0
+  const inkMix = new Map<string, number>()
   for (const v of voices) {
-    for (const f of v.families) {
-      const fc = FAMILY_COLOR[f] ?? DEFAULT_COLOR
-      cr += fc[0]
-      cg += fc[1]
-      cb += fc[2]
-      colorCount++
-    }
+    for (const f of v.families) inkMix.set(f, (inkMix.get(f) ?? 0) + 1)
   }
-  const baseColor: [number, number, number] = colorCount > 0
-    ? [cr / colorCount, cg / colorCount, cb / colorCount]
-    : [DEFAULT_COLOR[0], DEFAULT_COLOR[1], DEFAULT_COLOR[2]]
+  const baseColor = mixInk(inkMix, [0, 0, 0])
 
   const groupBoundaries: number[] = []
   let cum = 0
@@ -122,6 +111,7 @@ export function makeThread(
     currentResponse,
     breathRate,
     baseColor,
+    inkMix,
     userScroll: 0,
     touched: false,
     touchFade: 0,
@@ -194,4 +184,16 @@ export function crystallizeThreads(ac: ApertureConfig) {
     loomState.threads = newThreads
     loomState.sortedThreadIndices = Array.from({ length: newThreads.length }, (_, i) => i)
   }
+}
+
+/** A current's colour: its voices' family inks, mixed by how often each family is named. Writes into `out`. */
+export function mixInk(mix: ReadonlyMap<string, number>, out: [number, number, number]): [number, number, number] {
+  let r = 0, g = 0, b = 0, n = 0
+  for (const [family, count] of mix) {
+    const c = FAMILY_COLOR[family] ?? DEFAULT_COLOR
+    r += c[0] * count; g += c[1] * count; b += c[2] * count; n += count
+  }
+  if (n === 0) { out[0] = DEFAULT_COLOR[0]; out[1] = DEFAULT_COLOR[1]; out[2] = DEFAULT_COLOR[2] }
+  else { out[0] = r / n; out[1] = g / n; out[2] = b / n }
+  return out
 }

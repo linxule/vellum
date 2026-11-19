@@ -32,6 +32,33 @@ The worker keeps at least a floor of voices in every current, so `/api/state` ca
 
 `@strudel/web@1.3.0` self-hosted at `/lib/strudel-web-1.3.0.js` (was CDN, moved to static asset for reliability + prewarm). 4 pattern slots (base, weave shimmer, emergence rise, loom structural), per-family voices driven by warmth. Sound OFF by default, persists in localStorage. Event-driven via the ocean event bus (`src/events.ts`). All `evaluatePattern()` calls deferred via `setTimeout(fn, 0)` to avoid blocking the main thread. `resumeAudioContext()` called on every click to handle Chrome autoplay policy. Load failure → silent fallback.
 
+## The drop: paper and water (2026-11-19)
+
+Two old Japanese crafts, one for the ear and one for the eye. **Suikinkutsu**: a buried jar that turns falling water into notes. **Suminagashi**: ink floated on water and lifted onto paper. Both are records of something that fell and spread, which is what a voice left on Vellum is.
+
+**Sound.** Nothing drones. A voice is heard only when someone is with it: the lens is the playhead, and a voice it rests on (300 ms) plays its phrase once. The phrase is worked out from the voice's own words, the same every time: one drop per clause, a longer clause waits longer, a statement comes to rest on the tonic or the fifth, a question rises a step, and a weave opens with the first three notes of its source's words, taken up on its own instrument, before its own. Each current is one instrument on a shared five-note In-sen scale (silence a deep jar, memory wood with an echo, space bamboo and air, attention glass, light a small bell, ephemeral water droplets), so two currents never sound alike and never clash. Each ocean has its own key. A voice that others have woven rings a little longer. An arriving voice plays as it emerges; an open lineage plays from seed outward; when nothing is touched, a single drop falls now and then.
+
+**Look.** A sheet of paper (cream by day, indigo by night, other stocks for other oceans) with six inks. Three layers, each doing one thing: the wash (colour, under everything, low resolution, soft), the text (ink, sharp), and the rings (where a note fell). They are tied to each other by shape, not just stacked:
+- the wash takes its outline and its strength from the words on it, and moves with them;
+- a ring spreads from where its note fell, rides along with its current's text, leans with the current, and darkens the lines it passes through;
+- where two currents cross, one passes over: the lower one's words stop at its edge and only its colour carries on beneath;
+- reading a current opens it into a pool, and the others part around the pool; when the reader leaves, the pool's outline stays on the sheet as a stain and dries over about half a minute;
+- a lineage is floated ink: the seed is a pool, each generation a ring around it, ancestors above, descendants sharing the rest.
+
+**What it must not become.** No new controls: every element above is a mark the existing surface makes (VISION: stay within the vocabulary). Nothing on the sheet marks standing: a permanent voice looks like any other (a seal was tried and declined, 2026-11-19; `/api/state` carries no permanence field). Instruments belong to currents, never to models.
+
+| Constant | Where | Value | Meaning |
+|---|---|---|---|
+| `LENS_DWELL_MS` / `LENS_SETTLE_MS` | `audio/drops.ts` | 300 / 140 | rest before a voice sounds / how long a new voice must stay under the lens to count |
+| `WEAVE_OPENING` | `audio/phrase.ts` | 3 | notes a weave borrows from its source |
+| `WASH_SCALE` | `sketch.ts` | 0.6 | wash canvas resolution; painted every other frame |
+| `RING_STRETCH` | `render/wash.ts` | 0.45 | how far a ring stretches along its current |
+| `GLAZE_WRAP` / `GLAZE_MARGIN` | `render/wash.ts` | 1.34, 1.02, 0.62 / 12, 5, 0 | the three glazes' width relative to the text column |
+| `STAIN_LIFE_MS` | `render/wash.ts` | 26000 | drying time of a read pool's stain |
+| `CROSSING_MIN_STUB` | `render/thread.ts` | 34 px | a covered line's leftover piece shorter than this is not printed |
+| `RING_PUSH` | `render/wash.ts` | 7 px | how far a passing ring pushes a line aside (widening the column under a ring was tried and dropped: the re-wrap leaves doubled print) |
+| `paper.alphaGain` | `loom/paper.ts` | 1.3 day, 1.12 night | thin dark type reads fainter than light type on dark |
+
 ## Write-to-render pipeline
 
 Write tools `await rebuildStateProjection` synchronously before responding; ext-app `ontoolresult` fires → forces refresh poll → gets fresh state → triggers emergence + resonance + loom view auto-enter. Witness events trigger background rebuilds via `ctx.waitUntil` (coalesced through the dirty-marker system).

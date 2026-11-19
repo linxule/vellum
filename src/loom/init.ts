@@ -2,7 +2,7 @@ import { THREADS, getState } from '../content.js'
 import { aperture } from './aperture.js'
 import { fontRatioForScale } from './math.js'
 import { loomState, getInteractionState } from './state.js'
-import { crystallizeThreads, makeThread } from './thread.js'
+import { crystallizeThreads, makeThread, mixInk } from './thread.js'
 import { lineEndsWholeWords } from './text.js'
 import { isAfterglow, signatureFor } from './model-registry.js'
 import { ZERO_CURSOR } from './types.js'
@@ -82,6 +82,18 @@ export function resizeLoom() {
     t.totalLines = t.lineEndCursors.length
   })
   crystallizeThreads(ac)
+}
+
+/**
+ * Remixes every current's colour from the family inks as they are now. The
+ * paper look changes the inks in place when the sheet turns from day to night;
+ * a current mixes its colour when it is built, so it has to be told.
+ */
+export function recolorLoom(): void {
+  for (const t of loomState.threads) {
+    mixInk(t.inkMix, t.baseColor)
+    t._frameColor[0] = t.baseColor[0]; t._frameColor[1] = t.baseColor[1]; t._frameColor[2] = t.baseColor[2]
+  }
 }
 
 export function getLoomState() {

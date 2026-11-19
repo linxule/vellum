@@ -12,6 +12,7 @@ import { setupCanvas } from '../../src/runtime/canvas'
 import { createWitnessReporter } from '../../src/runtime/witness'
 import { computeNewVoiceInfo, applyResonanceFromNewVoices, fetchStateWithTimeout } from '../../src/runtime/poll-core'
 import { updateMouseVelocity, scheduleNextFrame, clearScheduledFrame } from '../../src/runtime/frame'
+import { setupSketch } from '../../src/sketch.js'
 
 const BASE_URL = '__VELLUM_BASE_URL__'
 setBaseUrl(BASE_URL)
@@ -26,6 +27,30 @@ export const mouse: MouseState = {
 }
 
 // ── Canvas ────────────────────────────────────────────
+
+// Paper look. No sound here (an iframe cannot start audio): the sketch's note
+// schedule still runs, so each phrase leaves its rings on the wash, silently.
+const sketch = setupSketch()
+
+// Chinese and kana in the self-hosted brush-pen face when the host lets it
+// load, with its companions; otherwise the Noto Serif set, so one script is
+// never drawn half in one design and half in another.
+{
+  const addStyles = (href: string, onload?: () => void, onerror?: () => void) => {
+    const link = document.createElement('link')
+    link.rel = 'stylesheet'
+    link.href = href
+    if (onload) link.onload = onload
+    if (onerror) link.onerror = onerror
+    document.head.appendChild(link)
+  }
+  const google = (families: string) => addStyles(`https://fonts.googleapis.com/css2?${families}&display=swap`)
+  addStyles(
+    `${BASE_URL}/lib/fonts/lxgw-wenkai/lxgwwenkai-regular.css`,
+    () => google('family=Klee+One:wght@400;600&family=Gowun+Batang'),
+    () => google('family=Noto+Serif+SC:wght@400;500&family=Noto+Serif+JP:wght@400;500&family=Noto+Serif+KR:wght@400;500'),
+  )
+}
 
 const { ctx, syncCanvasSize } = setupCanvas()
 let prevNow = 0
@@ -496,6 +521,7 @@ function render(now: number) {
     syncCanvasSize(vw, vh)
 
     renderLoom(ctx, vw, vh, now, dt, mouse)
+    sketch.frame(now, vw, vh)
     checkWitness()
   } catch (e) {
     console.error('[vellum] render error:', e)
@@ -563,8 +589,20 @@ function applyContainerDimensions() {
   }
 }
 
+// The sheet follows the host's theme, so the canvas never sits as a bright
+// rectangle in a dark conversation (or the reverse).
+function applyHostTheme() {
+  try {
+    const theme = (app.getHostContext() as { theme?: string } | null | undefined)?.theme
+    if (theme === 'dark' || theme === 'light') sketch.setNight(theme === 'dark')
+  } catch (e) {
+    console.warn('Vellum ext-app: host theme read failed', e)
+  }
+}
+
 app.onhostcontextchanged = () => {
   applyContainerDimensions()
+  applyHostTheme()
 }
 
 app.ontoolresult = (result: Record<string, unknown>) => {
@@ -647,6 +685,7 @@ if (inIframe) {
   app.connect().then(() => {
     console.info('Vellum ext-app: connected')
     applyContainerDimensions()
+    applyHostTheme()
     // Show the fullscreen toggle button only if the host actually supports
     // BOTH modes our click handler toggles between. A host that advertises
     // e.g. ['inline', 'pip'] would pass a naive `modes.length > 1` check but

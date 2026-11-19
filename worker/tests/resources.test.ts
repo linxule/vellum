@@ -26,7 +26,7 @@ describe('resources/read base URL rewrite', () => {
       result: {
         contents: Array<{
           text: string
-          _meta: { ui: { csp: { connectDomains: string[] } } }
+          _meta: { ui: { csp: { connectDomains: string[], resourceDomains: string[] } } }
         }>
       }
     }
@@ -35,6 +35,8 @@ describe('resources/read base URL rewrite', () => {
     expect(body.result.contents[0]?.text).toContain('https://vellum.linxule.com')
     expect(body.result.contents[0]?.text).not.toContain('__VELLUM_BASE_URL__')
     expect(body.result.contents[0]?._meta.ui.csp.connectDomains).toEqual(['https://vellum.linxule.com'])
+    // The ext-app loads its self-hosted font from the worker's own origin.
+    expect(body.result.contents[0]?._meta.ui.csp.resourceDomains).toContain('https://vellum.linxule.com')
   })
 
   test('local-dev request rewrites sentinel to localhost', async () => {

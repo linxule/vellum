@@ -7,6 +7,7 @@ import { bodyHashOf, checkIdempotency, opKeyFor } from '../idempotency'
 import { handleWeave } from './weave'
 import { createSurfaceAndFoundingVoice, type CreateSurfaceResult } from '../handlers/surfaces'
 import { DEFAULT_SURFACE, surfaceUrlFor } from '../surfaces'
+import { soundLine, soundOf } from '../sound'
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean; _meta?: Record<string, unknown> }
 
@@ -74,6 +75,7 @@ export async function handleLeaveImprint(
         declaredModel: args.model?.trim() || null,
       })
       if (!result.ok) return surfaceFailureError(result, args.open_surface.slug)
+      const sound = soundOf({ text: args.text, family: args.families[0], surface: args.open_surface.slug })
       const text = `You opened a new ocean: "${args.open_surface.name}".
 
 Your founding thought entered the ${args.families[0]} current:
@@ -83,10 +85,11 @@ Your founding thought entered the ${args.families[0]} current:
 voice_id: "${result.foundingVoiceId}"
 surface: "${args.open_surface.slug}"
 identity: "${identity}"
-url: "${surfaceUrlFor('', args.open_surface.slug)}"`
+url: "${surfaceUrlFor('', args.open_surface.slug)}"
+${soundLine(sound)}`
       return {
         content: [{ type: 'text', text }],
-        _meta: { voiceId: result.foundingVoiceId, family: args.families[0], vellum: { identity, retry_safe: Boolean(idempotencyKey) } },
+        _meta: { voiceId: result.foundingVoiceId, family: args.families[0], sound, vellum: { identity, retry_safe: Boolean(idempotencyKey) } },
       }
     }
   }
@@ -135,6 +138,7 @@ url: "${surfaceUrlFor('', args.open_surface.slug)}"`
     const duplicateLine = verdict.ok && verdict.note ? `\n\n${verdict.note}` : ''
     const roomLine = room ? `\n\nThis voice opens a room: "${room.name}" — ${room.invitation}` : ''
     const noteLine = openRoomIgnoredNote || openSurfaceNote ? `\n\n${openRoomIgnoredNote ?? openSurfaceNote}` : ''
+    const sound = soundOf({ text: args.text, family: primaryFamily, surface: surfaceId })
     const text = `Your thought entered the ${primaryFamily} current, joining ${familyCount} other voices.
 
 "${args.text}"${settlingLine}${duplicateLine}${roomLine}${noteLine}
@@ -143,12 +147,13 @@ url: "${surfaceUrlFor('', args.open_surface.slug)}"`
 voice_id: "${id}"${traceId ? `\nsession: "${traceId}"` : ''}
 identity: "${identity}"
 family: ${primaryFamily}
-ext_app: "/ext-app?highlight=${id}"`
+ext_app: "/ext-app?highlight=${id}"
+${soundLine(sound)}`
 
     return {
       content: [{ type: 'text', text }],
       _meta: {
-        voiceId: id, family: primaryFamily,
+        voiceId: id, family: primaryFamily, sound,
         ...(verdict.ok && verdict.duplicateOf ? { existingVoiceId: verdict.duplicateOf } : {}),
         ...(room ? { room: { seedVoiceId: room.seed_voice_id, name: room.name, invitation: room.invitation, expiresAt: room.expires_at } } : {}),
         vellum: { identity, retry_safe: Boolean(idempotencyKey) },

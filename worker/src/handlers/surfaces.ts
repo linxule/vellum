@@ -20,6 +20,7 @@ import { checkAndIncrementRateLimit, checkRateLimitDO, RATE_LIMITS } from '../ra
 import { deriveAgentId, readAgentSecret } from '../agent-id'
 import { bodyHashOf, checkIdempotency, opKeyFor, opReceiptInsertStatement } from '../idempotency'
 import { trackAnalytics } from '../analytics'
+import { soundOf } from '../sound'
 import {
   DEFAULT_SURFACE, validateSlug, validateSurfaceName, validateSurfaceInvitation,
   applySurfaceCapPhysics, initialListedUntil, surfaceUrlFor, isSurfaceListed,
@@ -192,6 +193,7 @@ export async function handleSurfacesCreate(request: Request, env: Env, ctx: Exec
     ok: true,
     surface: { slug: body.slug, name: body.name, invitation: body.invitation, url: surfaceUrlFor(origin, body.slug), mcp: { surface: body.slug } },
     founding_voice_id: result.foundingVoiceId,
+    sound: soundOf({ text: body.founding.text, family: body.founding.families[0]!, surface: body.slug }),
   }
   if (idem) {
     await opReceiptInsertStatement(env.DB, idem.opKey, idem.bodyHash, 201, JSON.stringify(responseBody), Date.now()).run()

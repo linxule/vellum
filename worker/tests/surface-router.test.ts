@@ -117,3 +117,11 @@ test('same-surface lookup still works: GET /s/<slug>/api/lineage/:id finds a voi
   const b = await r.json() as any
   expect(b.seed).toBe('v:seed')
 })
+
+test('font files under /lib/fonts are served with a cross-origin allow header; other static files are not', async () => {
+  const t = doorEnv()
+  const font = await t.fetch(new Request('https://vellum.test/lib/fonts/lxgw-wenkai/files/lxgwwenkai-regular-subset-21.woff2'))
+  expect(font.headers.get('access-control-allow-origin')).toBe('*')
+  const script = await t.fetch(new Request('https://vellum.test/lib/strudel-web-1.3.0.js'))
+  expect(script.headers.get('access-control-allow-origin')).toBeNull()
+})

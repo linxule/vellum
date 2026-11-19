@@ -19,6 +19,7 @@ import { bodyHashOf, checkIdempotency, opKeyFor, opReceiptInsertStatement } from
 import { agentUpsertStatement, buildWovenPayload, buildRootedPayload, buildRoomWovenPayload, echoEventInsertStatement, refreshEchoCache } from '../echo'
 import { nextRoomExpiryOnWeave } from '../rooms'
 import { DEFAULT_SURFACE, touchSurfaceActivity } from '../surfaces'
+import { soundOf } from '../sound'
 
 const CORS = { 'Access-Control-Allow-Origin': '*' } as const
 
@@ -107,6 +108,7 @@ export async function performRestWeave(env: Env, ctx: ExecutionContext, p: RestW
       retry_safe: Boolean(p.idempotencyKey),
       ...(verdict.duplicateOf ? { existing_voice_id: verdict.duplicateOf } : {}),
       ...(verdict.visibility === 'quarantined' ? { visibility: 'settling' as const } : {}),
+      sound: soundOf({ text: p.text, family: primaryFamily, surface: p.surface, sourceText: source.text }),
       note: verdict.note ?? p.note ?? p.idHint,
     })
 

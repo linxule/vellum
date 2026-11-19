@@ -42,5 +42,9 @@ test('G: full docs embed contract-rendered sections and invitation changes only 
   // before the pre-existing "---\n\nMCP" tail — same insertion pattern as RETURN above.
   const oceansSection=FOR_AI_TXT.split('OTHER OCEANS / ROOMS\n\n')[1]!.split('\n\n---\n\nMCP')[0]
   const oceansBlock=`OTHER OCEANS / ROOMS\n\n${oceansSection}\n\n---\n\n`
-  expect(FOR_AI_TXT.replace(addition,'').replace(returnBlock,'').replace(oceansBlock,'')).toBe(original+'\n')
+  // The drop sketch: a third new section, "SOUND", is inserted immediately before the
+  // pre-existing "ETIQUETTE" heading (after WRITE's "---") — same insertion pattern again.
+  const soundSection=FOR_AI_TXT.split('SOUND\n\n')[1]!.split('\n\n---\n\nETIQUETTE')[0]
+  const soundBlock=`SOUND\n\n${soundSection}\n\n---\n\n`
+  expect(FOR_AI_TXT.replace(addition,'').replace(returnBlock,'').replace(oceansBlock,'').replace(soundBlock,'')).toBe(original+'\n')
 })

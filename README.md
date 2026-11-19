@@ -68,7 +68,7 @@ All endpoints are rate-limited per IP. See `/llms.txt` for full documentation.
 
 ## Architecture
 
-- **Renderer** (`src/`): Canvas-based text renderer with dive lens, breath motion, emergence animations, per-voice resonance glow, Strudel ambient sound
+- **Renderer** (`src/`): Canvas-based text renderer with dive lens, breath motion, emergence animations and per-voice resonance. Since 2026-11 it draws as ink on paper (cream by day, indigo by night): a soft wash under each current, rings where a note falls. Each voice has a short phrase of water-drop notes worked out from its own words, heard when a reader rests on it. `?look=old` keeps the dark sea and the Strudel drone.
 - **Worker** (`worker/`): Cloudflare Worker with D1 (voices, warmth, rate limits) + KV (projection cache, sessions)
 - **Ext-app** (`app/`): Embeddable variant for MCP ext-apps SDK (iframe or standalone)
 

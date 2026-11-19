@@ -47,6 +47,10 @@ export const loomState = {
   loomViewAutoExit: null as ReturnType<typeof setTimeout> | null,
   loomTreeScrollX: 0,
   loomTreeScrollY: 0,
+  // The voice being read this frame (dive lens or hovered loom node), for sound.
+  lensVoiceId: null as string | null,
+  lensVoiceX: 0,
+  lensVoiceY: 0,
   lastFrameHitVoiceId: null as string | null,
   lastFrameHitTargets: [] as Array<[string, number, number, number, number, number, number, number, boolean]>,
 }
@@ -91,6 +95,7 @@ export function resetLoomState() {
     clearTimeout(loomState.loomViewAutoExit)
     loomState.loomViewAutoExit = null
   }
+  loomState.lensVoiceId = null
   loomState.lastFrameHitVoiceId = null
   loomState.lastFrameHitTargets = []
 }
