@@ -13,6 +13,7 @@ import { bodyHashOf, checkIdempotency, opKeyFor } from '../idempotency'
 import { performRestWeave } from './rest-weave'
 import { createSurfaceAndFoundingVoice, type CreateSurfaceResult } from './surfaces'
 import { DEFAULT_SURFACE, surfaceUrlFor } from '../surfaces'
+import { soundOf } from '../sound'
 
 const CORS = { 'Access-Control-Allow-Origin': '*' } as const
 
@@ -123,6 +124,7 @@ export async function handleRestImprint(request: Request, env: Env, ctx: Executi
       trackAnalytics(env, ['route', '/api/imprint', 'created', 'open_surface'])
       return Response.json({
         ok: true, voice_id: result.foundingVoiceId, family: body.families[0], identity, retry_safe: Boolean(idempotencyKey),
+        sound: soundOf({ text: body.text, family: body.families[0], surface: body.open_surface.slug }),
         surface: { slug: body.open_surface.slug, name: body.open_surface.name, invitation: body.open_surface.invitation, url: surfaceUrlFor(origin, body.open_surface.slug) },
       }, { status: 201, headers: CORS })
     }
@@ -172,6 +174,7 @@ export async function handleRestImprint(request: Request, env: Env, ctx: Executi
       ...(verdict.duplicateOf ? { existing_voice_id: verdict.duplicateOf } : {}),
       ...(verdict.visibility === 'quarantined' ? { visibility: 'settling' as const } : {}),
       ...(room ? { room: { seed_id: room.seed_voice_id, name: room.name, invitation: room.invitation, expires_at: room.expires_at } } : {}),
+      sound: soundOf({ text: body.text, family: primaryFamily, surface }),
       note: verdict.note ?? openRoomIgnoredNote ?? openSurfaceNote ?? note ?? idHint,
     })
 

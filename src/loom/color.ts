@@ -1,4 +1,5 @@
 import { lerp } from './math.js'
+import { paper, PAPER_RGB } from './paper.js'
 
 const _dc: [number, number, number] = [0, 0, 0]
 export function depthColor(base: readonly [number, number, number], depth: number): [number, number, number] {
@@ -24,6 +25,24 @@ export function signatureGray(base: readonly number[], mix: number): [number, nu
 const _tc: [number, number, number] = [0, 0, 0]
 export function threadColor(base: readonly number[], brightness: number, glow: number): [number, number, number] {
   const b = Math.max(0, Math.min(1.3, brightness))
+  if (paper.on) {
+    // Ink: less attention lets a little paper through, more deepens the pigment.
+    const thin = (1 - Math.min(1, b)) * 0.28
+    if (paper.night) {
+      // On the indigo sheet the pigment is pale: more attention brightens it.
+      const lift = Math.min(1, 0.42 * glow + Math.max(0, b - 1) * 0.3 + 0.55 * paper.lineInk)
+      for (let i = 0; i < 3; i++) {
+        const c = base[i]! + (PAPER_RGB[i]! - base[i]!) * thin
+        _tc[i] = Math.max(0, Math.min(255, (c + (255 - c) * lift) | 0))
+      }
+      return _tc
+    }
+    const deep = Math.max(0.3, 1 - 0.42 * glow - Math.max(0, b - 1) * 0.3 - 0.5 * paper.lineInk)
+    _tc[0] = Math.max(0, Math.min(255, ((base[0]! + (PAPER_RGB[0] - base[0]!) * thin) * deep) | 0))
+    _tc[1] = Math.max(0, Math.min(255, ((base[1]! + (PAPER_RGB[1] - base[1]!) * thin) * deep) | 0))
+    _tc[2] = Math.max(0, Math.min(255, ((base[2]! + (PAPER_RGB[2] - base[2]!) * thin) * deep) | 0))
+    return _tc
+  }
   const r = base[0] * b
   const g = base[1] * b
   const bl = base[2] * b

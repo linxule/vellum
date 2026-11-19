@@ -46,6 +46,7 @@ export interface Thread {
   emergenceDepthFrom: number
   resonatingVoiceUids: Map<number, number>  // flatUid → fade (0-1), cleared each frame
   wovenVoiceUids: Set<number>               // flatUids of voices with weave_from or weave_count > 0
+  inkMix: Map<string, number>               // family -> times named by this current's voices (its colour mix)
   voiceModels: Map<number, string>          // flatUid → ocean signature (precomputed via signatureFor)
   afterglowUids: Set<number>                // flatUids of voices whose declared model has been sunset
   sunkenUids: Map<number, number>           // base uid (voice index within one repeat) → fade 0..1; only voices past SUNKEN_DEPTH
@@ -167,7 +168,14 @@ export interface LoomTree {
 
 export type DiagFn = (event: string, payload?: Record<string, unknown>) => void
 
-export const FONT = '400 15px "Cormorant", Georgia, "Noto Serif", "Noto Serif JP", serif'
+// One stack for measuring and drawing. Chinese, Japanese, Korean and Thai each
+// need a face of their own: without one they fall back to a system sans beside
+// the serif Latin. The standalone page loads a brush-pen set: LXGW WenKai
+// (self-hosted Simplified cut, /lib/fonts/lxgw-wenkai) for Chinese and kana,
+// Klee One (the design WenKai is drawn from) for what it lacks, Gowun Batang for
+// Korean. A page that loads only the Noto Serif faces (the ext-app) gets those.
+export const FONT_FAMILY = '"Cormorant", Georgia, "Noto Serif", "LXGW WenKai", "Klee One", "Gowun Batang", "Noto Serif SC", "Noto Serif JP", "Noto Serif KR", "Noto Serif Thai", serif'
+export const FONT = `400 15px ${FONT_FAMILY}`
 export const FRAME_TIME = 0.016
 export const PATH_POINTS = 60
 export const DRIFT_RATE = 0.00002

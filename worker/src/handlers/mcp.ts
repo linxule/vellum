@@ -321,7 +321,8 @@ export async function handleMCP(request: Request, env: Env, ctx: ExecutionContex
               ui: {
                 csp: {
                   connectDomains: [origin],
-                  resourceDomains: ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'],
+                  // The origin itself: the self-hosted font under /lib/fonts.
+                  resourceDomains: [origin, 'https://fonts.googleapis.com', 'https://fonts.gstatic.com'],
                 },
               },
             },

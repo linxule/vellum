@@ -15,7 +15,9 @@ describe('A1-A5: identity on REST imprint/weave', () => {
     expect(b.identity).toBe('anonymous')
     expect(b.retry_safe).toBe(false)
     expect(t.db.voices[0].author_id).toBeFalsy()
-    const { identity, retry_safe, note, ...rest } = b
+    // `sound` (how the voice sounds on the page) is additive on every write, anonymous included.
+    const { identity, retry_safe, note, sound, ...rest } = b
+    expect(sound).toMatchObject({ instrument: expect.any(String), key: 'D', drops: expect.any(Number) })
     expect(rest).toEqual({ ok: true, voice_id: b.voice_id, family: b.family })
     await t.ctx.drain()
   })

@@ -4,6 +4,7 @@ import { depthLerp, frameMix } from '../math.js'
 import { drivePhantomHover, resolvePhantomTarget } from '../phantom.js'
 import { computePath, pathXAtY } from '../path.js'
 import { loomState } from '../state.js'
+import { paper } from '../paper.js'
 import { DEFAULT_COLOR, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, FRAME_TIME, LENS_CLEAR_SIGMAS, LENS_OPENING_ALPHA, LENS_SETTLE_STEP, LENS_STILL_ALPHA, WARMTH_EASE_K, type MouseState } from '../types.js'
 import { renderLoomTree } from '../loom-view.js'
 import { renderThread } from './thread.js'
@@ -313,6 +314,7 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
   // Clear hit targets before thread render loop (set per-thread in renderThread)
   loomState.lastFrameHitVoiceId = null
   loomState.lastFrameHitTargets.length = 0
+  loomState.lensVoiceId = null
 
   // Motion scales with frame time (advanceLoom), so the clear has to as well. At
   // 20fps text moves three 60fps frames' distance between paints; a fixed per-frame
@@ -333,8 +335,17 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
   bgGrad.addColorStop(0, `rgba(${topR},${topG},${topB},${seaClear})`)
   bgGrad.addColorStop(0.6, `rgba(${Math.round((topR + botR) / 2)},${Math.round((topG + botG) / 2)},${Math.round((topB + botB) / 2)},${seaClear})`)
   bgGrad.addColorStop(1, `rgba(${botR},${botG},${botB},${seaClear})`)
-  ctx.fillStyle = bgGrad
-  ctx.fillRect(0, 0, vw, vh)
+  if (paper.on) {
+    // The canvas holds only ink; the paper is underneath. Fade the ink instead
+    // of painting the ground over it.
+    ctx.globalCompositeOperation = 'destination-out'
+    ctx.fillStyle = `rgba(0,0,0,${seaClear})`
+    ctx.fillRect(0, 0, vw, vh)
+    ctx.globalCompositeOperation = 'source-over'
+  } else {
+    ctx.fillStyle = bgGrad
+    ctx.fillRect(0, 0, vw, vh)
+  }
 
   // The water stills where you look. The .18 clear above leaves an 82% trail
   // each frame — the ocean's soft smear — but under the dive lens the magnified
@@ -371,12 +382,14 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
     still.addColorStop(0.55, `rgba(${lensR},${lensG},${lensB},${trailClear(la * (0.6 + 0.35 * opening))})`)
     still.addColorStop(1, `rgba(${lensR},${lensG},${lensB},0)`)
     ctx.fillStyle = still
+    if (paper.on) ctx.globalCompositeOperation = 'destination-out'
     if (tall) {
       ctx.fillRect(-lr, -lr, lr * 2, lr * 2)
       ctx.restore()
     } else {
       ctx.fillRect(lx - lr, mouse.y - lr, lr * 2, lr * 2)
     }
+    ctx.globalCompositeOperation = 'source-over'
   }
 
   // Scale ocean thread alpha during loom view transition
@@ -385,8 +398,33 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
     for (let i = 0; i < visAlpha.length; i++) visAlpha[i]! *= oceanAlpha
   }
 
+  // On paper, neighbouring currents printed through the open lens make the text
+  // being read hard to follow (dim light text on a dark sea did not). So the
+  // current under the lens is drawn last, onto water cleared of the others.
+  const paperLens = paper.on && lensThread !== null && lensThread.proximity > 0.05 && mouse.x > -1000 ? lensThread : null
   for (const threadIndex of loomState.sortedThreadIndices) {
-    if (visAlpha[threadIndex]! >= 0.01) renderThread(ctx, loomState.threads[threadIndex]!, now, mouse, ac, visAlpha[threadIndex]!)
+    const thread = loomState.threads[threadIndex]!
+    if (thread === paperLens) continue
+    if (visAlpha[threadIndex]! >= 0.01) renderThread(ctx, thread, now, mouse, ac, visAlpha[threadIndex]!)
+  }
+  if (paperLens) {
+    const lensIndex = loomState.threads.indexOf(paperLens)
+    // Wide enough for the signatures that follow the lines.
+    const rx = Math.max(40, Math.min(paperLens.balancedWidth, ac.openWidth) * 0.8)
+    const ry = Math.min(vh * 0.6, LENS_CLEAR_SIGMAS * DIVE_SIGMA_LINES * ac.diveLineH)
+    const strength = Math.min(1, paperLens.proximity * 1.5) * 0.9
+    ctx.save()
+    ctx.globalCompositeOperation = 'destination-out'
+    ctx.translate(pathXAtY(paperLens._path, mouse.y), mouse.y)
+    ctx.scale(1, ry / rx)
+    const clear = ctx.createRadialGradient(0, 0, 0, 0, 0, rx)
+    clear.addColorStop(0, `rgba(0,0,0,${strength})`)
+    clear.addColorStop(0.7, `rgba(0,0,0,${strength})`)
+    clear.addColorStop(1, 'rgba(0,0,0,0)')
+    ctx.fillStyle = clear
+    ctx.fillRect(-rx, -rx, rx * 2, rx * 2)
+    ctx.restore()
+    if (lensIndex >= 0 && visAlpha[lensIndex]! >= 0.01) renderThread(ctx, paperLens, now, mouse, ac, visAlpha[lensIndex]!)
   }
 
   // Draw loom tree on top
@@ -396,7 +434,7 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
 
   if (mouse.x > -1000) {
     const r = 30 + (loomState.touchedThread ? loomState.touchedThread.proximity * 25 : 0)
-    const a = loomState.touchedThread ? 0.06 + loomState.touchedThread.proximity * 0.04 : 0.03
+    const a = (loomState.touchedThread ? 0.06 + loomState.touchedThread.proximity * 0.04 : 0.03) * (paper.on ? 0.7 : 1)
     const hBase = loomState.touchedThread ? loomState.touchedThread._frameColor : DEFAULT_COLOR
     const hBright = loomState.touchedThread
       ? depthLerp(DEPTH_BRIGHTNESS, loomState.touchedThread.restingDepth) + loomState.touchedThread.proximity * 0.5 + loomState.touchedThread.warmth * 0.12 + loomState.current * 0.06
@@ -410,7 +448,7 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
     ctx.fillRect(mouse.x - r, mouse.y - r, r * 2, r * 2)
     ctx.beginPath()
     ctx.arc(mouse.x, mouse.y, 3.5, 0, Math.PI * 2)
-    ctx.fillStyle = `rgba(${hr},${hg},${hb},${0.08 + (loomState.touchedThread?.proximity ?? 0) * 0.12})`
+    ctx.fillStyle = `rgba(${hr},${hg},${hb},${(0.08 + (loomState.touchedThread?.proximity ?? 0) * 0.12) * (paper.on ? 4 : 1)})`
     ctx.fill()
   }
 }

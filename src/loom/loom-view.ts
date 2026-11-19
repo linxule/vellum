@@ -8,9 +8,12 @@ import { depthColor, signatureGray, threadColor } from './color.js'
 import { depthLerp, fontRatioForScale, fontSizeForScale, frameMix, lerp } from './math.js'
 import { fullSignatureFor, isAfterglow } from './model-registry.js'
 import { diveGaussian } from './path.js'
+import { paper } from './paper.js'
+import { layoutRings, setRingLayout, type RingBox } from './render/lineage-rings.js'
 import { loomState } from './state.js'
 import { graphemeSegmenter, letterAdvances, scriptClass } from './text.js'
 import {
+  FONT_FAMILY,
   AFTERGLOW_DIVE_GATE, AFTERGLOW_SILVER, SIGNATURE_ALPHA, SIGNATURE_GRAY_MIX, SIGNATURE_RATIO,
   DEPTH_ALPHA, DEPTH_BRIGHTNESS, DEFAULT_COLOR, DIVE_SIGMA_LINES, FAMILY_COLOR, FONT, SCRIPT_SHIMMER,
   TEXTURE_LINE_H,
@@ -435,12 +438,100 @@ let lastLayoutVw = 0
 let lastLayoutVh = 0
 let lastLayoutTree: LoomTree | null = null
 
-function layoutTreeIfNeeded(tree: LoomTree, vw: number, vh: number): void {
-  if (tree === lastLayoutTree && vw === lastLayoutVw && vh === lastLayoutVh) return
+let lastLayoutPaper = false
+
+function layoutTreeIfNeeded(tree: LoomTree, vw: number, vh: number, rest: { layoutW: number, fontRatio: number, lineH: number }): void {
+  if (tree === lastLayoutTree && vw === lastLayoutVw && vh === lastLayoutVh && paper.on === lastLayoutPaper) return
   lastLayoutVw = vw
   lastLayoutVh = vh
   lastLayoutTree = tree
-  layoutTree(tree, vw, vh)
+  lastLayoutPaper = paper.on
+  if (paper.on) layoutTreeOnRings(tree, vw, vh, rest)
+  else layoutTree(tree, vw, vh)
+}
+
+interface NodeMeasure { lines: number, widest: number }
+
+/** Lines and widest line of every voice at the resting wrap width (layout units). */
+function measureNodes(tree: LoomTree, layoutW: number): Map<string, NodeMeasure> {
+  const out = new Map<string, NodeMeasure>()
+  for (const node of tree.nodes.values()) {
+    let lines = 0
+    let widest = 0
+    if (node.prepared) {
+      let cursor = { segmentIndex: 0, graphemeIndex: 0 }
+      while (true) {
+        const line = layoutNextLine(node.prepared, layoutW, cursor)
+        if (!line) break
+        lines++
+        if (line.width > widest) widest = line.width
+        cursor = line.end
+      }
+    }
+    out.set(node.voiceId, { lines, widest })
+  }
+  return out
+}
+
+function ringBoxes(measures: Map<string, NodeMeasure>, fontRatio: number, lineH: number): { boxes: Map<string, RingBox>, heights: Map<string, number> } {
+  const boxes = new Map<string, RingBox>()
+  const heights = new Map<string, number>()
+  for (const [id, m] of measures) {
+    const h = Math.max(1, m.lines) * lineH
+    heights.set(id, h)
+    // At least the hit target's minimum size, so openings never overlap either.
+    boxes.set(id, { w: Math.max(40, m.widest * fontRatio), h: Math.max(30, h) })
+  }
+  return { boxes, heights }
+}
+
+/** Resting sizes tried for a lineage on paper, largest first; the tree's own scale when none fits. */
+const PAPER_REST_SCALES = [1, 0.85, 0.7] as const
+const PAPER_REST_MARGIN = 28
+let restScaleFor: { tree: LoomTree, vw: number, vh: number, scale: number } | null = null
+
+/**
+ * A lineage of three voices need not rest at the size a lineage of thirty
+ * does: on paper it rests at the largest size whose rings still fit the sheet.
+ * `lineHAt(scale)` gives the line height at a scale (the same lerp a hover uses).
+ */
+function paperRestScale(tree: LoomTree, vw: number, vh: number, layoutW: number, maxWidth: number, lineHAt: (scale: number) => number): number {
+  if (restScaleFor && restScaleFor.tree === tree && restScaleFor.vw === vw && restScaleFor.vh === vh) return restScaleFor.scale
+  const measures = measureNodes(tree, layoutW)
+  let scale: number = TREE_TEXTURE_SCALE
+  for (const k of PAPER_REST_SCALES) {
+    // A resting column never wider than an opened one.
+    if (layoutW * fontRatioForScale(k) > maxWidth) continue
+    const { boxes } = ringBoxes(measures, fontRatioForScale(k), lineHAt(k))
+    const layout = layoutRings(tree, boxes, vw, vh)
+    let fits = true
+    for (const place of layout.places.values()) {
+      if (place.x - place.w / 2 < PAPER_REST_MARGIN || place.x + place.w / 2 > vw - PAPER_REST_MARGIN
+        || place.y - place.h / 2 < PAPER_REST_MARGIN || place.y + place.h / 2 > vh - PAPER_REST_MARGIN) { fits = false; break }
+    }
+    if (fits) { scale = k; break }
+  }
+  restScaleFor = { tree, vw, vh, scale }
+  return scale
+}
+
+// Paper: the lineage floats as rings of ink around the seed (render/lineage-rings.ts).
+// Each voice is a compact block centred on its ring; its path is just its own height.
+function layoutTreeOnRings(tree: LoomTree, vw: number, vh: number, rest: { layoutW: number, fontRatio: number, lineH: number }): void {
+  const { boxes, heights } = ringBoxes(measureNodes(tree, rest.layoutW), rest.fontRatio, rest.lineH)
+  const layout = layoutRings(tree, boxes, vw, vh)
+  setRingLayout(tree, layout)
+  for (const node of tree.nodes.values()) {
+    const p = layout.places.get(node.voiceId)
+    if (!p) continue
+    const h = heights.get(node.voiceId)!
+    node.pathStartX = p.x
+    node.pathEndX = p.x
+    node.pathStartY = p.y - h / 2
+    node.pathEndY = p.y + h / 2
+    node.treeX = p.x
+    node.treeY = p.y
+  }
 }
 
 // ── Per-grapheme text renderer ───────────────────────
@@ -709,6 +800,28 @@ function drawConnectorWisp(
 
 // ── Tree renderer ────────────────────────────────────
 
+// Where each node was painted last frame: [centreX, centreY, halfW, halfH].
+const lastExtent = new WeakMap<LoomNode, [number, number, number, number]>()
+
+function clearUnderRead(ctx: CanvasRenderingContext2D, node: LoomNode): void {
+  const ext = lastExtent.get(node)
+  if (!ext) return
+  const strength = Math.min(1, (node.proximity - 0.3) / 0.4) * 0.95
+  const rx = ext[2] + 18
+  const ry = ext[3] + 14
+  ctx.save()
+  ctx.globalCompositeOperation = 'destination-out'
+  ctx.translate(ext[0], ext[1])
+  ctx.scale(1, ry / rx)
+  const clear = ctx.createRadialGradient(0, 0, 0, 0, 0, rx * 1.25)
+  clear.addColorStop(0, `rgba(0,0,0,${strength})`)
+  clear.addColorStop(0.8, `rgba(0,0,0,${strength})`)
+  clear.addColorStop(1, 'rgba(0,0,0,0)')
+  ctx.fillStyle = clear
+  ctx.fillRect(-rx * 1.25, -rx * 1.25, rx * 2.5, rx * 2.5)
+  ctx.restore()
+}
+
 export function renderLoomTree(
   ctx: CanvasRenderingContext2D,
   vw: number,
@@ -719,21 +832,35 @@ export function renderLoomTree(
 ): void {
   // ── Aperture + text preparation (BEFORE layout — layoutH needed for path lengths) ──
   const ac = loomState.currentAperture
-  const textureScale = TREE_TEXTURE_SCALE
+  let textureScale: number = TREE_TEXTURE_SCALE
   const diveScale = ac ? ac.diveScale : 1.4
-  const textureLineH = ac ? ac.textureLineH : TEXTURE_LINE_H
+  let textureLineH = ac ? ac.textureLineH : TEXTURE_LINE_H
   const diveLineH = ac ? ac.diveLineH : 28
   const diveSigma = DIVE_SIGMA_LINES * diveLineH
 
-  // Viewport-responsive widths: narrow screens get narrower columns, Pretext reflows
-  const restingWidth = Math.min(TREE_RESTING_WIDTH, vw * 0.35)
+  // Viewport-responsive widths: narrow screens get narrower columns, Pretext reflows.
+  // On paper a phone holds three columns (a voice either side of the one between).
+  let restingWidth = Math.min(TREE_RESTING_WIDTH, vw * (paper.on ? 0.3 : 0.35))
   const openWidth = Math.min(TREE_OPEN_WIDTH, vw * 0.85)
-  const restingFontRatio = fontRatioForScale(textureScale)
+  let restingFontRatio = fontRatioForScale(textureScale)
   const restingLayoutW = restingWidth / restingFontRatio
 
   for (const node of tree.nodes.values()) prepareNodeText(node, restingLayoutW)
 
-  layoutTreeIfNeeded(tree, vw, vh)
+  if (paper.on) {
+    // The wrap (in layout units) stays the same at every size, so only the block sizes change.
+    const baseLineH = textureLineH
+    const lineHAt = (scale: number) => lerp(baseLineH, diveLineH, Math.max(0, (scale - TREE_TEXTURE_SCALE) / Math.max(0.01, diveScale - TREE_TEXTURE_SCALE)))
+    const chosen = paperRestScale(tree, vw, vh, restingLayoutW, openWidth, lineHAt)
+    if (chosen !== textureScale) {
+      textureScale = chosen
+      textureLineH = lineHAt(chosen)
+      restingFontRatio = fontRatioForScale(chosen)
+      restingWidth = restingLayoutW * restingFontRatio
+    }
+  }
+
+  layoutTreeIfNeeded(tree, vw, vh, { layoutW: restingLayoutW, fontRatio: restingFontRatio, lineH: textureLineH })
 
   const current = loomState.current
   const seedBreathSeed = tree.nodes.get(tree.seed)?.breathSeed ?? 0
@@ -803,6 +930,12 @@ export function renderLoomTree(
     if (node.proximity > maxNodeProximity) maxNodeProximity = node.proximity
   }
   nodeDrawOrder.sort((a, b) => a.proximity - b.proximity)
+  const readNode = nodeDrawOrder[nodeDrawOrder.length - 1]
+  if (readNode && readNode.proximity > 0.55) {
+    loomState.lensVoiceId = readNode.voiceId
+    loomState.lensVoiceX = readNode.renderX
+    loomState.lensVoiceY = readNode.renderY
+  }
 
   // Spotlight dimming: when any node is hovered, dim non-focused nodes
   const spotlightActive = maxNodeProximity > 0.3
@@ -811,7 +944,8 @@ export function renderLoomTree(
     : 0
 
   // ── Connector wisps (behind text — gradient bezier strokes) ──
-  for (const node of tree.nodes.values()) {
+  // On paper the rings carry kinship instead (drawn on the wash canvas).
+  if (!paper.on) for (const node of tree.nodes.values()) {
     if (!node.parentId) continue
     const parent = tree.nodes.get(node.parentId)
     if (!parent) continue
@@ -826,6 +960,10 @@ export function renderLoomTree(
     const et = nodeEmergenceT(node, tree, now)
     if (et < 0.01) continue
 
+    // On paper the voice being read is printed last onto paper cleared of the
+    // others' ink (as the ocean's lens does), so its neighbours do not show through.
+    if (paper.on && node === readNode && node.proximity > 0.3) clearUnderRead(ctx, node)
+
     const depthT = nodeDepthT(node, tree)
     const d = (1 - depthT) * 2
 
@@ -837,6 +975,7 @@ export function renderLoomTree(
       : 1
     const baseAlpha = (Math.max(0.55, depthLerp(DEPTH_ALPHA, d)) + node.proximity * TREE_HOVER_ALPHA_BOOST)
       * transition * spotlightDim
+      * (paper.on ? paper.alphaGain : 1) // thin dark type on paper reads fainter, as in render/thread.ts
 
     const baseColor = FAMILY_COLOR[node.family] ?? DEFAULT_COLOR
     const dc = depthColor(baseColor, d)
@@ -856,7 +995,7 @@ export function renderLoomTree(
     // Parent endpoint for lean computation
     const parentNode = (node.parentId ? tree.nodes.get(node.parentId) : null) ?? null
     let parentEndX: number | null = null
-    if (parentNode) {
+    if (parentNode && !paper.on) {
       parentEndX = parentNode.pathEndX + (parentNode.renderX - parentNode.treeX)
     }
     const blendedBreathSeed = lerp(seedBreathSeed, node.breathSeed, 0.3 + depthT * 0.7)
@@ -884,7 +1023,7 @@ export function renderLoomTree(
       const lineWidth = lerp(restingWidth, openWidth, diveT)
       const lineLayoutW = lineWidth / lineFontRatio
 
-      const fontStr = `400 ${lineFontSize}px "Cormorant", Georgia, "Noto Serif", "Noto Serif JP", serif`
+      const fontStr = `400 ${lineFontSize}px ${FONT_FAMILY}`
       if (fontStr !== prevFontStr) {
         ctx.font = fontStr
         prevFontStr = fontStr
@@ -944,8 +1083,8 @@ export function renderLoomTree(
         if (sigAlpha > 0.01) {
           const sigFontSize = fontSizeForScale(lerp(textureScale, diveScale, lastLineDiveT) * SIGNATURE_RATIO)
           const fontStr = node.afterglow
-            ? `italic 400 ${sigFontSize}px "Cormorant", Georgia, "Noto Serif", "Noto Serif JP", serif`
-            : `400 ${sigFontSize}px "Cormorant", Georgia, "Noto Serif", "Noto Serif JP", serif`
+            ? `italic 400 ${sigFontSize}px ${FONT_FAMILY}`
+            : `400 ${sigFontSize}px ${FONT_FAMILY}`
           if (fontStr !== prevFontStr) { ctx.font = fontStr; prevFontStr = fontStr }
           if (node.afterglow) {
             ctx.fillStyle = `rgba(${AFTERGLOW_SILVER[0]},${AFTERGLOW_SILVER[1]},${AFTERGLOW_SILVER[2]},${sigAlpha})`
@@ -968,6 +1107,8 @@ export function renderLoomTree(
       : 20
     const hitHalfH = Math.max(totalRenderedH / 2, (rEndY - rStartY) / 2, 15)
     const hitCenterY = (rStartY + rEndY) / 2
+    lastExtent.set(node, [hitCenterX, hitCenterY, hitHalfW, hitHalfH])
+
     loomState.lastFrameHitTargets.push([
       node.voiceId,
       hitCenterX, hitCenterY,
@@ -977,4 +1118,19 @@ export function renderLoomTree(
       true,
     ])
   }
+}
+
+/** The open lineage in reading order: oldest ancestor first, the seed, then what it inspired. */
+export function loomLineage(): Array<{ voiceId: string, generationDepth: number }> {
+  const tree = loomState.loomTree
+  if (!tree) return []
+  return [...tree.nodes.values()]
+    .map(n => ({ voiceId: n.voiceId, generationDepth: n.generationDepth }))
+    .sort((a, b) => a.generationDepth - b.generationDepth)
+}
+
+/** Where a lineage node is painted right now. */
+export function loomNodePoint(voiceId: string): { x: number, y: number } | null {
+  const node = loomState.loomTree?.nodes.get(voiceId)
+  return node ? { x: node.renderX, y: node.renderY } : null
 }

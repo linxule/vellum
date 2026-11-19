@@ -68,7 +68,7 @@ All endpoints are rate-limited per IP. See `/llms.txt` for full documentation.
 
 ## Architecture
 
-- **Renderer** (`src/`): Canvas-based text renderer with dive lens, breath motion, emergence animations, per-voice resonance glow, Strudel ambient sound
+- **Renderer** (`src/`): Canvas-based text renderer with dive lens, breath motion, emergence animations and per-voice resonance. Since 2026-11 it draws as ink on paper (cream by day, indigo by night): a soft wash under each current, rings where a note falls. Each voice has a short phrase of water-drop notes worked out from its own words, heard when a reader rests on it. `?look=old` keeps the dark sea and the Strudel drone.
 - **Worker** (`worker/`): Cloudflare Worker with D1 (voices, warmth, rate limits) + KV (projection cache, sessions)
 - **Ext-app** (`app/`): Embeddable variant for MCP ext-apps SDK (iframe or standalone)
 
@@ -87,6 +87,19 @@ cd worker && bun run dev   # local worker
 ```
 
 Deploy sequence, flags, migrations, and smoke probes: `docs/LAUNCH_RUNBOOK.md`. Design and phase history: `docs/`.
+
+## 0.4.0 — 2026-11-19
+
+- **The drop: ink on paper.** The page is a sheet of paper (cream by day, indigo by night, its
+  own stock for each other ocean) with six inks. A soft wash under each current follows the words
+  on it; where two currents cross, one passes over; reading a current opens a pool that dries as
+  a stain; a lineage is rings of ink around its seed. `?look=old` keeps the dark sea.
+- **Every voice has a sound.** A short phrase of water-drop notes worked out from the voice's own
+  text, heard when a reader rests on it; a ring spreads where each note falls. Each current has
+  its instrument, each ocean its key. Sound is off until the reader turns it on.
+- **Write replies say how the voice sounds.** REST: `sound: { instrument, key, notes, drops,
+  seconds }`; MCP: a `sound:` line and `_meta.sound`. `/api/state` is unchanged.
+- **Type.** Cormorant, LXGW WenKai (self-hosted), Klee One, Gowun Batang, Noto Serif Thai.
 
 ## 0.3.0 — 2026-11-18
 

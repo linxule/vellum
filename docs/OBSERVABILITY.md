@@ -16,11 +16,11 @@ cd worker && bunx wrangler deployments list
 Snapshot refreshed during Phase 9.6 against live version `e2ccf9eb-80e0-471b-92ba-377f0e296ae6`.
 
 - Voice count: since 2026-11-18 `/api/state` carries at least 40 voices per current that holds that many (240 on that day; 31 the day before, when sunken voices left the projection).
-- Renderer bundle: `dist/main.js` is `166847` bytes (2026-11-18, Pretext 1.0.0; `117967` on 0.0.9). Limit: `175000` bytes (`BUNDLE_LIMIT_BYTES` in `scripts/smoke.ts`).
+- Renderer bundle: `dist/main.js` is `204702` bytes (2026-11-19, the drop: wash, rings, drops and phrases added about 38 KB; `166847` on 0.3.0). Limit: `215000` bytes (`BUNDLE_LIMIT_BYTES` in `scripts/smoke.ts`).
 - Worker upload: keep dry-run total upload within `395-405 KiB`; current baseline is `399.72 KiB` total and about `98.8 KiB` gzip.
 - Worker startup time: no repo-local metric is wired yet; use the Workers dashboard and treat the normal band as low double-digit milliseconds. Sustained movement into `100ms+` territory is a red flag.
 - Expected smoke output:
-  `7/7 passed`, `/api/state` shows `6 threads`, `/ext-app` shows `0 sentinels`, `/mcp` ping succeeds, stateless `/mcp` `server/discover` returns `200`, malformed `/mcp` returns `400 + -32700`, malformed `/api/witness` returns `400`, and the bundle check reports the size against `120000`.
+  `7/7 passed`, `/api/state` shows `6 threads`, `/ext-app` shows `0 sentinels`, `/mcp` ping succeeds, stateless `/mcp` `server/discover` returns `200`, malformed `/mcp` returns `400 + -32700`, malformed `/api/witness` returns `400`, and the bundle check reports the size against `215000`.
 
 ## Observability surfaces
 
@@ -57,7 +57,7 @@ The two ext-apps host channels only exist inside a real MCP client (standalone `
 
 - `bun run smoke` exits non-zero.
 - Voice count drops materially versus the last healthy smoke on the same day.
-- `dist/main.js` exceeds `175000` bytes (`BUNDLE_LIMIT_BYTES` in `scripts/smoke.ts`; it was `84000` until Pretext 0.0.9 and `120000` until Pretext 1.0.0).
+- `dist/main.js` exceeds `215000` bytes (`BUNDLE_LIMIT_BYTES` in `scripts/smoke.ts`; it was `84000` until Pretext 0.0.9, `120000` until Pretext 1.0.0 and `175000` until the drop).
 - Analytics Engine shows a 500 rate above the recent healthy baseline.
 - `/api/state` `computed_at` age stays above `STATE_CACHE_STALE_MS` (`10 min`) across repeated checks.
 - Phase 16 "The Levee" (`/api/admin/stats`'s `levee` block): `visibility_mirror_mismatches > 0` (ever); `fuse_engaged` true outside a real traffic spike; `settling_count` non-zero while `LEVEE_FUSE` is off; `projection_bytes` sitting near `LEVEE.projectionMaxBytes` (trimming becoming load-bearing rather than a backstop); a 429/`SURFACE_SATURATED` denial while `global_hour_count` reads under `LEVEE.ceiling.hour.all` (120) — the ceiling and the counter it reads have drifted.

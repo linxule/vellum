@@ -23,6 +23,11 @@ export const mouse: MouseState = {
 
 import { initStrudelSound, modulateSound, toggleStrudelSound, isStrudelReady, isSoundOn, resumeAudioContext } from './audio/controller.js'
 import { preloadStrudelScript } from './audio/strudel-loader.js'
+import { setupSketch } from './sketch.js'
+
+// Sketch: paper look and the drop instrument. ?look=old keeps the sea and the drone.
+// The page decides the look before first paint (index.html); follow it.
+const sketch = document.documentElement.classList.contains('paper') ? setupSketch() : null
 
 // ── Canvas ────────────────────────────────────────────
 
@@ -78,18 +83,24 @@ const soundEl = document.getElementById('sn')!
 async function handleSoundToggleGesture(e?: Event): Promise<void> {
   e?.preventDefault?.()
   e?.stopPropagation?.()
+  if (sketch) {
+    const on = await sketch.toggleSound()
+    soundEl.textContent = on ? 'sound \u00b7' : 'sound'; soundEl.setAttribute('aria-pressed', String(on))
+    soundEl.classList.toggle('on', on)
+    return
+  }
   resumeAudioContext()
   if (!isStrudelReady()) {
     const ok = await initStrudelSound()
     if (!ok) return
     resumeAudioContext()
-    soundEl.textContent = 'sound \u00b7'; soundEl.style.opacity = '.7'
+    soundEl.textContent = 'sound \u00b7'; soundEl.classList.add('on')
     return
   }
   resumeAudioContext()
   const on = toggleStrudelSound()
-  soundEl.textContent = on ? 'sound \u00b7' : 'sound'
-  soundEl.style.opacity = on ? '.7' : '.3'
+  soundEl.textContent = on ? 'sound \u00b7' : 'sound'; soundEl.setAttribute('aria-pressed', String(on))
+  soundEl.classList.toggle('on', on)
 }
 
 soundEl.addEventListener('pointerdown', (e) => { void handleSoundToggleGesture(e) })
@@ -101,8 +112,10 @@ soundEl.addEventListener('click', (e) => { if ((e as MouseEvent).detail === 0) v
 // is ~214 KB gzipped and a long main-thread task (~90 ms measured on desktop, several
 // times that on phones) that used to land mid-fade-in for everyone, though sound
 // defaults off. Hover/focus gives the click a head start; click-time init is the fallback.
-soundEl.addEventListener('pointerenter', preloadStrudelScript, { once: true })
-soundEl.addEventListener('focus', preloadStrudelScript, { once: true })
+if (!sketch) {
+  soundEl.addEventListener('pointerenter', preloadStrudelScript, { once: true })
+  soundEl.addEventListener('focus', preloadStrudelScript, { once: true })
+}
 
 // ── Resize ────────────────────────────────────────────
 
@@ -120,6 +133,7 @@ document.addEventListener('click', (e) => {
   // Cancel pending highlight auto-loom on any user click
   if (highlightAutoLoomTimeout) { clearTimeout(highlightAutoLoomTimeout); highlightAutoLoomTimeout = null }
   if (isSoundOn()) resumeAudioContext()
+  sketch?.resume()
   const hitId = getLastFrameHitVoiceIdAt(e.clientX, e.clientY)
   if (isLoomViewActive()) {
     if (hitId && hitId !== getCurrentLoomSeed()) {
@@ -305,8 +319,12 @@ function render(now: number) {
     checkWitness()
 
     // Strudel sound modulation
-    const st = getLoomState()
-    modulateSound(st.proximity, st.immersion)
+    if (sketch) {
+      sketch.frame(now, vw, vh)
+    } else {
+      const st = getLoomState()
+      modulateSound(st.proximity, st.immersion)
+    }
   } catch (e) {
     console.error('[vellum] render error:', e)
   }
@@ -317,6 +335,7 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     prevNow = 0
     if (isSoundOn()) resumeAudioContext()
+    sketch?.resume()
     clearScheduledFrame(frameHandle)
     scheduleFrame()
     void poll({ refresh: Boolean(highlightId && !findVoice(highlightId)) })

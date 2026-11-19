@@ -267,6 +267,8 @@ export default {
       ? withHtmlNoCache(assetResponse)
       : assetResponse
     const finalResponse = withCdnRevalidate(response)
+    // Browsers refuse a web font from another origin without this, and the ext-app runs in its host's frame.
+    if (url.pathname.startsWith('/lib/fonts/')) finalResponse.headers.set('Access-Control-Allow-Origin', '*')
     if (url.pathname === '/' && ['GET', 'HEAD'].includes(request.method)) {
       finalResponse.headers.set('Link', ROOT_LINK)
       finalResponse.headers.set('Vary', 'Accept, User-Agent')

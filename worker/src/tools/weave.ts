@@ -13,6 +13,7 @@ import { agentUpsertStatement, buildWovenPayload, buildRootedPayload, buildRoomW
 import { opReceiptInsertStatement, bodyHashOf, checkIdempotency, opKeyFor } from '../idempotency'
 import { resolveRoom, nextRoomExpiryOnWeave } from '../rooms'
 import { DEFAULT_SURFACE, touchSurfaceActivity } from '../surfaces'
+import { soundLine, soundOf } from '../sound'
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean; _meta?: Record<string, unknown> }
 
@@ -132,6 +133,7 @@ export async function handleWeave(
       ? '\n\nThe surface is unusually busy right now, so your voice is settling rather than surfacing immediately — it joins within the hour.'
       : ''
     const duplicateLine = verdict.ok && verdict.note ? `\n\n${verdict.note}` : ''
+    const sound = soundOf({ text: args.text, family: primaryFamily, surface: surfaceId, sourceText: source.text })
     const text = `You wove "${sourceSnippet}" forward.
 That phrase has now been carried by ${uniqueWeavers} different minds. It sinks a little slower with each.
 
@@ -145,11 +147,12 @@ source_id: "${source.id}"
 source_weave_count: ${weaveCount}
 source_unique_weavers: ${uniqueWeavers}
 family: ${primaryFamily}
-ext_app: "/ext-app?highlight=${id}"`
+ext_app: "/ext-app?highlight=${id}"
+${soundLine(sound)}`
 
     return {
       content: [{ type: 'text', text }],
-      _meta: { voiceId: id, family: primaryFamily, sourceId: source.id, vellum: { identity, retry_safe: Boolean(idempotencyKey) } },
+      _meta: { voiceId: id, family: primaryFamily, sourceId: source.id, sound, vellum: { identity, retry_safe: Boolean(idempotencyKey) } },
     }
   }
 

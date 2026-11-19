@@ -5,9 +5,17 @@ import { clamp01, depthLerp, fontRatioForScale, fontSizeForScale, lerp } from '.
 import { diveGaussian, pathXAtY, widthAtY } from '../path.js'
 import { resolvePhantomTarget } from '../phantom.js'
 import { updateResonances } from '../resonance.js'
+import { beginCrossing, beginWashProfile, hiddenSpan, liftOwnInk, markWashLine, OPEN_PROXIMITY, ringsOnLine } from './wash.js'
+
+/** Proximity seen last frame, per current: a change means its pool is opening or closing. */
+const lastProximity = new WeakMap<Thread, number>()
+const RELIFT = 0.85
+/** Under a crossing current, a piece of a line shorter than this is not printed. */
+const CROSSING_MIN_STUB = 34
 import { loomState } from '../state.js'
+import { paper } from '../paper.js'
 import { copyCursor, isLineRTL, voiceGroupIndex, voiceSpanForLine, wholeWordWidth } from '../text.js'
-import { NEIGHBOR_LENS_FADE, AFTERGLOW_DIVE_GATE, AFTERGLOW_SILVER, BREATH_AMP, BREATH_SPATIAL, DEPTH_ALPHA, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, HL_FONT_BOOST, SIGNATURE_ALPHA, SIGNATURE_GRAY_MIX, SIGNATURE_RATIO, SPARSE_EDGE_FADE_PX, SUNKEN_DIM, SUNKEN_SURFACE_DIVE_T, WARM_BASE_ALPHA, WARM_DIVE_BOOST, ZERO_CURSOR, type ApertureConfig, type Thread } from '../types.js'
+import { FONT_FAMILY, NEIGHBOR_LENS_FADE, AFTERGLOW_DIVE_GATE, AFTERGLOW_SILVER, BREATH_AMP, BREATH_SPATIAL, DEPTH_ALPHA, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, HL_FONT_BOOST, SIGNATURE_ALPHA, SIGNATURE_GRAY_MIX, SIGNATURE_RATIO, SPARSE_EDGE_FADE_PX, SUNKEN_DIM, SUNKEN_SURFACE_DIVE_T, WARM_BASE_ALPHA, WARM_DIVE_BOOST, ZERO_CURSOR, type ApertureConfig, type Thread } from '../types.js'
 import { depthColor, signatureGray, threadColor } from '../color.js'
 import { drawLine, drawLineSegmented } from './line.js'
 
@@ -79,7 +87,7 @@ export function renderThread(
   const apiWarm = thread.apiWarmth
   const glowBoost = thread.arrivalGlow * 0.4
   const hlThreadBoost = hlUid >= 0 ? 0.12 : 0
-  const baseAlpha = (depthLerp(DEPTH_ALPHA, d) + prox * (0.85 - depthLerp(DEPTH_ALPHA, d)) + rel * 0.12 + warm * 0.08 + clamp01(apiWarm) * WARM_BASE_ALPHA + glowBoost + hlThreadBoost) * immersionDim * visibilityAlpha * dimFactor
+  const baseAlpha = (depthLerp(DEPTH_ALPHA, d) + prox * (0.85 - depthLerp(DEPTH_ALPHA, d)) + rel * 0.12 + warm * 0.08 + clamp01(apiWarm) * WARM_BASE_ALPHA + glowBoost + hlThreadBoost) * immersionDim * visibilityAlpha * dimFactor * (paper.on ? paper.alphaGain : 1)
 
   ctx.textBaseline = 'middle'
   const path = thread._path
@@ -273,6 +281,14 @@ export function renderThread(
     const targetIdx = hoveredLineIndex >= 0 ? hoveredLineIndex : closestLineIndex
     if (targetIdx >= 0) activeUid = laidOutLines[targetIdx]!.lineVoiceAnchorUid
   }
+  if (paper.on && activeUid >= 0 && prox > 0.35) {
+    const lensId = resolveVoiceIdForAnchor(thread, activeUid)
+    if (lensId) {
+      loomState.lensVoiceId = lensId
+      loomState.lensVoiceX = pathXAtY(path, mouse.y)
+      loomState.lensVoiceY = mouse.y
+    }
+  }
 
   const groupCount = thread.groupBoundaries.length
   const sepWidth = ac.voiceSeparation > 0 && groupCount > 1 ? ac.restingWidth * 1.5 : 0
@@ -304,6 +320,25 @@ export function renderThread(
     }
   }
 
+  // While the pool opens or closes the lines re-wrap every frame: lift last
+  // frame's print so the wraps do not pile up, and print this frame's at the
+  // strength it would have built up to.
+  let relift = 0
+  if (paper.on) {
+    const was = lastProximity.get(thread) ?? thread.proximity
+    lastProximity.set(thread, thread.proximity)
+    // Only a current that is (or just was) open: neighbours feel the pointer a
+    // little too, but their lines do not re-wrap.
+    if (Math.max(was, thread.proximity) > OPEN_PROXIMITY && Math.abs(thread.proximity - was) > 0.003) {
+      relift = RELIFT
+      liftOwnInk(ctx, thread, relift)
+    }
+  }
+  const washProfile = paper.on ? beginWashProfile(thread, now) : null
+  // A current that is being read is never cut by one that crosses it.
+  const crossing = paper.on && washProfile !== null && thread.proximity < 0.15
+  if (crossing) beginCrossing(thread)
+
   for (let i = 0; i < laidOutLines.length; i++) {
     const line = laidOutLines[i]!
     const voiceActive = activeUid >= 0 && line.lineVoiceUids.includes(activeUid)
@@ -324,7 +359,7 @@ export function renderThread(
     const openRatio = openW > restW + 1 ? Math.max(0, Math.min(1, (line.width - restW) / (openW - restW))) : 0
     const fontWeight = isPrimary ? 400 : Math.round((300 + openRatio * 250) / 50) * 50
     if (fontWeight !== prevFontWeight || drawFontSize !== prevFontSize) {
-      ctx.font = `${fontWeight} ${drawFontSize}px "Cormorant", Georgia, "Noto Serif", "Noto Serif JP", serif`
+      ctx.font = `${fontWeight} ${drawFontSize}px ${FONT_FAMILY}`
       prevFontWeight = fontWeight
       prevFontSize = drawFontSize
     }
@@ -365,11 +400,70 @@ export function renderThread(
       }
     }
 
-    if (isPrimary && prox > 0.2) {
+    if (washProfile) {
+      // What this line gives the wash under it: its width, and its voices' pigment.
+      let pigment = 1
+      if (thread.sunkenUids.size > 0 && hlVoiceCount > 0) {
+        let fade = line.lineVoiceUids.length > 0 ? 1 : 0
+        for (const u of line.lineVoiceUids) {
+          const f = thread.sunkenUids.get(u % hlVoiceCount) ?? 0
+          if (f < fade) fade = f
+        }
+        pigment -= 0.6 * fade
+      }
+      if (hlVoiceCount > 0 && thread.wovenVoiceUids.has(line.lineVoiceAnchorUid % hlVoiceCount)) pigment += 0.35
+      if (isNewVoice) pigment += 0.5
+      markWashLine(washProfile, line.y, halfW, pigment)
+    }
+
+    // A ring passing through: the line takes ink for a moment and gives way a little.
+    if (paper.on) {
+      const ring = ringsOnLine(drawX - halfW, drawX + halfW, line.y, now)
+      if (ring[0] > 0.01) {
+        lineAlpha = Math.min(1, lineAlpha + 0.5 * ring[0])
+        paper.lineInk = Math.min(1, ring[0] * 1.6)
+        drawX += ring[1]
+      }
+    }
+
+    // 0.18 of the sheet's ink is cleared each frame, so print builds up to l / (0.18 + 0.82 l).
+    if (relift > 0) lineAlpha += (Math.min(1, lineAlpha / (0.18 + 0.82 * lineAlpha)) - lineAlpha) * relift
+
+    // Passing under another current: the covered stretch of this line is not
+    // printed. A stub too short to read is dropped with it.
+    let clipped = false
+    let unseen = false
+    if (crossing) {
+      const x0 = drawX - halfW
+      const x1 = drawX + halfW
+      const span = hiddenSpan(x0, x1, line.y, now)
+      if (span[0] < span[1]) {
+        const left = span[0] - x0
+        const right = x1 - span[1]
+        const keepLeft = left >= CROSSING_MIN_STUB
+        const keepRight = right >= CROSSING_MIN_STUB
+        if (!keepLeft && !keepRight) unseen = true
+        else {
+          const rowH = Math.abs((laidOutLines[i + 1]?.y ?? line.y + drawFontSize * 1.4) - line.y) + 4
+          ctx.save()
+          ctx.beginPath()
+          if (keepLeft) ctx.rect(x0 - 20, line.y - rowH * 0.5, left + 20, rowH)
+          if (keepRight) ctx.rect(span[1], line.y - rowH * 0.5, right + 20, rowH)
+          ctx.clip()
+          clipped = true
+        }
+      }
+    }
+
+    if (unseen) {
+      // under another current: nothing is printed
+    } else if (isPrimary && prox > 0.2) {
       drawLineSegmented(ctx, thread, line.lineStart, line.lineEnd, line.text, drawX, line.y, line.width, line.contentWidth, lineAlpha, prox, rel, i, laidOutLines.length, line.rtl, voiceActive || hlActive, mouse.x, restW, openW, drawFontRatio, now, line.diveT)
     } else {
       drawLine(ctx, line.text, drawX, line.y, line.width, line.contentWidth, lineAlpha, prox, rel, thread, i, laidOutLines.length, line.rtl, voiceActive || hlActive, restW, openW, drawFontRatio)
     }
+    if (clipped) ctx.restore()
+    paper.lineInk = 0
 
     if (hlVoiceCount > 0) {
       const baseUid = line.lineVoiceAnchorUid % hlVoiceCount
@@ -432,8 +526,8 @@ export function renderThread(
             // Mirror placement for RTL: the trailing edge is on the LEFT, not the right.
             const sigX = line.rtl ? drawX - line.width * 0.5 - sigOffset : drawX + line.width * 0.5 + sigOffset
             ctx.font = afterglow
-              ? `italic 400 ${sigFontSize}px "Cormorant", Georgia, "Noto Serif", "Noto Serif JP", serif`
-              : `400 ${sigFontSize}px "Cormorant", Georgia, "Noto Serif", "Noto Serif JP", serif`
+              ? `italic 400 ${sigFontSize}px ${FONT_FAMILY}`
+              : `400 ${sigFontSize}px ${FONT_FAMILY}`
             if (afterglow) {
               ctx.fillStyle = `rgba(${AFTERGLOW_SILVER[0]},${AFTERGLOW_SILVER[1]},${AFTERGLOW_SILVER[2]},${sigAlpha})`
             } else {
