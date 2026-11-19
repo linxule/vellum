@@ -19,6 +19,8 @@ export const paper = {
   // text stays on the sheet between frames, so a line shows more ink by its
   // colour, not by its opacity.
   lineInk: 0,
+  // Diagnostic (?probe&water=0): the sheet without its water, to measure what the water costs.
+  noWater: false,
 }
 const ALPHA_GAIN_DAY = 1.3
 const ALPHA_GAIN_NIGHT = 1.12

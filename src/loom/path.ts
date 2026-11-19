@@ -1,7 +1,7 @@
 import { layout, prepare } from '@chenglou/pretext'
 import { loomState } from './state.js'
 import { depthLerp } from './math.js'
-import { DEPTH_AMPLITUDE, DEPTH_CURRENT, DEPTH_PULL, DRIFT_RATE, PATH_POINTS, type ApertureConfig, type MouseState, type PathPoint, type Thread } from './types.js'
+import { DEPTH_AMPLITUDE, DEPTH_CURRENT, DEPTH_PULL, DRIFT_RATE, FRAME_TIME, PATH_POINTS, type ApertureConfig, type MouseState, type PathPoint, type Thread } from './types.js'
 
 export function computeBalancedWidth(text: string, font: string, maxWidth: number, minWidth = 200): number {
   const prepared = prepare(text, font, { whiteSpace: 'pre-wrap' })
@@ -29,8 +29,18 @@ export function pathXAtY(path: PathPoint[], y: number): number {
   return p0.x + (p1.x - p0.x) * f
 }
 
+/** The ocean current at time t (ms), -1..1: frame.ts sets loomState.current from it each frame. */
+export const oceanCurrent = (t: number): number =>
+  Math.sin(t * 0.00008) * 0.6 + Math.sin(t * 0.000137) * 0.3 + Math.sin(t * 0.00015) * 0.1
+
 export function computePath(thread: Thread, now: number, mouse: MouseState, ac: ApertureConfig): PathPoint[] {
-  const { current, touchedThread, VW, VH } = loomState
+  const { touchedThread, VW, VH } = loomState
+  // The current being read (only on paper: render/thread.ts anchors it) holds its
+  // place: its path's clock stops while it is anchored (`_lag` is how long it has
+  // stood still), then goes on from there, and the ocean current it feels runs
+  // on that clock. Elsewhere the lag is 0 and nothing differs.
+  now -= thread._lag = (thread._lag ?? 0) + (thread._anchor ? loomState.frameRatio * FRAME_TIME * 1000 : 0)
+  const current = thread._lag ? oceanCurrent(now) : loomState.current
   const points = thread._path
   const phase = now * DRIFT_RATE * (0.2 + thread.restingDepth * 0.4)
   const ampScale = ac.pathAmplitude > 0 ? ac.pathAmplitude / 0.1 : 0

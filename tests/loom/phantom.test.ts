@@ -172,3 +172,122 @@ test('triggerPhantomHover on an out-of-range thread index is a no-op', async () 
   triggerPhantomHover(5, 'm0', 10)
   expect(getPhantomFocus()).toBeNull()
 })
+
+test('an arrival with a hold lets go by itself and recedes; without one it holds until the reader acts', async () => {
+  await seedPhantomFixture()
+  const mouse = makeMouse()
+  const ac = aperture(960, 640)
+  // No hold (a ?highlight link, the ext-app, the old look): still held a minute later.
+  triggerPhantomHover(0, 'm1', 1000)
+  drivePhantomHover(61000, mouse, ac)
+  expect(isPhantomActive()).toBe(true)
+
+  // With a hold: held until it runs out, then let go, the lens left where it was
+  // for the current to ease shut (reading.ts parks the pointer afterwards).
+  triggerPhantomHover(0, 'm1', 1000, 30000)
+  drivePhantomHover(30900, mouse, ac)
+  expect(isPhantomActive()).toBe(true)
+  const y = mouse.y
+  drivePhantomHover(31100, mouse, ac)
+  expect(isPhantomActive()).toBe(false)
+  expect(loomState.recedingKey).toBe('memory')
+  expect(loomState.recedingY).toBe(y)
+  expect(mouse.y).toBe(y)
+})
+
+test('an arrival let go while the reader holds a current gives the lens back to it, with no recession', async () => {
+  await seedPhantomFixture()
+  const mouse = makeMouse()
+  const ac = aperture(960, 640)
+  loomState.readingKey = 'memory'
+  triggerPhantomHover(0, 'm1', 1000, 30000)
+  drivePhantomHover(2000, mouse, ac)
+  drivePhantomHover(31100, mouse, ac)
+  expect(isPhantomActive()).toBe(false)
+  expect(loomState.recedingKey).toBeNull()
+  expect(loomState.readingKey).toBe('memory')
+})
+
+test('refreshLoom gives an arrival the hold the page set', async () => {
+  await seedPhantomFixture()
+  loomState.arrivalHoldMs = 30000
+  await loadState(makeState([
+    {
+      family: 'memory',
+      voices: [
+        { id: 'm0', depth: 0.6, text: 'MEMORY ONE folds into the thread. ' },
+        { id: 'm1', depth: 0.2, text: 'MEMORY TWO rises closer to the surface. ' },
+        { id: 'm2', depth: 0.1, text: 'MEMORY THREE has only just arrived. ' },
+      ],
+    },
+  ], 12))
+  withFixedRandom(0.5, () => refreshLoom([{ hasNew: true, newIds: new Set(['m2']) }], 5000))
+  const focus = getPhantomFocus()
+  expect(focus).not.toBeNull()
+  expect(focus!.until).toBe(focus!.start + 30000)
+})
+
+test('an arrival does not take the lens from a current held by touch', async () => {
+  await seedPhantomFixture()
+  loomState.arrivalHoldMs = 30000
+  loomState.readingKey = 'memory'
+  await loadState(makeState([
+    {
+      family: 'memory',
+      voices: [
+        { id: 'm0', depth: 0.6, text: 'MEMORY ONE folds into the thread. ' },
+        { id: 'm1', depth: 0.2, text: 'MEMORY TWO rises closer to the surface. ' },
+        { id: 'm2', depth: 0.1, text: 'MEMORY THREE has only just arrived. ' },
+      ],
+    },
+  ], 12))
+  withFixedRandom(0.5, () => refreshLoom([{ hasNew: true, newIds: new Set(['m2']) }], 5000))
+  expect(getPhantomFocus()).toBeNull()
+  expect(loomState.readingKey).toBe('memory')
+  // The arrival is still marked where it lies.
+  expect(getThreads()[0]!.newVoiceIds.has('m2')).toBe(true)
+})
+
+test('a finger that takes over an arrival lets it recede; a mouse or a wheel keeps the lens where it is', async () => {
+  await seedPhantomFixture()
+  const ac = aperture(960, 640)
+  const mouse = makeMouse()
+  triggerPhantomHover(0, 'm1', 1000)
+  drivePhantomHover(1016, mouse, ac)
+  const y = mouse.y
+  mouse.touch = true
+  mouse.lastMove = 1500
+  drivePhantomHover(1516, mouse, ac)
+  expect(isPhantomActive()).toBe(false)
+  expect(loomState.recedingKey).toBe('memory')
+  expect(loomState.recedingY).toBe(y)
+
+  loomState.recedingKey = null
+  const pointer = makeMouse()
+  triggerPhantomHover(0, 'm1', 2000)
+  drivePhantomHover(2016, pointer, ac)
+  pointer.lastMove = 2500
+  drivePhantomHover(2516, pointer, ac)
+  expect(isPhantomActive()).toBe(false)
+  expect(loomState.recedingKey).toBeNull()
+})
+
+test('a finger that takes over an arrival which never drove a frame lets go of the current under the lens, not the arrival\'s', async () => {
+  await seedPhantomFixture()
+  const ac = aperture(960, 640)
+  const mouse = makeMouse()
+  mouse.x = 300; mouse.y = 200; mouse.touch = true
+  // Nothing under the lens: nothing recedes.
+  triggerPhantomHover(0, 'm1', 1000)
+  mouse.lastMove = 1001
+  drivePhantomHover(1016, mouse, ac)
+  expect(isPhantomActive()).toBe(false)
+  expect(loomState.recedingKey).toBeNull()
+  // Another current under the lens (an earlier arrival's): that one recedes.
+  loomState.touchedThread = { familyNames: ['attention'] } as unknown as typeof loomState.touchedThread
+  triggerPhantomHover(0, 'm1', 2000)
+  mouse.lastMove = 2001
+  drivePhantomHover(2016, mouse, ac)
+  expect(loomState.recedingKey).toBe('attention')
+  loomState.touchedThread = null
+})

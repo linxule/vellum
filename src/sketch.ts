@@ -2,13 +2,13 @@
 // Entry-point glue for both the standalone page and the ext-app (which has no
 // audio: its notes fall silently and still draw their rings). Off with ?look=old.
 
-import { addRipple, enablePaper, getLoomState, grainTile, loomFrame, loomLineage, loomNodePoint, paintWash, paper, pointOnCurrent, randomCurrent, recolorLoom, setNight, setPaperStock } from './loom.js'
+import { addRipple, enablePaper, getLoomState, grainTile, loomFrame, loomLineage, loomNodePoint, paintWash, paper, pointOnCurrent, randomCurrent, readingFamily, recolorLoom, setNight, setPaperStock } from './loom.js'
 import { getState, surfaceFromPathname } from './content.js'
 import { keyOf, setKey } from './audio/phrase.js'
 import { onOceanEvent, type OceanEvent } from './events.js'
 import { isAfterglow } from './loom/model-registry.js'
 import { paintLineageRings, pulseLineageRing } from './loom/render/lineage-rings.js' // lineage rings
-import { cancelDrops, configureDrops, dropsOn, dropsReady, initDrops, playVoice, resumeDrops, tickDrops, toggleDrops, type DropVoice } from './audio/drops.js'
+import { cancelDrops, configureDrops, dropsOn, dropsReady, dropTap, initDrops, playVoice, resumeDrops, tickDrops, toggleDrops, type DropVoice } from './audio/drops.js'
 
 const WASH_SCALE = 0.6
 
@@ -18,6 +18,8 @@ export interface Sketch {
   resume(): void
   /** Turns the sheet to its night or day side, and stops following the system setting. */
   setNight(night: boolean): void
+  /** A tap opened the held current at (x, y): a drop falls there (its ring, and its note where there is sound). */
+  tapDrop(x: number, y: number): void
 }
 
 /** The paper stock for an ocean: the default keeps the first; another takes one from its key. */
@@ -221,5 +223,9 @@ export function setupSketch(): Sketch {
       try { return await initDrops() } finally { toggling = false }
     },
     resume() { resumeDrops() },
+    tapDrop(x, y) {
+      const family = readingFamily()
+      if (family) dropTap(family, { x, y })
+    },
   }
 }

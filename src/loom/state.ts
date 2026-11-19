@@ -36,8 +36,16 @@ export const loomState = {
   highlightVoiceIndex: -1,
   resonances: [] as ResonanceEntry[],
   phantomFocus: null as PhantomFocus | null,
-  // Touch reading (loom/reading.ts): the group key of the current held open, or null.
+  // How long the lens holds an arriving voice before letting it go by itself (ms).
+  // Infinity: until the reader acts (the ext-app, the old look, a ?highlight link).
+  arrivalHoldMs: Number.POSITIVE_INFINITY,
+  // Touch reading (loom/reading.ts): the group key of the current held open, or null,
+  // and the height (px) it is read at. NaN: not set (read at READING_LINE).
   readingKey: null as string | null,
+  readingY: Number.NaN,
+  // A current let go by touch, easing shut with the lens kept at its line.
+  recedingKey: null as string | null,
+  recedingY: Number.NaN,
   phantomResolvedThreadIdx: -1,
   phantomResolvedVoiceFlatIdx: -1,
   diagHook: null as DiagFn | null,
@@ -84,7 +92,11 @@ export function resetLoomState() {
   loomState.highlightVoiceIndex = -1
   loomState.resonances = []
   loomState.phantomFocus = null
+  loomState.arrivalHoldMs = Number.POSITIVE_INFINITY
   loomState.readingKey = null
+  loomState.readingY = Number.NaN
+  loomState.recedingKey = null
+  loomState.recedingY = Number.NaN
   loomState.phantomResolvedThreadIdx = -1
   loomState.phantomResolvedVoiceFlatIdx = -1
   loomState.diagHook = null
@@ -137,7 +149,9 @@ export function getInteractionState(): { immersion: number, proximity: number, f
   return {
     immersion: loomState.immersion,
     proximity: loomState.touchedThread.proximity,
-    families: [...loomState.touchedThread.families],
+    // A current easing shut by itself (let go by touch, or an arrival the lens let go)
+    // is no longer being read: the witness reporter counts no dwell on it.
+    families: loomState.readingKey === null && loomState.recedingKey !== null ? [] : [...loomState.touchedThread.families],
   }
 }
 

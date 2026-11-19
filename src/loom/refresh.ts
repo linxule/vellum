@@ -1,17 +1,27 @@
 import { findVoice, getState } from '../content.js'
 import type { OceanEvent } from '../events.js'
 import { loomState } from './state.js'
+import type { Thread } from './types.js'
 import { initLoom } from './init.js'
 import { scrollThreadToVoice } from './scroll.js'
+import { scrollForTop } from './text.js'
 import { triggerPhantomHover } from './phantom.js'
 
 // Stable signature for a thread's group membership. Used to key preserved
 // thread-local state across initLoom() rebuilds so continuity survives
 // normal polling (identical signature) and resets cleanly on regrouping
 // (different signature) rather than migrating onto the wrong thread.
+// Asked once per printed line since the water (render/water.ts, waterOver): a current's family
+// list is set when it is built and never changed, so the key is worked out once per list.
+const groupKeys = new WeakMap<string[], string>()
 export function threadGroupKey(familyNames: string[]): string {
-  // Copy before sort — the thread's own familyNames array must not mutate.
-  return [...familyNames].sort().join(',')
+  let key = groupKeys.get(familyNames)
+  if (key === undefined) {
+    // Copy before sort — the thread's own familyNames array must not mutate.
+    key = [...familyNames].sort().join(',')
+    groupKeys.set(familyNames, key)
+  }
+  return key
 }
 
 export function refreshLoom(newVoiceInfo?: { hasNew: boolean, newIds: Set<string> }[], now = performance['now'](), emitEvent?: (e: OceanEvent) => void) {
@@ -58,12 +68,14 @@ export function refreshLoom(newVoiceInfo?: { hasNew: boolean, newIds: Set<string
     emergenceStart: number,
     emergenceDepthFrom: number,
     emergenceVoiceUids: Set<number>,
+    lag?: number,
+    anchor: Thread['_anchor'],
+    segments: number,
   }>()
   for (const t of loomState.threads) {
     const key = threadGroupKey(t.familyNames)
     prevByGroupKey.set(key, {
       xCenter: t.xCenter,
-      scroll: t.scroll,
       restingDepth: t.restingDepth,
       pathSeed: t.pathSeed,
       scrollVel: t.scrollVel,
@@ -77,6 +89,12 @@ export function refreshLoom(newVoiceInfo?: { hasNew: boolean, newIds: Set<string
       emergenceStart: t.emergenceStart,
       emergenceDepthFrom: t.emergenceDepthFrom,
       emergenceVoiceUids: new Set(t.emergenceVoiceUids),
+      // The text being read stays where it is (render/thread.ts): its anchor goes
+      // on if its text is unchanged, else the scroll takes over where the text lay.
+      scroll: t._anchor ? scrollForTop(t, t._anchor.top) : t.scroll,
+      lag: t._lag,
+      anchor: t._anchor,
+      segments: t.prepared.segments.length,
     })
   }
   const hadPrevThreads = prevByGroupKey.size > 0
@@ -88,6 +106,8 @@ export function refreshLoom(newVoiceInfo?: { hasNew: boolean, newIds: Set<string
     if (!p) continue
     thread.xCenter = p.xCenter
     thread.scroll = p.scroll
+    thread._lag = p.lag
+    if (p.anchor && thread.prepared.segments.length === p.segments) thread._anchor = { ...p.anchor, scroll: p.scroll }
     thread.restingDepth = p.restingDepth
     thread.pathSeed = p.pathSeed
     thread.scrollVel = p.scrollVel
@@ -195,7 +215,10 @@ export function refreshLoom(newVoiceInfo?: { hasNew: boolean, newIds: Set<string
       // mechanism that surfaces arrivals — so it cannot also count as
       // "the user is already attending here." Same precedent as the
       // proximity-clear gate at the bottom of renderThread().
-      const userEngaged = !loomState.phantomFocus && thread.proximity > 0.3
+      //
+      // A current held open by touch (reading.ts) is attention committed, on
+      // whichever current the arrival lands: the lens is not taken from it.
+      const userEngaged = loomState.readingKey !== null || (!loomState.phantomFocus && thread.proximity > 0.3)
       if (!userEngaged) {
         // Hoisted out of `if (state)` to resolve a TS2552 in the baseline monolith.
         // DO NOT move the declaration back inside the `if (state)` block — that
@@ -231,7 +254,7 @@ export function refreshLoom(newVoiceInfo?: { hasNew: boolean, newIds: Set<string
         // and nudge scroll over a few frames — the initial scrollThreadToVoice
         // walk is a good guess, but the texture/dive layout-width discrepancy
         // can leave a few-line residual that the measurement closes exactly.
-        triggerPhantomHover(i, focusId ?? undefined, now)
+        triggerPhantomHover(i, focusId ?? undefined, now, loomState.arrivalHoldMs)
       }
     }
   }

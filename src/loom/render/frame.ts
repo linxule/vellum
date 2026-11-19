@@ -2,11 +2,11 @@ import { aperture } from '../aperture.js'
 import { threadColor } from '../color.js'
 import { depthLerp, frameMix } from '../math.js'
 import { drivePhantomHover, resolvePhantomTarget } from '../phantom.js'
-import { driveReading, readingThread } from '../reading.js'
-import { computePath, pathXAtY } from '../path.js'
+import { driveReading, readingThread, recedingThread, TOUCH_OPEN_RATE } from '../reading.js'
+import { computePath, oceanCurrent, pathXAtY } from '../path.js'
 import { loomState } from '../state.js'
 import { paper } from '../paper.js'
-import { DEFAULT_COLOR, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, FRAME_TIME, LENS_CLEAR_SIGMAS, LENS_OPENING_ALPHA, LENS_SETTLE_STEP, LENS_STILL_ALPHA, WARMTH_EASE_K, type MouseState } from '../types.js'
+import { DEFAULT_COLOR, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, FRAME_TIME, LENS_CLEAR_SIGMAS, LENS_OPENING_ALPHA, LENS_SETTLE_STEP, LENS_STILL_ALPHA, WARMTH_EASE_K, type MouseState, type Thread } from '../types.js'
 import { renderLoomTree } from '../loom-view.js'
 import { renderThread } from './thread.js'
 
@@ -64,19 +64,20 @@ export function advanceLoom(vw: number, vh: number, now: number, dt: number, mou
   loomState.currentAperture = ac
   loomState.currentMouse = mouse
 
-  loomState.current = Math.sin(now * 0.00008) * 0.6
-    + Math.sin(now * 0.000137) * 0.3
-    + Math.sin(now * 0.00015) * 0.1
+  loomState.current = oceanCurrent(now)
 
   // ── Phantom hover: drive the real mouse position to ride a target thread ──
   // When new content arrives, we simulate the cursor landing on the thread.
   // This reuses the existing hover/dive pipeline — the user sees the hand glow
   // where attention is. They take over instantly by moving their real mouse
-  // (the next mousemove event overwrites mouse.x/y, phantom exits). No auto
-  // release — the field holds focus until the user acts, so they can read or
-  // screenshot without the lens closing on them.
+  // (the next mousemove event overwrites mouse.x/y, phantom exits). By default
+  // the field holds focus until the user acts, so they can read or screenshot
+  // without the lens closing on them (the ext-app, a ?highlight link). An arrival
+  // on the standalone paper sheet is let go after its hold (setArrivalHold) and
+  // recedes: held for good, its pool never dried, no idle drop fell again and,
+  // on a phone, every other current stayed wordless.
   drivePhantomHover(now, mouse, ac)
-  // Touch reading: the held current keeps the lens, at the reading line.
+  // Touch reading: the held current keeps the lens at its reading line; a receding one, until it has shut.
   driveReading(mouse)
 
   loomState.gustTimer -= dt
@@ -174,12 +175,16 @@ export function advanceLoom(vw: number, vh: number, now: number, dt: number, mou
     loomState.touchedThread._handDist = 0
   }
   // Touch reading holds its current the same way (a crossing neighbour must not take the lens).
+  // A receding one keeps the lens too, at a hand's reach, so it eases shut where it was read.
+  let held: Thread | null = null
   if (!phantomTarget && !loomState.loomViewActive) {
-    const held = readingThread()
-    if (held) {
-      touchedThreadIndex = loomState.threads.indexOf(held)
-      loomState.touchedThread = held
-      held._handDist = 0
+    held = readingThread()
+    const receding = held ? null : recedingThread()
+    const kept = held ?? receding
+    if (kept) {
+      touchedThreadIndex = loomState.threads.indexOf(kept)
+      loomState.touchedThread = kept
+      kept._handDist = held ? 0 : ac.touchRadius
     }
   }
   if (touchedThreadIndex >= 0) visAlpha[touchedThreadIndex] = 1
@@ -213,7 +218,9 @@ export function advanceLoom(vw: number, vh: number, now: number, dt: number, mou
       ? Math.max(0, 1 - thread._handDist / ac.touchRadius)
       : Math.max(0, (1 - thread._handDist / (ac.touchRadius * 2)) * 0.25)
     const proxBefore = thread.proximity
-    thread.proximity += (target - thread.proximity) * frameMix(target > thread.proximity ? 0.022 : 0.015, frameRatio)
+    // A current held by touch opens faster than under a mouse; closing is the same for both.
+    const rise = thread === held ? TOUCH_OPEN_RATE : 0.022
+    thread.proximity += (target - thread.proximity) * frameMix(target > thread.proximity ? rise : 0.015, frameRatio)
     if (thread.proximity < 0.005) thread.proximity = 0
     thread._proxStep = Math.abs(thread.proximity - proxBefore) / Math.max(frameRatio, 0.001)
 
@@ -262,9 +269,12 @@ export function advanceLoom(vw: number, vh: number, now: number, dt: number, mou
       thread.newVoiceUids.clear()
     }
 
-    thread.xCenter += loomState.gustForce * vw * 0.0004 * thread.currentResponse * frameRatio
-    thread.xCenter += repulsionDeltas[i]!
-    thread.xCenter += (threadAnchorXs[i]! - thread.xCenter) * 0.0001 * frameRatio
+    // The current being read (anchored, on paper) is not pushed about while it is read.
+    if (!thread._anchor) {
+      thread.xCenter += loomState.gustForce * vw * 0.0004 * thread.currentResponse * frameRatio
+      thread.xCenter += repulsionDeltas[i]!
+      thread.xCenter += (threadAnchorXs[i]! - thread.xCenter) * 0.0001 * frameRatio
+    }
   }
 
   if (loomState.touchedThread && loomState.touchedThread.proximity > 0.2) {
@@ -337,16 +347,12 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
   const trailClear = (alpha: number) => slow < 1.02 ? alpha : 1 - Math.pow(1 - alpha, slow)
   const seaClear = slow < 1.02 ? '.18' : trailClear(0.18).toFixed(3)
   const bgPhase = loomState.current * 0.5 + 0.5
-  const bgGrad = ctx.createLinearGradient(0, 0, 0, vh)
   const topR = Math.round(12 + bgPhase * 6)
   const topG = Math.round(18 + bgPhase * 7)
   const topB = Math.round(30 + bgPhase * 8)
   const botR = Math.round(5 + bgPhase * 3)
   const botG = Math.round(8 + bgPhase * 3)
   const botB = Math.round(16 + bgPhase * 5)
-  bgGrad.addColorStop(0, `rgba(${topR},${topG},${topB},${seaClear})`)
-  bgGrad.addColorStop(0.6, `rgba(${Math.round((topR + botR) / 2)},${Math.round((topG + botG) / 2)},${Math.round((topB + botB) / 2)},${seaClear})`)
-  bgGrad.addColorStop(1, `rgba(${botR},${botG},${botB},${seaClear})`)
   if (paper.on) {
     // The canvas holds only ink; the paper is underneath. Fade the ink instead
     // of painting the ground over it.
@@ -355,6 +361,10 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
     ctx.fillRect(0, 0, vw, vh)
     ctx.globalCompositeOperation = 'source-over'
   } else {
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, vh)
+    bgGrad.addColorStop(0, `rgba(${topR},${topG},${topB},${seaClear})`)
+    bgGrad.addColorStop(0.6, `rgba(${Math.round((topR + botR) / 2)},${Math.round((topG + botG) / 2)},${Math.round((topB + botB) / 2)},${seaClear})`)
+    bgGrad.addColorStop(1, `rgba(${botR},${botG},${botB},${seaClear})`)
     ctx.fillStyle = bgGrad
     ctx.fillRect(0, 0, vw, vh)
   }
@@ -445,7 +455,8 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
     renderLoomTree(ctx, vw, vh, now, loomState.loomTree, loomState.loomViewTransition)
   }
 
-  if (mouse.x > -1000) {
+  // A current receding after a touch has no hand on it: no hand glow at its line.
+  if (mouse.x > -1000 && loomState.recedingKey === null) {
     const r = 30 + (loomState.touchedThread ? loomState.touchedThread.proximity * 25 : 0)
     const a = (loomState.touchedThread ? 0.06 + loomState.touchedThread.proximity * 0.04 : 0.03) * (paper.on ? 0.7 : 1)
     const hBase = loomState.touchedThread ? loomState.touchedThread._frameColor : DEFAULT_COLOR

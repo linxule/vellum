@@ -1,4 +1,4 @@
-import { layoutNextLineRange, type LayoutCursor, type PreparedTextWithSegments } from '@chenglou/pretext'
+import { layoutNextLineRange, materializeLineRange, type LayoutCursor, type PreparedTextWithSegments } from '@chenglou/pretext'
 import { FONT, WHOLE_WORD_MAX_LAYOUT_W, type Thread } from './types.js'
 
 export const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
@@ -199,4 +199,85 @@ export function voiceSpanForLine(thread: Thread, start: LayoutCursor, end: Layou
   }
 
   return { anchorUid, uids: voiceSpanUidsScratch }
+}
+
+/** The resting scroll whose layout starts with the line that starts at `top` (an anchored layout handing back, render/thread.ts). */
+export const scrollForTop = (thread: Thread, top: LayoutCursor): number =>
+  (Math.max(0, thread.lineEndCursors.findIndex(end => compareCursors(end, top) > 0)) + 0.5) / 3
+
+/** Order of two cursors: negative, zero or positive. */
+export function compareCursors(a: LayoutCursor, b: LayoutCursor): number {
+  return a.segmentIndex !== b.segmentIndex ? a.segmentIndex - b.segmentIndex : a.graphemeIndex - b.graphemeIndex
+}
+
+// Laying a line out backwards, for the lines above an anchored reading line
+// (render/thread.ts). Pretext breaks lines forwards only; this finds where a line
+// that ends at a given cursor would start, by Pretext's own segments: a line
+// starts after a space or a break, or between two text segments (Pretext splits
+// text only where a line may break: Han characters, Hangul syllables, after a
+// hyphen), never on a space, and its trailing spaces hang. It sums Pretext's own
+// segment widths, as Pretext's forward layout does (tests/loom/anchor.test.ts
+// checks that each line fits forwards).
+// Kinds a line may break after: space, preserved-space, tab, zero-width-break,
+// soft-hyphen, hard-break. Of those, spaces and tabs hang at a line's end.
+const BREAK_AFTER = /space|tab|break|hyphen/
+const HANGING = /space|tab/
+
+function canStartLine(prepared: PreparedTextWithSegments, s: number): boolean {
+  if (s <= 0) return true
+  const kind = prepared.kinds[s]!
+  const before = prepared.kinds[s - 1]!
+  return !/space|tab|hard|glue/.test(kind) && !/glue/.test(before) && (BREAK_AFTER.test(before) || (before === 'text' && kind === 'text'))
+}
+
+/**
+ * The line of at most `maxWidth` (15px layout units) that ends exactly at `end`:
+ * its start, text and width. It never reaches back across a line break in the
+ * text (an empty line between two breaks is a line). A single word wider than
+ * the line is kept whole (the line runs wide, as `wholeWordWidth` lets a forward
+ * line do), unless it is wider than WHOLE_WORD_MAX_LAYOUT_W too (a URL): that one
+ * is cut between letters, as Pretext cuts it forwards. Null at the very start of
+ * the text.
+ */
+export function lineEndingAt(prepared: PreparedTextWithSegments, maxWidth: number, end: LayoutCursor): { start: LayoutCursor, text: string, width: number } | null {
+  const kinds = prepared.kinds
+  const line = (start: LayoutCursor, width: number) => ({ start, text: materializeLineRange(prepared, { width, start, end }).text, width })
+  // The letters of segment `seg` before `upTo` that fit in `room`, from the end backwards (at least one).
+  const cut = (seg: number, upTo: number, room: number, used: number) => {
+    const letters = letterAdvances(prepared)[seg]
+    // No letter table for it (a one-letter segment cannot be cut): whole.
+    if (!letters) return line({ segmentIndex: seg, graphemeIndex: 0 }, used + (prepared.widths[seg] ?? 0))
+    let g = upTo
+    let w = 0
+    while (g > 0 && (g === upTo || w + letters[g - 1]! <= room + 0.01)) w += letters[--g]!
+    return line({ segmentIndex: seg, graphemeIndex: g }, used + w)
+  }
+  // A piece of a cut word ends here: the line is the piece before it.
+  if (end.graphemeIndex > 0) return cut(end.segmentIndex, end.graphemeIndex, maxWidth, 0)
+  let i = end.segmentIndex - 1
+  if (i < 0) return null
+  // The line's own break, then the spaces hanging at its end.
+  if (kinds[i] === 'hard-break') i--
+  while (i >= 0 && HANGING.test(kinds[i]!)) i--
+  let width = 0
+  let best = -1
+  let widthAtBest = 0
+  for (; i >= 0; i--) {
+    // The line before ended at this break. A tab's width depends on where it falls, which is not known
+    // backwards: the line starts after it (short, and sure to fit). Either way everything back to
+    // here fitted, so the line starts right after it, on a space too (an indented line keeps its indent).
+    if (kinds[i] === 'hard-break' || kinds[i] === 'tab') return line({ segmentIndex: i + 1, graphemeIndex: 0 }, width)
+    const own = prepared.widths[i] ?? 0
+    const w = width + own
+    if (w > maxWidth + 0.01) {
+      if (best >= 0) break
+      if (own > Math.max(maxWidth, WHOLE_WORD_MAX_LAYOUT_W) && letterAdvances(prepared)[i]) {
+        return cut(i, letterAdvances(prepared)[i]!.length, maxWidth - width, width)
+      }
+    }
+    width = w
+    if (canStartLine(prepared, i)) { best = i; widthAtBest = width }
+  }
+  // The start of the text was reached: the line starts there, on its leading spaces if it has any.
+  return i < 0 ? line({ segmentIndex: 0, graphemeIndex: 0 }, width) : line({ segmentIndex: best, graphemeIndex: 0 }, widthAtBest)
 }

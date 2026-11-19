@@ -5,6 +5,8 @@ import { loomState, getInteractionState } from './state.js'
 import { crystallizeThreads, makeThread, mixInk } from './thread.js'
 import { lineEndsWholeWords } from './text.js'
 import { isAfterglow, signatureFor } from './model-registry.js'
+import { readingThread, recedingThread } from './reading.js'
+import { threadGroupKey } from './refresh.js'
 import { ZERO_CURSOR } from './types.js'
 
 export function initLoom() {
@@ -67,9 +69,19 @@ export function initLoom() {
   loomState.ready = true
 }
 
+/**
+ * The page changed size. Only the height (a phone's bars moving, an ext-app host
+ * resizing its frame): nothing a column's place or wrap depends on changed, so
+ * every column stays where it is and the open current stays open; the water keeps
+ * (render/water.ts). The width: the columns are placed afresh, but a current held
+ * open for reading stays open, under its new grouping if it was split.
+ */
 export function resizeLoom() {
+  const widthChanged = innerWidth !== loomState.VW
   loomState.VW = innerWidth
   loomState.VH = innerHeight
+  if (!widthChanged) return
+  const held = readingThread() ?? recedingThread()
   loomState.touchedThread = null
   const ac = aperture(loomState.VW, loomState.VH)
   const n = Math.max(1, loomState.threads.length - 1)
@@ -82,6 +94,14 @@ export function resizeLoom() {
     t.totalLines = t.lineEndCursors.length
   })
   crystallizeThreads(ac)
+  // A read line remembers its width so its words hold while the lens opens (render/thread.ts): not across a new sheet width.
+  for (const t of loomState.threads) if (t._anchor) { t._anchor.width = 0; t._anchor.prox = -1 }
+  if (held && !loomState.threads.includes(held)) {
+    const part = loomState.threads.find(t => t.familyNames.includes(held.familyNames[0]!))
+    const key = part ? threadGroupKey(part.familyNames) : null
+    if (loomState.readingKey !== null) loomState.readingKey = key
+    else loomState.recedingKey = key
+  }
 }
 
 /**

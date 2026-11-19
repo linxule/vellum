@@ -39,6 +39,28 @@ test('ocean paints per-grapheme advances and public layout agrees on narrow brea
   expect(calls[2]!.x - calls[1]!.x).toBeCloseTo(glyphWidth)
 })
 
+test('a later piece of a word cut across lines starts at its own line\'s edge, like the first', () => {
+  initLoom()
+  const thread = getThreads()[0]!
+  const segmentIndex = thread.prepared.segments.indexOf(word)
+  const first = layoutNextLine(thread.prepared, glyphWidth * 3 + 0.01, { segmentIndex, graphemeIndex: 0 })!
+  const second = layoutNextLine(thread.prepared, glyphWidth * 3 + 0.01, { ...first.end })!
+  expect(second.text).toBe('DEF')
+  const paint = (start: { segmentIndex: number, graphemeIndex: number }, line: typeof first) => {
+    const ctx = createCanvasContext()
+    drawLineSegmented(ctx, thread, start, line.end, line.text,
+      100, 320, 200, line.width, 1, 0, 0, 1, 3, false, true, 100,
+      200, 200, 1, 0)
+    return (ctx as unknown as CanvasContextStub).fillTextCalls
+  }
+  const a = paint({ segmentIndex, graphemeIndex: 0 }, first)
+  const d = paint({ ...first.end }, second)
+  expect(d.map(call => call.text).join('')).toBe('DEF')
+  // Both lines are as wide and centred on the same x: D sits where A does.
+  expect(d[0]!.x).toBeCloseTo(a[0]!.x)
+  expect(d[2]!.x).toBeCloseTo(a[2]!.x)
+})
+
 test('loom paints equally measured letters at equal advances, not cumulative widths', () => {
   const tree = buildLoomTree('root')!
   tree.enteredAt = -10000

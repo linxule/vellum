@@ -88,6 +88,26 @@ cd worker && bun run dev   # local worker
 
 Deploy sequence, flags, migrations, and smoke probes: `docs/LAUNCH_RUNBOOK.md`. Design and phase history: `docs/`.
 
+## 0.5.2 — 2026-11-19
+
+After a trial on a phone ("the water drops seem to be at the same location regardless where I tap
+and there is no water drops receding").
+
+- **The lens opens where you tap** and stays at that height; a drop (a ring and one quiet note)
+  falls at the finger. Letting go recedes in place: the current eases shut where it was, and the
+  other currents' words come back as it closes.
+- **The pool dries where it lay**, from its edge inward in about six seconds, and leaves a tide line.
+- **The words being read hold still.** The read current is laid out from the reading line outward,
+  so opening the lens, its breathing and a drag no longer re-wrap the line under your eye.
+- Nothing waits for a browser click after a touch: sound starts and the lineage opens from the
+  touch itself. Two fingers are not a tap.
+- An arriving voice holds the lens for half a minute on an untouched sheet, then lets go (it used
+  to hold for good, so the sheet froze on its last arrival). It never takes the lens from a current
+  you hold open by touch, and it appears in the middle of the sheet, first word at the lens.
+- A resize that only changes the height (a phone's address bar) keeps everything where it is.
+- A long word cut across lines is painted in its column (both looks).
+- `?probe` shows frame times on the page, for measuring a slow phone.
+
 ## 0.5.1 — 2026-11-19
 
 - Dry-brush streaks are gaps in the scrolling current's own wash. They used to cut through every

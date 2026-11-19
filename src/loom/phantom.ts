@@ -45,13 +45,18 @@ export function resolvePhantomTarget(phantomFocus: PhantomFocus | null): { threa
   return null
 }
 
-export function triggerPhantomHover(threadIdx: number, voiceId?: string, now = performance['now']()) {
+/**
+ * The lens lands on a current (and a voice in it) as if a pointer had. `holdMs`:
+ * how long before it lets go by itself; by default it holds until the reader acts.
+ */
+export function triggerPhantomHover(threadIdx: number, voiceId?: string, now = performance['now'](), holdMs = Number.POSITIVE_INFINITY) {
   if (threadIdx < 0 || threadIdx >= loomState.threads.length) return
   const targetThread = loomState.threads[threadIdx]!
   const phantomFocus: PhantomFocus = {
     voiceId: voiceId ?? null,
     groupKey: voiceId ? null : threadGroupKey(targetThread.familyNames),
     start: now,
+    until: now + holdMs,
     settledFrames: 0,
     diagFrames: 0,
     capturedY: -1,
@@ -69,6 +74,9 @@ export function triggerPhantomHover(threadIdx: number, voiceId?: string, now = p
   })
 }
 
+/** How long the lens holds an arriving voice before it lets go by itself (ms). Not set: until the reader acts. */
+export function setArrivalHold(ms: number): void { loomState.arrivalHoldMs = ms }
+
 export function isPhantomActive(): boolean {
   return loomState.phantomFocus !== null
 }
@@ -79,13 +87,34 @@ export function drivePhantomHover(now: number, mouse: MouseState, ac: ApertureCo
 
   const userTookOver = mouse.lastMove > phantomFocus.start
   if (userTookOver) {
+    // A finger took over. Unless its tap opens a current (reading.ts), nothing on a
+    // touch screen would ever move the lens off the arrival again: it recedes, as
+    // when its hold runs out. A mouse or a wheel keeps the lens where the pointer is.
+    // (An arrival replaced before it drove a frame never moved the lens: what recedes is the current under it.)
+    const byFinger = mouse.touch && loomState.readingKey === null && mouse.x > -1000
+    const held = !byFinger ? null : phantomFocus.diagFrames > 0 ? resolvePhantomTarget(phantomFocus)?.thread ?? null : loomState.touchedThread
     clearPhantomFocus()
+    if (held) {
+      loomState.recedingKey = threadGroupKey(held.familyNames)
+      loomState.recedingY = mouse.y
+    }
     return
   }
 
   const resolved = resolvePhantomTarget(phantomFocus)
   if (!resolved) {
     clearPhantomFocus()
+    return
+  }
+  if (now > phantomFocus.until) {
+    // Held long enough: the arrival is let go, and recedes as a read let go by
+    // touch does (reading.ts: the lens stays at its line while the current eases
+    // shut, then the pointer is parked). A current the reader holds takes the lens back.
+    clearPhantomFocus()
+    if (loomState.readingKey === null && mouse.x > -1000) {
+      loomState.recedingKey = threadGroupKey(resolved.thread.familyNames)
+      loomState.recedingY = mouse.y
+    }
     return
   }
   loomState.phantomResolvedThreadIdx = resolved.threadIdx

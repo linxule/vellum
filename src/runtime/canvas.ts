@@ -10,12 +10,12 @@ export interface CanvasBundle {
  * `syncCanvasSize` sets width/height + style + DPR transform when vw/vh
  * differ from the last call. Entry points call it each frame.
  */
-export function setupCanvas(): CanvasBundle {
+export function setupCanvas(maxDpr = 3): CanvasBundle {
   const canvas = document.getElementById('c') as HTMLCanvasElement
   const ctx = canvas.getContext('2d')!
   // Phones are 3x: at 2x the small resting type is scaled up and goes soft. A phone at 3x is
   // still fewer pixels than a laptop at 2x.
-  const DPR = Math.min(devicePixelRatio || 1, 3)
+  const DPR = Math.min(devicePixelRatio || 1, maxDpr)
   let prevVw = -1
   let prevVh = -1
 

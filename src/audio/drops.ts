@@ -324,12 +324,24 @@ function setOn(value: boolean): void {
   if (suspendTimer !== null) { clearTimeout(suspendTimer); suspendTimer = null }
   if (on) {
     if (ac.state !== 'running' && ac.state !== 'closed') void ac.resume()
+    lensVoiceAgain()
     master.gain.setTargetAtTime(0.9, ac.currentTime, 0.05)
     nextIdleAt = performance.now() + 2500
   } else {
     master.gain.setTargetAtTime(0, ac.currentTime, 0.08)
     suspendTimer = setTimeout(() => { suspendTimer = null; if (!on && ac) void ac.suspend() }, SUSPEND_AFTER_MS)
   }
+}
+
+/**
+ * The sound comes on while the lens rests on a voice: its phrase fell silently
+ * (rings only) and is marked played, so without this it would stay unheard until
+ * the reader left it and came back. It plays once more, now with its sound.
+ */
+export function lensVoiceAgain(): void {
+  if (lensId === null) return
+  lastPlayed.delete(lensId)
+  lensPlayedId = null
 }
 
 export async function initDrops(): Promise<boolean> {
@@ -352,6 +364,8 @@ export async function initDrops(): Promise<boolean> {
 }
 
 export function dropsReady(): boolean { return ac !== null }
+/** For the ?probe readout: the audio context's state, or 'none' before the first start. */
+export function dropsAudioState(): string { return ac ? ac.state : 'none' }
 export function dropsOn(): boolean { return on }
 /** After a tab switch, a phone lock or an audio interruption. */
 export function resumeDrops(): void { if (on && ac && ac.state !== 'running' && ac.state !== 'closed') void ac.resume() }
@@ -380,6 +394,15 @@ interface Pending {
   point: () => DropPoint | null
   group: DropGroup
   struck: boolean
+  /** The ring's strength over the note's (a tap's drop is heard quietly and seen fully). Default 1. */
+  ring?: number
+  /**
+   * A tap's note may be heard late: the tap that drops it is often the gesture that starts the
+   * sound, which takes a moment. Its ring falls on time; the note waits, unstruck, until the
+   * audio runs or STALE_MS has passed, and then sounds at the same point.
+   */
+  waits?: boolean
+  rung?: boolean
 }
 
 /** Time for the grace drops that fall just before a note. */
@@ -433,6 +456,40 @@ export function cancelDrops(group: DropGroup): void {
   queue = kept
 }
 
+/** A tap's drop is heard quieter than a voice's notes... */
+export const TAP_GAIN = 0.6
+/** ...and seen as a full drop: its ring's strength. */
+export const TAP_RING = 1
+/** The lens phrase that follows a tap's drop starts no sooner than this after it. */
+export const TAP_PHRASE_GAP_MS = 600
+let tapAt = Number.NEGATIVE_INFINITY
+
+/** A tap's note: the tonic at or below the current's home, so it sits in the current's own register. */
+export function tapNoteIdx(family: string): number {
+  const home = homeOf(family)
+  return home - (((home % 5) + 5) % 5)
+}
+
+/**
+ * A tap opened a current: one drop falls at the finger, now. One quiet note, the
+ * current's tonic on its own instrument, and its ring, from the same queue entry
+ * as every other drop (without an AudioContext the ring still falls; if the tap
+ * itself is starting the sound, the note follows the ring once it can, within
+ * STALE_MS, at the same point: `waits`). What the
+ * lens was playing stops here; the opened voice's phrase follows (tickDrops),
+ * no sooner than TAP_PHRASE_GAP_MS after.
+ */
+export function dropTap(family: string, point: DropPoint): void {
+  const now = performance.now()
+  cancelDrops('lens')
+  tapAt = now
+  const id = `tap:${family}`
+  queue.push({
+    due: now, id, voice: { id, text: '', family, depth: 0, weaveFrom: null, weaveCount: 0, afterglow: false },
+    note: { idx: tapNoteIdx(family), at: 0, accent: 1 }, gain: TAP_GAIN, ring: TAP_RING / TAP_GAIN, point: () => point, group: 'lens', struck: false, waits: true,
+  })
+}
+
 export function dropsPending(group?: DropGroup): boolean {
   if (!group) return queue.length > 0
   for (const p of queue) if (p.group === group) return true
@@ -445,7 +502,7 @@ function pump(now: number, viewportWidth: number): void {
   let kept = 0
   for (const p of queue) {
     if (now - p.due > STALE_MS) continue
-    if (!p.struck && p.due - now < LOOKAHEAD_MS) {
+    if (!p.struck && p.due - now < LOOKAHEAD_MS && (live || !p.waits)) {
       p.struck = true
       if (live) {
         const at = p.point()
@@ -456,9 +513,12 @@ function pump(now: number, viewportWidth: number): void {
       }
     }
     if (p.due <= now) {
-      const at = p.point()
-      if (at) listener(p.voice.family, at, p.note.accent * p.gain * (1 + 0.4 * resonanceOf(p.voice)))
-      continue
+      if (!p.rung) {
+        p.rung = true
+        const at = p.point()
+        if (at) listener(p.voice.family, at, p.note.accent * p.gain * (p.ring ?? 1) * (1 + 0.4 * resonanceOf(p.voice)))
+      }
+      if (p.struck) continue
     }
     queue[kept++] = p
   }
@@ -475,6 +535,7 @@ export function resetDropsForTest(): void {
   lensSeenSince = 0
   lensPlayedId = null
   lensPoint = null
+  tapAt = Number.NEGATIVE_INFINITY
   nextIdleAt = Number.POSITIVE_INFINITY
 }
 
@@ -522,7 +583,9 @@ export function tickDrops(input: TickInput): void {
       cancelDrops('lineage')
       if (!recentlyPlayed(id, LENS_REPLAY_MS)) {
         const at = lensPoint ? { x: lensPoint.x, y: lensPoint.y } : null
-        playVoice(id, { group: 'lens', point: () => { if (at && lensId === id && lensPoint) { at.x = lensPoint.x; at.y = lensPoint.y } return at } })
+        // After a tap's drop, the phrase leaves it room.
+        const delay = Math.max(0, tapAt + TAP_PHRASE_GAP_MS - now - LEAD_MS) / 1000
+        playVoice(id, { group: 'lens', delay, point: () => { if (at && lensId === id && lensPoint) { at.x = lensPoint.x; at.y = lensPoint.y } return at } })
       }
     }
   } else if (lensPlayedId !== null && now - lensSince > LENS_LEAVE_MS) {
