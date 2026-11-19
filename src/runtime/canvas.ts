@@ -13,7 +13,9 @@ export interface CanvasBundle {
 export function setupCanvas(): CanvasBundle {
   const canvas = document.getElementById('c') as HTMLCanvasElement
   const ctx = canvas.getContext('2d')!
-  const DPR = Math.min(devicePixelRatio || 1, 2)
+  // Phones are 3x: at 2x the small resting type is scaled up and goes soft. A phone at 3x is
+  // still fewer pixels than a laptop at 2x.
+  const DPR = Math.min(devicePixelRatio || 1, 3)
   let prevVw = -1
   let prevVh = -1
 

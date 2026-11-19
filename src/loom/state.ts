@@ -36,6 +36,8 @@ export const loomState = {
   highlightVoiceIndex: -1,
   resonances: [] as ResonanceEntry[],
   phantomFocus: null as PhantomFocus | null,
+  // Touch reading (loom/reading.ts): the group key of the current held open, or null.
+  readingKey: null as string | null,
   phantomResolvedThreadIdx: -1,
   phantomResolvedVoiceFlatIdx: -1,
   diagHook: null as DiagFn | null,
@@ -82,6 +84,7 @@ export function resetLoomState() {
   loomState.highlightVoiceIndex = -1
   loomState.resonances = []
   loomState.phantomFocus = null
+  loomState.readingKey = null
   loomState.phantomResolvedThreadIdx = -1
   loomState.phantomResolvedVoiceFlatIdx = -1
   loomState.diagHook = null

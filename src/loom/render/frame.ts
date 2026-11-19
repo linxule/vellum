@@ -2,6 +2,7 @@ import { aperture } from '../aperture.js'
 import { threadColor } from '../color.js'
 import { depthLerp, frameMix } from '../math.js'
 import { drivePhantomHover, resolvePhantomTarget } from '../phantom.js'
+import { driveReading, readingThread } from '../reading.js'
 import { computePath, pathXAtY } from '../path.js'
 import { loomState } from '../state.js'
 import { paper } from '../paper.js'
@@ -75,6 +76,8 @@ export function advanceLoom(vw: number, vh: number, now: number, dt: number, mou
   // release — the field holds focus until the user acts, so they can read or
   // screenshot without the lens closing on them.
   drivePhantomHover(now, mouse, ac)
+  // Touch reading: the held current keeps the lens, at the reading line.
+  driveReading(mouse)
 
   loomState.gustTimer -= dt
   if (loomState.gustTimer <= 0) {
@@ -169,6 +172,15 @@ export function advanceLoom(vw: number, vh: number, now: number, dt: number, mou
     touchedThreadIndex = phantomTarget.threadIdx
     loomState.touchedThread = loomState.threads[touchedThreadIndex]!
     loomState.touchedThread._handDist = 0
+  }
+  // Touch reading holds its current the same way (a crossing neighbour must not take the lens).
+  if (!phantomTarget && !loomState.loomViewActive) {
+    const held = readingThread()
+    if (held) {
+      touchedThreadIndex = loomState.threads.indexOf(held)
+      loomState.touchedThread = held
+      held._handDist = 0
+    }
   }
   if (touchedThreadIndex >= 0) visAlpha[touchedThreadIndex] = 1
 
