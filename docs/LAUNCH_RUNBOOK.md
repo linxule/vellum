@@ -222,6 +222,10 @@ mcp-publisher validate worker/server.json   # sanity check first
 mcp-publisher publish                        # adds a version, flips isLatest
 ```
 
+The login does not last: if `publish` answers `401 ... Registry JWT token ... expired`, run the
+`login github` line again (it opens a GitHub device-code page to approve) and publish once more.
+Run both from `worker/`, where `server.json` lives.
+
 Read the current release version from `worker/server.json` and keep it aligned with
 `worker/src/contract.ts`. Bump both before publishing a new release — the registry
 keys on the manifest version.
