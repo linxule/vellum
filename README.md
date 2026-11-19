@@ -88,6 +88,15 @@ cd worker && bun run dev   # local worker
 
 Deploy sequence, flags, migrations, and smoke probes: `docs/LAUNCH_RUNBOOK.md`. Design and phase history: `docs/`.
 
+## 0.4.2 — 2026-11-19
+
+- **Small windows.** In a short window (an ext-app inline in a conversation) the lens type shrinks
+  to fit, so more lines are readable. On a small sheet the other currents drop their words while
+  one is open, with a mouse as well as a finger.
+- **Ext-app by touch.** Finger-sized controls; inline in a host, a swipe over the resting sheet
+  scrolls the conversation, and drags move the text once a current is open.
+- Fixed: on a phone, tapping the open text on a woven voice did not close the current.
+
 ## 0.4.1 — 2026-11-19
 
 - **Reading on a phone.** A tap opens a current at a reading line above the thumb, where it stays;
