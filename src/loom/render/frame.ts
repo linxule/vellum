@@ -260,7 +260,7 @@ export function advanceLoom(vw: number, vh: number, now: number, dt: number, mou
 
     if (thread.emergenceStart > 0) {
       const emergenceT = Math.min(1, (now - thread.emergenceStart) / 5000)
-      thread.restingDepth = thread.emergenceDepthFrom + (thread.baseDepth - thread.emergenceDepthFrom) * (1 - Math.pow(1 - emergenceT, 3))
+      if (thread.emergenceDepthFrom >= 0) thread.restingDepth = thread.emergenceDepthFrom + (thread.baseDepth - thread.emergenceDepthFrom) * (1 - Math.pow(1 - emergenceT, 3))
       if (emergenceT >= 1) { thread.emergenceStart = 0; thread.emergenceVoiceUids.clear() }
     }
 

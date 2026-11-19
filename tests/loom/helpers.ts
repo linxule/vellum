@@ -50,7 +50,12 @@ export class CanvasContextStub {
   // Axis-aligned only: enough for the lens clear's translate + scale.
   translate(x: number, y: number) { this.m = { ...this.m, e: this.m.a * x + this.m.e, f: this.m.d * y + this.m.f } }
   scale(x: number, y: number) { this.m = { ...this.m, a: this.m.a * x, d: this.m.d * y } }
-  beginPath() {}
+  beginPath() { this.pathRects = [] }
+  // Rectangles of the path being built, and each clip made of them (page space, no transform).
+  pathRects: { x: number, y: number, w: number, h: number }[] = []
+  clipCalls: { x: number, y: number, w: number, h: number }[][] = []
+  rect(x: number, y: number, w: number, h: number) { this.pathRects.push({ x, y, w, h }) }
+  clip() { this.clipCalls.push(this.pathRects) }
   moveTo() {}
   lineTo() {}
   bezierCurveTo() {}

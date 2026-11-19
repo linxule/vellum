@@ -43,7 +43,7 @@ export interface Thread {
   apiWarmthTarget: number
   arrivalGlow: number
   emergenceStart: number
-  emergenceDepthFrom: number
+  emergenceDepthFrom: number              // -1: an arrival on paper in a current that has others, which keeps its depth
   resonatingVoiceUids: Map<number, number>  // flatUid → fade (0-1), cleared each frame
   wovenVoiceUids: Set<number>               // flatUids of voices with weave_from or weave_count > 0
   inkMix: Map<string, number>               // family -> times named by this current's voices (its colour mix)
@@ -70,6 +70,8 @@ export interface Thread {
    * before it has been). Absent: laid out from the top.
    */
   _anchor?: { cursor: LayoutCursor, y: number, scroll: number, top: LayoutCursor, width: number, prox: number }
+  /** How far `scroll` was renumbered, not moved, when a rebuild changed the text (refresh.ts): the wash rides `scroll - _scrollBase`. */
+  _scrollBase?: number
   _lag?: number                             // ms this current's path has stood still while read (path.ts); 0 in the old look
   hasRTL: boolean
   segVoiceUid: number[]

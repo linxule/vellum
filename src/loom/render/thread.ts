@@ -12,11 +12,31 @@ const lastProximity = new WeakMap<Thread, number>()
 const RELIFT = 0.85
 /** Under a crossing current, a piece of a line shorter than this is not printed. */
 const CROSSING_MIN_STUB = 34
+/**
+ * On paper an arriving voice's lines rise from the paper's colour into their ink,
+ * each over RISE_MS, each of its lines RISE_STAGGER_MS after the one above it,
+ * and all of it within the emergence's five seconds (render/frame.ts).
+ */
+export const RISE_MS = 2200
+export const RISE_STAGGER_MS = 280
+const RISE_LAST_START_MS = 5000 - RISE_MS
+/** How far under the paper an arriving line starts: a ghost of its words, not a gap. */
+const RISE_FROM = 0.85
+
+const notArriving = (_u: number): boolean => false
+
+/** Where each arriving voice lies on the sheet while it rises: its first line drawn this frame. */
+const rising = new Map<string, { x: number, y: number, at: number }>()
+/** Where a voice is rising on the sheet now, or null (not arriving, or not on the sheet). */
+export function risingPoint(voiceId: string, now = performance['now']()): { x: number, y: number } | null {
+  const r = rising.get(voiceId)
+  return r && now >= r.at && now - r.at < 250 ? { x: r.x, y: r.y } : null
+}
 import { loomState } from '../state.js'
 import { paper } from '../paper.js'
 import { compareCursors, copyCursor, isLineRTL, lineEndingAt, scrollForTop, voiceGroupIndex, voiceSpanForLine, wholeWordWidth } from '../text.js'
 import { FONT_FAMILY, NEIGHBOR_LENS_FADE, AFTERGLOW_DIVE_GATE, AFTERGLOW_SILVER, BREATH_AMP, BREATH_SPATIAL, DEPTH_ALPHA, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, HL_FONT_BOOST, SIGNATURE_ALPHA, SIGNATURE_GRAY_MIX, SIGNATURE_RATIO, SPARSE_EDGE_FADE_PX, SUNKEN_DIM, SUNKEN_SURFACE_DIVE_T, WARM_BASE_ALPHA, WARM_DIVE_BOOST, ZERO_CURSOR, type ApertureConfig, type Thread } from '../types.js'
-import { depthColor, signatureGray, threadColor } from '../color.js'
+import { depthColor, signatureGray, threadColor, underPaper } from '../color.js'
 import { drawLine, drawLineSegmented } from './line.js'
 import { waterOver } from './water.js'
 
@@ -457,6 +477,13 @@ export function renderThread(
   const crossing = paper.on && washProfile !== null && thread.proximity < 0.15
   if (crossing) beginCrossing(thread)
 
+  // An arrival rising (paper): which of its voice's lines this is, counted from the top.
+  const emerging = thread.emergenceStart > 0
+    ? (u: number) => thread.emergenceVoiceUids.size === 0 || (hlVoiceCount > 0 && thread.emergenceVoiceUids.has(u % hlVoiceCount))
+    : notArriving
+  let riseRun = -1
+  let risingSeen = false
+
   for (let i = 0; i < laidOutLines.length; i++) {
     const line = laidOutLines[i]!
     const voiceActive = activeUid >= 0 && line.lineVoiceUids.includes(activeUid)
@@ -498,9 +525,29 @@ export function renderThread(
       if (fade > 0) restAlpha *= 1 - SUNKEN_DIM * fade * (1 - line.diveT / SUNKEN_SURFACE_DIVE_T)
     }
     let lineAlpha = (hlActive ? restAlpha + 0.25 : restAlpha) * line.neighborFade
+    // How far this line's arriving words still lie under the paper (0: risen).
+    let faint = 0
     if (thread.emergenceStart > 0) {
-      const lineIsEmerging = thread.emergenceVoiceUids.size === 0 || (hlVoiceCount > 0 && line.lineVoiceUids.some(u => thread.emergenceVoiceUids.has(u % hlVoiceCount)))
-      if (lineIsEmerging) {
+      const lineIsEmerging = line.lineVoiceUids.some(emerging)
+      if (paper.on) {
+        // Ink stays on the sheet between frames, so opacity would barely show: the
+        // words rise by colour, from the paper's own to their ink, line by line.
+        if (lineIsEmerging) {
+          riseRun++
+          const t = clamp01((now - thread.emergenceStart - Math.min(riseRun * RISE_STAGGER_MS, RISE_LAST_START_MS)) / RISE_MS)
+          faint = RISE_FROM * (1 - t * t * (3 - 2 * t))
+          if (riseRun === 0) risingSeen = false
+          if (!risingSeen && line.y >= 0 && line.y <= loomState.VH) {
+            risingSeen = true
+            const u = line.lineVoiceUids.find(emerging)
+            const id = u === undefined ? null : resolveVoiceIdForAnchor(thread, u)
+            if (id) {
+              if (rising.size > 16) rising.clear()
+              rising.set(id, { x: drawX, y: line.y, at: now })
+            }
+          }
+        } else riseRun = -1
+      } else if (lineIsEmerging) {
         const elapsed = (now - thread.emergenceStart) / 1000
         const lineProgress = Math.min(1, Math.max(0, (elapsed - Math.min(i * 0.08, 3.5)) / 1.5))
         lineAlpha *= lineProgress
@@ -603,15 +650,51 @@ export function renderThread(
       }
     }
 
+    const segmented = isPrimary && prox > 0.2
     if (unseen) {
       // under another current, or its water: nothing is printed
-    } else if (isPrimary && prox > 0.2) {
+    } else if (faint > 0.002) {
+      const paint = () => {
+        if (segmented) drawLineSegmented(ctx, thread, line.lineStart, line.lineEnd, line.text, drawX, line.y, line.width, line.contentWidth, lineAlpha, prox, rel, i, laidOutLines.length, line.rtl, voiceActive || hlActive, mouse.x, restW, openW, drawFontRatio, now, line.diveT)
+        else drawLine(ctx, line.text, drawX, line.y, line.width, line.contentWidth, lineAlpha, prox, rel, thread, i, laidOutLines.length, line.rtl, voiceActive || hlActive, restW, openW, drawFontRatio)
+      }
+      // A line shared with a voice already there rises only where the arriving words are.
+      const span = line.rtl || line.lineVoiceUids.every(emerging) ? null : risingSpan(thread, line.lineStart, line.lineEnd, emerging)
+      if (span) {
+        const ls = !segmented && prox > 0.1 ? prox * 0.8 : 0
+        const left = drawX - (segmented ? line.contentWidth * drawFontRatio : Math.min(line.contentWidth * drawFontRatio, line.width)) / 2
+        const gap = 2 * drawFontRatio
+        const xa = left + span[0] * drawFontRatio + span[2] * ls - gap
+        const xb = left + span[1] * drawFontRatio + span[3] * ls + gap
+        const top = line.y - drawFontSize * 1.5
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect(-20, top, xa + 20, drawFontSize * 3)
+        ctx.rect(xb, top, loomState.VW + 20 - xb, drawFontSize * 3)
+        ctx.clip()
+        paint()
+        ctx.restore()
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect(xa, top, xb - xa, drawFontSize * 3)
+        ctx.clip()
+        paper.lineFaint = faint
+        paint()
+        ctx.restore()
+      } else {
+        paper.lineFaint = faint
+        paint()
+      }
+      paper.lineFaint = 0
+    } else if (segmented) {
       drawLineSegmented(ctx, thread, line.lineStart, line.lineEnd, line.text, drawX, line.y, line.width, line.contentWidth, lineAlpha, prox, rel, i, laidOutLines.length, line.rtl, voiceActive || hlActive, mouse.x, restW, openW, drawFontRatio, now, line.diveT)
     } else {
       drawLine(ctx, line.text, drawX, line.y, line.width, line.contentWidth, lineAlpha, prox, rel, thread, i, laidOutLines.length, line.rtl, voiceActive || hlActive, restW, openW, drawFontRatio)
     }
     if (clipped) ctx.restore()
     paper.lineInk = 0
+    // The voice this line ends (its woven dot, its signature) rises with its words.
+    const markFaint = faint > 0.002 && emerging(line.lineVoiceAnchorUid) ? faint : 0
 
     if (hlVoiceCount > 0) {
       const baseUid = line.lineVoiceAnchorUid % hlVoiceCount
@@ -642,7 +725,9 @@ export function renderThread(
       // Loom indicator on woven voices (visible only at dive scale)
       if (woven && line.diveT > 0.5) {
         const indicatorAlpha = (line.diveT - 0.5) * 2 * lineAlpha * 0.4
+        paper.lineFaint = markFaint
         const [ir, ig, ib] = threadColor(thread._frameColor, depthLerp(DEPTH_BRIGHTNESS, d) + 0.3, 0)
+        paper.lineFaint = 0
         ctx.fillStyle = `rgba(${ir},${ig},${ib},${indicatorAlpha})`
         if (line.rtl) {
           const priorAlign = ctx.textAlign
@@ -676,11 +761,12 @@ export function renderThread(
             ctx.font = afterglow
               ? `italic 400 ${sigFontSize}px ${FONT_FAMILY}`
               : `400 ${sigFontSize}px ${FONT_FAMILY}`
-            if (afterglow) {
+            if (afterglow && markFaint === 0) {
               ctx.fillStyle = `rgba(${AFTERGLOW_SILVER[0]},${AFTERGLOW_SILVER[1]},${AFTERGLOW_SILVER[2]},${sigAlpha})`
             } else {
-              const [sr, sg, sb] = signatureGray(thread._frameColor, SIGNATURE_GRAY_MIX)
-              ctx.fillStyle = `rgba(${sr},${sg},${sb},${sigAlpha})`
+              const sc = afterglow ? [AFTERGLOW_SILVER[0], AFTERGLOW_SILVER[1], AFTERGLOW_SILVER[2]] as [number, number, number] : signatureGray(thread._frameColor, SIGNATURE_GRAY_MIX)
+              if (markFaint > 0) underPaper(sc, markFaint)
+              ctx.fillStyle = `rgba(${sc[0]},${sc[1]},${sc[2]},${sigAlpha})`
             }
             if (line.rtl) {
               // Right-align so the signature extends further left, away from the
@@ -701,4 +787,32 @@ export function renderThread(
       }
     }
   }
+}
+
+/**
+ * The stretch of a line taken by arriving words: [from, to] in layout units from the
+ * line's start, and the characters before each end (for letter spacing); null if none.
+ */
+function risingSpan(thread: Thread, start: LayoutCursor, end: LayoutCursor, emerging: (uid: number) => boolean): [number, number, number, number] | null {
+  const segments = thread.prepared.segments
+  const widths = thread.prepared.widths
+  const last = end.graphemeIndex > 0 ? end.segmentIndex : end.segmentIndex - 1
+  let x = 0
+  let chars = 0
+  let from = -1
+  let to = -1
+  let charsFrom = 0
+  let charsTo = 0
+  for (let s = start.segmentIndex; s <= last && s < segments.length; s++) {
+    const w = widths[s] ?? 0
+    const len = segments[s]!.length
+    if (emerging(thread.segVoiceUid[s] ?? -1) && segments[s]!.trim() !== '') {
+      if (from < 0) { from = x; charsFrom = chars }
+      to = x + w
+      charsTo = chars + len
+    }
+    x += w
+    chars += len
+  }
+  return from < 0 ? null : [from, to, charsFrom, charsTo]
 }
