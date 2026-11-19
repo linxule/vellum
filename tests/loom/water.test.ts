@@ -5,7 +5,7 @@ import { shimmerKeep, STILL_LENS_PROXIMITY } from '../../src/loom/render/line.js
 import { resetWashForTest } from '../../src/loom/render/wash.js'
 import {
   contour, HIDING_WATER, newField, pour, readRecords, resetWater, rimBias, stepField, stepWater,
-  TIDE_LIFE_MS, WARMTH_DAMPNESS, WATER_CELL, waterForTest, waterOver, wetnessOf, type Bloom, type LensPour,
+  TIDE_LIFE_MS, WATER_CELL, waterForTest, waterOver, wetnessOf, type Bloom, type LensPour,
 } from '../../src/loom/render/water.js'
 import { loomState, resetLoomState } from '../../src/loom/state.js'
 import type { Thread } from '../../src/loom/types.js'
@@ -226,12 +226,27 @@ describe('how wet a current is', () => {
   })
 
   test('warmth does not make a current wet', () => {
-    expect(WARMTH_DAMPNESS).toBe(0)
-    const warm = current(700)
+    // Two currents on the same path, under the same water: as wet as each other however warm.
+    const read = current(700, ['attention'])
+    const cool = current(700, ['memory'])
+    const warm = current(700, ['wonder'])
+    const far = current(100, ['becoming'])
+    cool.apiWarmth = 0
     warm.apiWarmth = 3
-    stage([warm])
-    stepWater(1000, null)
+    far.apiWarmth = 3
+    stage([read, cool, warm, far])
+    stepWater(500, null)
+    // No water anywhere: a warm current is dry.
     expect(wetnessOf(warm)).toBe(0)
+    expect(wetnessOf(far)).toBe(0)
+    run(1000, 2000, lens(read))
+    expect(wetnessOf(cool)).toBeGreaterThan(0.5)
+    expect(wetnessOf(warm)).toBe(wetnessOf(cool))
+    // Away from the water, a warm current stays dry.
+    expect(wetnessOf(far)).toBe(0)
+    warm.apiWarmth = 0
+    cool.apiWarmth = 3
+    expect(wetnessOf(warm)).toBe(wetnessOf(cool))
   })
 
   test('a finished read leaves a record of where its water reached, whose it was, and when it dried', () => {
@@ -323,8 +338,27 @@ describe('words under water', () => {
   })
 
   test('the water that hides words is at least HIDING_WATER deep', () => {
-    expect(HIDING_WATER).toBeGreaterThan(0)
-    expect(HIDING_WATER).toBeLessThan(0.5)
+    enablePaper()
+    const other = current(720, ['memory'])
+    stage([other])
+    // Water owned by a slot no current here holds (another current's), poured at a
+    // depth of `amount` in its middle, then read over one of `other`'s lines.
+    const at = (amount: number) => {
+      newField(VW, VH)
+      pour(block(720, 400, 500, 60), 0, amount, 1)
+      return [...waterOver(other, 600, 840, 450)]
+    }
+    for (const amount of [HIDING_WATER, 1]) {
+      const [from, to] = at(amount)
+      expect(from).toBeLessThan(to)
+      expect(from).toBeLessThan(720)
+      expect(to).toBeGreaterThan(720)
+    }
+    const [from, to, fade] = at(HIDING_WATER * 0.8)
+    expect(from).toBeGreaterThanOrEqual(to)
+    expect(fade).toBeGreaterThan(0)
+    expect(fade).toBeLessThan(1)
+    resetWater()
   })
 })
 

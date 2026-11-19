@@ -434,10 +434,14 @@ export function renderThread(
     // What lies over this line is not printed: another current passing over it, or
     // another current's clean water (render/water.ts). Thin or drying water only
     // dims it, so words come back gently. A stub too short to read is dropped.
+    // A crossing and the water can hide two separate stretches of one line; the
+    // words between them print (hide2From..hide2To is the second, when there is one).
     let clipped = false
     let unseen = false
     let hideFrom = 0
     let hideTo = 0
+    let hide2From = 0
+    let hide2To = 0
     if (paper.on) {
       const x0 = drawX - halfW
       const x1 = drawX + halfW
@@ -447,26 +451,35 @@ export function renderThread(
         hideTo = span[1]
       }
       const water = waterOver(thread, x0, x1, line.y)
-      if (water[0] < water[1]) {
-        if (hideFrom < hideTo) { hideFrom = Math.min(hideFrom, water[0]); hideTo = Math.max(hideTo, water[1]) }
-        else { hideFrom = water[0]; hideTo = water[1] }
-      }
+      const wetFrom = water[0]
+      const wetTo = water[1]
       if (water[2] > 0) lineAlpha *= 1 - water[2]
+      if (wetFrom < wetTo) {
+        if (!(hideFrom < hideTo)) { hideFrom = wetFrom; hideTo = wetTo }
+        else if (hideTo < wetFrom) { hide2From = wetFrom; hide2To = wetTo }
+        else if (wetTo < hideFrom) { hide2From = hideFrom; hide2To = hideTo; hideFrom = wetFrom; hideTo = wetTo }
+        else { hideFrom = Math.min(hideFrom, wetFrom); hideTo = Math.max(hideTo, wetTo) }
+      }
     }
     if (hideFrom < hideTo) {
       const x0 = drawX - halfW
       const x1 = drawX + halfW
+      const two = hide2From < hide2To
+      const lastTo = two ? hide2To : hideTo
       const left = hideFrom - x0
-      const right = x1 - hideTo
+      const right = x1 - lastTo
+      const middle = two ? Math.min(hide2From, x1) - Math.max(hideTo, x0) : 0
       const keepLeft = left >= CROSSING_MIN_STUB
+      const keepMiddle = middle >= CROSSING_MIN_STUB
       const keepRight = right >= CROSSING_MIN_STUB
-      if (!keepLeft && !keepRight) unseen = true
+      if (!keepLeft && !keepMiddle && !keepRight) unseen = true
       else {
         const rowH = Math.abs((laidOutLines[i + 1]?.y ?? line.y + drawFontSize * 1.4) - line.y) + 4
         ctx.save()
         ctx.beginPath()
         if (keepLeft) ctx.rect(x0 - 20, line.y - rowH * 0.5, left + 20, rowH)
-        if (keepRight) ctx.rect(hideTo, line.y - rowH * 0.5, right + 20, rowH)
+        if (keepMiddle) ctx.rect(hideTo, line.y - rowH * 0.5, hide2From - hideTo, rowH)
+        if (keepRight) ctx.rect(lastTo, line.y - rowH * 0.5, right + 20, rowH)
         ctx.clip()
         clipped = true
       }

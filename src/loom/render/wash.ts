@@ -390,59 +390,82 @@ function vnoise(x: number): number {
 }
 
 /**
- * Dry brush: paper shows through the band in broken streaks along its run,
- * riding with its text. Lifted out of this band's outline only.
+ * A dry-brush lane's strength is rounded to this many steps: at the top step the
+ * lane is bare paper, below it the band is painted into the lane again, fainter.
+ * Each step below the top costs one more pass of the band while it is rough.
  */
-function dryBrush(ctx: CanvasRenderingContext2D, path: readonly { x: number, y: number }[], left: number[], right: number[], rough: number, flow: number, seed: number): void {
+const DRY_LEVELS = 2
+
+/** A lane where a band running dry leaves its paint off: runs of [x, y, half-width] triples, and how bare (1..DRY_LEVELS). */
+interface DryLane { steps: number, runs: number[][] }
+
+/**
+ * Dry brush: long thin lanes along the band, riding with its text, where the
+ * band leaves paper bare. Lanes, not erasure: what lies beneath shows through.
+ */
+function dryLanes(path: readonly { x: number, y: number }[], left: number[], right: number[], rough: number, flow: number, seed: number): DryLane[] {
   const n = path.length
-  ctx.save()
-  ctx.beginPath()
-  ctx.moveTo(left[0]!, path[0]!.y)
-  for (let k = 1; k < n; k++) ctx.lineTo(left[k]!, path[k]!.y)
-  for (let k = n - 1; k >= 0; k--) ctx.lineTo(right[k]!, path[k]!.y)
-  ctx.closePath()
-  ctx.clip()
-  ctx.globalCompositeOperation = 'destination-out'
-  ctx.lineCap = 'round'
   const mid = n >> 1
   const span = right[mid]! - left[mid]!
   const lanes = Math.max(6, Math.min(28, Math.round(span / DRY_LANE_PX)))
   const stretch = 0.6 + 1.2 * rough
+  const out: DryLane[] = []
   for (let j = 0; j < lanes; j++) {
     const h = hash(seed * 31 + j * 7.3)
     const f = (j + 0.5) / lanes + ((h - 0.5) * 0.4) / lanes
     const edge = Math.abs(f - 0.5) * 2
     const strength = clamp01(rough * (0.55 + 0.6 * edge) * (0.6 + 0.6 * hash(seed + j * 3.1)))
-    if (strength < 0.03) continue
+    const steps = Math.round(strength * DRY_LEVELS)
+    if (steps === 0) continue
     // Bristle gaps: long thin runs of bare paper, longer the faster it goes, with short breaks.
     const on = (40 + 160 * hash(seed + j * 5.7)) * stretch
     const period = on + (8 + 40 * hash(seed + j * 9.1)) / stretch
     const phase = flow + 200 * hash(seed + j * 1.3)
-    ctx.strokeStyle = `rgba(0,0,0,${strength})`
-    ctx.lineWidth = 0.8 + (span / lanes) * 0.4 * h
-    ctx.beginPath()
-    let down = false
+    const half = (0.8 + (span / lanes) * 0.4 * h) / 2
+    const runs: number[][] = []
+    let run: number[] | null = null
     let px = 0
     let py = 0
     for (let k = 0; k < n; k++) {
       const y = path[k]!.y
       const pos = (((y + phase) % period) + period) % period
-      if (pos >= on) { down = false; continue }
+      if (pos >= on) { run = null; continue }
       // Along the band's smoothed outline: a bristle does not follow every ripple of the edge.
       const a = k > 0 ? k - 1 : k
       const b = k < n - 1 ? k + 1 : k
       const l = (left[a]! + 2 * left[k]! + left[b]!) / 4
-      const x = l + ((right[a]! + 2 * right[k]! + right[b]!) / 4 - l) * f
+      const r = (right[a]! + 2 * right[k]! + right[b]!) / 4
+      const x = l + (r - l) * f
+      // Never wider than the space to the next lane, where the band narrows: lanes must not overlap.
+      const hw = Math.max(0, Math.min(half, (0.3 * (r - l)) / lanes))
       // A streak runs with the current: where the band swings out sideways (a pool's rim), it breaks.
-      if (down && Math.abs(x - px) <= Math.abs(y - py)) ctx.lineTo(x, y); else ctx.moveTo(x, y)
-      down = true
+      if (run && Math.abs(x - px) <= Math.abs(y - py)) run.push(x, y, hw)
+      else { run = [x, y, hw]; runs.push(run) }
       px = x
       py = y
     }
-    ctx.stroke()
+    out.push({ steps, runs })
   }
-  ctx.restore()
-  ctx.globalCompositeOperation = paper.night ? 'screen' : 'multiply'
+  return out
+}
+
+/** Adds each lane's runs to the current path as thin closed shapes (all wound the same way). */
+function traceLanes(ctx: CanvasRenderingContext2D, lanes: DryLane[], steps: number): void {
+  for (const lane of lanes) {
+    if (steps > 0 && lane.steps !== steps) continue
+    for (const run of lane.runs) {
+      if (run.length < 6) continue
+      // The path runs down the sheet and a run is steep, so offsetting across is a simple shape.
+      // Its ends taper, as a bristle's gap does.
+      const last = run.length - 3
+      for (let i = 0; i <= last; i += 3) {
+        const hw = i === 0 || i === last ? run[i + 2]! * 0.4 : run[i + 2]!
+        if (i === 0) ctx.moveTo(run[i]! - hw, run[i + 1]!); else ctx.lineTo(run[i]! - hw, run[i + 1]!)
+      }
+      for (let i = last; i >= 0; i -= 3) ctx.lineTo(run[i]! + (i === 0 || i === last ? run[i + 2]! * 0.4 : run[i + 2]!), run[i + 1]!)
+      ctx.closePath()
+    }
+  }
 }
 
 function paintBand(ctx: CanvasRenderingContext2D, thread: Thread, visibility: number, ac: ApertureConfig, t: number, ocean: number, sigma: number, now: number): void {
@@ -471,8 +494,8 @@ function paintBand(ctx: CanvasRenderingContext2D, thread: Thread, visibility: nu
   // A brush running dry carries its pigment strong, in broken strokes.
   const depth = (DRY_DEPTH + (WET_DEPTH - DRY_DEPTH) * w) * (1 + 0.9 * band.rough)
 
-  let outerLeft: number[] = []
-  let outerRight: number[] = []
+  const lefts: number[][] = []
+  const rights: number[][] = []
   for (let layer = 0; layer < 3; layer++) {
     const left: number[] = []
     const right: number[] = []
@@ -512,53 +535,88 @@ function paintBand(ctx: CanvasRenderingContext2D, thread: Thread, visibility: nu
       left.push(p.x + shift - hl)
       right.push(p.x + shift + hr)
     }
-    ctx.beginPath()
-    ctx.moveTo(left[0]!, path[0]!.y)
-    for (let k = 1; k < path.length; k++) ctx.lineTo(left[k]!, path[k]!.y)
-    for (let k = path.length - 1; k >= 0; k--) ctx.lineTo(right[k]!, path[k]!.y)
-    ctx.closePath()
-    // Pigment settles unevenly down the length of a wash.
-    const a = alpha * depth * GLAZE_ALPHA[layer]!
-    const settle = ctx.createLinearGradient(0, top, 0, bottom)
-    const stops = fromText ? 14 : 6
-    for (let s = 0; s <= stops; s++) {
-      const f = s / stops
-      // Pigment gathers under fresh and woven voices and thins under sunken ones.
-      const carried = fromText ? 0.45 + 0.6 * eased(profile.ink, Math.round(f * (path.length - 1)), 1) : 1
-      const uneven = fromText ? 0.2 : 0.42
-      settle.addColorStop(f, `rgba(${ink},${a * carried * (1 + uneven * wobble(f * 900 + flow, ls + 23.1, bt * 0.4))})`)
+    lefts.push(left)
+    rights.push(right)
+  }
+  const outerLeft = lefts[0]!
+  const outerRight = rights[0]!
+
+  // The band's paint, at `mul` of its strength.
+  const body = (mul: number): void => {
+    for (let layer = 0; layer < 3; layer++) {
+      const left = lefts[layer]!
+      const right = rights[layer]!
+      const ls = seed + layer * 2.3
+      ctx.beginPath()
+      ctx.moveTo(left[0]!, path[0]!.y)
+      for (let k = 1; k < path.length; k++) ctx.lineTo(left[k]!, path[k]!.y)
+      for (let k = path.length - 1; k >= 0; k--) ctx.lineTo(right[k]!, path[k]!.y)
+      ctx.closePath()
+      // Pigment settles unevenly down the length of a wash.
+      const a = alpha * depth * GLAZE_ALPHA[layer]! * mul
+      const settle = ctx.createLinearGradient(0, top, 0, bottom)
+      const stops = fromText ? 14 : 6
+      for (let s = 0; s <= stops; s++) {
+        const f = s / stops
+        // Pigment gathers under fresh and woven voices and thins under sunken ones.
+        const carried = fromText ? 0.45 + 0.6 * eased(profile.ink, Math.round(f * (path.length - 1)), 1) : 1
+        const uneven = fromText ? 0.2 : 0.42
+        settle.addColorStop(f, `rgba(${ink},${a * carried * (1 + uneven * wobble(f * 900 + flow, ls + 23.1, bt * 0.4))})`)
+      }
+      ctx.fillStyle = settle
+      ctx.fill()
     }
-    ctx.fillStyle = settle
-    ctx.fill()
-    if (layer === 0) { outerLeft = left; outerRight = right }
-  }
 
-  // Tide line: pigment gathers at the edge of a wash as it dries. A dry edge is a fine, crisp line.
-  ctx.strokeStyle = `rgba(${ink},${alpha * 1.5})`
-  ctx.lineWidth = 0.9 + 0.4 * w
-  for (const edge of [outerLeft, outerRight]) {
-    ctx.beginPath()
-    ctx.moveTo(edge[0]!, path[0]!.y)
-    for (let k = 1; k < path.length; k++) ctx.lineTo(edge[k]!, path[k]!.y)
-    ctx.stroke()
-  }
-
-  // Contours: the rings of floated ink, drawn out long by the current. Fainter on a dry band.
-  ctx.strokeStyle = `rgba(${ink},${alpha * (0.6 + 0.5 * w)})`
-  ctx.lineWidth = 0.9
-  for (let j = 0; j < 4; j++) {
-    const frac = (j + 0.5) / 4
-    ctx.beginPath()
-    for (let k = 0; k < path.length; k++) {
-      const p = path[k]!
-      const span = outerRight[k]! - outerLeft[k]!
-      const x = outerLeft[k]! + span * (frac + 0.1 * wobble((p.y + flow) * 1.7, seed + j * 4.1, bt * 1.6))
-      if (k === 0) ctx.moveTo(x, p.y); else ctx.lineTo(x, p.y)
+    // Tide line: pigment gathers at the edge of a wash as it dries. A dry edge is a fine, crisp line.
+    ctx.strokeStyle = `rgba(${ink},${alpha * 1.5 * mul})`
+    ctx.lineWidth = 0.9 + 0.4 * w
+    for (const edge of [outerLeft, outerRight]) {
+      ctx.beginPath()
+      ctx.moveTo(edge[0]!, path[0]!.y)
+      for (let k = 1; k < path.length; k++) ctx.lineTo(edge[k]!, path[k]!.y)
+      ctx.stroke()
     }
-    ctx.stroke()
+
+    // Contours: the rings of floated ink, drawn out long by the current. Fainter on a dry band.
+    ctx.strokeStyle = `rgba(${ink},${alpha * (0.6 + 0.5 * w) * mul})`
+    ctx.lineWidth = 0.9
+    for (let j = 0; j < 4; j++) {
+      const frac = (j + 0.5) / 4
+      ctx.beginPath()
+      for (let k = 0; k < path.length; k++) {
+        const p = path[k]!
+        const span = outerRight[k]! - outerLeft[k]!
+        const x = outerLeft[k]! + span * (frac + 0.1 * wobble((p.y + flow) * 1.7, seed + j * 4.1, bt * 1.6))
+        if (k === 0) ctx.moveTo(x, p.y); else ctx.lineTo(x, p.y)
+      }
+      ctx.stroke()
+    }
   }
 
-  if (band.rough > 0) dryBrush(ctx, path, outerLeft, outerRight, band.rough, flow, seed)
+  if (band.rough <= 0) { body(1); return }
+
+  // Running dry: the band is painted everywhere but its lanes, then again inside
+  // the lanes the brush only thinned, fainter. It never erases, so a band
+  // beneath it shows through the streaks untouched.
+  const lanes = dryLanes(path, outerLeft, outerRight, band.rough, flow, seed)
+  // Anything off the sheet is never seen, so the sheet (and a margin) is all the clip need keep.
+  const pad = 64
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(-pad, -pad, loomState.VW + 2 * pad, loomState.VH + 2 * pad)
+  traceLanes(ctx, lanes, 0)
+  ctx.clip('evenodd')
+  body(1)
+  ctx.restore()
+  for (let steps = 1; steps < DRY_LEVELS; steps++) {
+    if (!lanes.some(l => l.steps === steps)) continue
+    ctx.save()
+    ctx.beginPath()
+    traceLanes(ctx, lanes, steps)
+    ctx.clip()
+    body(1 - steps / DRY_LEVELS)
+    ctx.restore()
+  }
 }
 
 /** The open current's readable block, as its text was last laid out, for the water to pour under. */

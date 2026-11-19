@@ -256,6 +256,13 @@ The clear was a circle of radius `min(openWidth × 0.75, vh × 0.6)`. The lens o
 
 `advanceLoom` moves everything by `frameRatio`, but `paintLoom` cleared by a fixed alpha per frame (.18 for the sea, the lens clear on top). At 20fps text moves three 60fps frames' distance between paints, so the trail was three times as long and printed as separate offset copies: doubled text, in the lens centre too. Measured 2026-11-19: headless Chromium paints this canvas at 20fps, headless Firefox at 30, WebKit at 45–59, and the doubling tracked those numbers. `paintLoom` now turns each clear into `1 − (1 − alpha)^slow`, where `slow = max(1, dt × 60)`: a slow frame clears as much as the 60fps frames it stands for. At 60fps and above the values are the old ones exactly (`.18` is still the literal string), so a 120Hz screen looks as it did.
 
+### Water and bands: four things the first review caught (2026-11-19, 0.5.0)
+
+- **The water does not replace the crossing rule.** Clean water lies only under the readable core of an open current (`READABLE`), but its pool's lines stay wide far above and below that. "The open current lies over all the others" in `beginCrossing` (`render/wash.ts`) is what keeps neighbours' words from printing under the rest of the pool. It was removed once with the comment "the water does that" and the guarding test was inverted to match; two reviewers found it independently. If a test has to be turned upside down to pass, treat that as a finding.
+- **Measure nothing across a gap in painting.** Bands are not painted during the lineage view, in a hidden tab, or while a current is out of sight, and the text keeps scrolling meanwhile. Clamping `dt` while taking the whole scroll change turned a minute of slow drift into a fast stroke (dry-brush streaks on return). `bandState` now treats a gap over 250 ms as no movement, takes the shorter way round a scroll wrap, and clamps its own clock.
+- **Key per-current state by group key, not by the Thread object.** `refreshLoom` builds new Thread objects whenever voices arrive. State in a `WeakMap<Thread, …>` restarts on every such poll (the old stain did, and the water's wetness did at first). `threadGroupKey(thread.familyNames)` survives the rebuild; slots, wetness and band state all use it.
+- **A grid stepped inside a box needs its border closed.** The water is stepped only inside the box that holds water, which stops one cell short of the grid's edge. Pairs that flow into the edge cells put water where it is never stepped, so it never dried and came back on the next read near the edge. Nothing flows into border cells now.
+
 ## Renderer resonance (Phase 9.1 F6 → Phase 10 per-voice)
 
 ### Per-voice resonance with canonical voiceId (Phase 10)

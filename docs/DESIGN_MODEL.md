@@ -89,7 +89,7 @@ The sheet has one more state, wetness: touch wets, time dries (`render/water.ts`
 
 - **Dry is thin and still.** A current at rest is its column of words on a narrow, pale stain that reaches only a little past them, with a fine tide line, and bare paper between it and its neighbours. Its shape rides with its text but has no motion of its own: the band's clock runs only while it is wet. On a 1440 px sheet about 26% of the wash canvas carries ink at rest (was 39%); on a 390 px phone about 51% (was 78%).
 - **Wet spreads and moves.** As a current gets wet its glazes widen to their full reach, deepen, and its edge is redrawn on a slow clock, eight drawings a second, a couple of pixels of fresh wander each time, in proportion to wetness, as in hand-drawn animation. Text is never redrawn on that clock. Wetness is eased (a quarter second rising, nearly a second falling) so neither change is a pop.
-- **Speed roughens.** Text moving fast (a flick of the wheel, a drag of the read current) breaks its band into dry-brush streaks: long thin runs of bare paper along the band, riding with its words, and the remaining pigment stronger. They heal within about a second as it slows. A jump of the text (a wrap, a voice brought into view) is not a stroke.
+- **Speed roughens.** Text moving fast (a flick of the wheel, a drag of the read current) breaks its band into dry-brush streaks: long thin runs along the band where it leaves its paint off, riding with its words, and the remaining pigment stronger. They heal within about a second as it slows. A jump of the text (a wrap, a voice brought into view) is not a stroke. The streaks are gaps in that band's paint only, never an erasure: a neighbour's wash lying beneath shows through them untouched (until 0.5.0 they were lifted out with `destination-out`, which on a phone cut white streaks through every current under the open pool). A rough band is painted through a clip of the sheet minus its lanes (even-odd), then once more inside the lanes the brush only thinned, at half strength: each lane's strength is rounded to `DRY_LEVELS` steps. While rough that is one extra clipped pass of the band; a smooth band takes no clip at all.
 
 | Constant | Where | Value | Meaning |
 |---|---|---|---|
@@ -99,6 +99,7 @@ The sheet has one more state, wetness: touch wets, time dries (`render/water.ts`
 | `WET_RISE_MS` / `WET_DRY_MS` | `render/wash.ts` | 250 / 900 | easing of wetness on the band's side |
 | `ROUGH_FROM` / `ROUGH_FULL` / `ROUGH_JUMP` | `render/wash.ts` | 30 / 150 / 600 lines/s | where dry brush starts, is full, and where a move counts as a jump |
 | `ROUGH_HEAL_MS` / `DRY_LANE_PX` | `render/wash.ts` | 350 / 7 px | how fast streaks heal; their spacing across a band |
+| `DRY_LEVELS` | `render/wash.ts` | 2 | steps of a lane's strength: bare paper at the top step, the band again at reduced strength below it (each step below the top is one more pass while rough) |
 
 ### Reading by touch (2026-11-19)
 

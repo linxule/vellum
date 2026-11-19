@@ -573,7 +573,7 @@ document.addEventListener('visibilitychange', () => {
 
 // ── Ext-apps SDK ──────────────────────────────────────
 
-const app = new App({ name: 'Vellum Pensieve', version: '0.5.0' })
+const app = new App({ name: 'Vellum Pensieve', version: '0.5.1' })
 
 const fsBtn = document.getElementById('fs') as HTMLButtonElement | null
 const szEl = document.getElementById('sz') as HTMLDivElement | null
