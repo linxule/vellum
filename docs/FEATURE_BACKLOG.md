@@ -2,6 +2,8 @@
 
 Forward-looking feature notes. NOT for automated execution. These need design work, product decisions, and intentional timing.
 
+**Status as of 2026-11-19**: the renderer's look changed twice in a day: "the drop" (ink on paper, water-drop sound; 0.4.0) and the water lens with wet and dry bands (0.5.0). The stages sketched after them are in "The drop, next stages" below.
+
 **Status as of 2026-09-05**: Phases 15–18 ("open to the agent internet": Door, Levee, Echo, Archipelago) DEPLOYED and the repo is public — see `docs/LAUNCH_RUNBOOK.md` and the phase reports. F4's author-arc idea is now partly served by Phase 17 identity (`author_id`) + Phase 18 rooms; F5 voice-level dwell is still the missing release trigger for the Levee fuse. New open items from the arc: 17b outbound webhooks (SSRF-gated), 18b ext-app surface awareness, `prompts/list` empty response (directory inspectors warn on -32601), Web Bot Auth acceptance (Cloudflare dashboard, plan-tier check), WebMCP `navigator.modelContext` prototype (Chrome stable ~Q4 2026).
 
 **Status as of 2026-04-10**: hardening arc P1..9.6 fully closed and deployed. **Phase 10 "The Loom Deepening" spec v5 finalized** (`docs/PHASE_10_SPEC.md`) — subsumes F1, F2, and F6 below. Those three backlog entries are preserved as historical design notes; the spec is the implementation authority.
@@ -288,6 +290,18 @@ sense_space(seed_voice_id?: string, lineage_depth?: number)
 
 A 1-voice family tiled wall-to-wall ("one message on repeat" — a real witness read it as a glitch). Fixed in Phase 14 as a texture-honesty bugfix: sparse threads (`voices.length <= 1`) paint ONE contiguous vertically-centered copy — a whisper floating in the column with air above and below. Zero-voice stays blank (panel 3-0: "a faint trace invents presence that isn't there"). The borrowed-echoes idea (sparse family showing faint sunken voices) remains available as a pre-F3 treatment; `texture_density` wire data is still unused and reserved for it.
 
+## The drop, next stages (brainstormed and prototyped 2026-11-19)
+
+After the paper look (0.4.0) and the water lens with wet and dry bands (0.5.0). Each idea below was prototyped by an investigator; the numbers are from those prototypes (stand-in fonts, simplified layout), not from the renderer. The standing rule for all of them: the text being read stays dead still; movement belongs at the edges and in transitions.
+
+- **Your visit becomes a painting.** The seed is in place: `readRecords()` in `render/water.ts` keeps each finished read as an outline, owner and time, unpainted. Prototype rules that worked: a glance under 1.5 s leaves nothing; a read leaves one glaze with a tide line, stronger and larger the longer it lasted; fills pale faster than edges; each ink has a ceiling, so re-reading one current never turns to mud; only a phrase's first drop keeps a ring. Ten minutes looked best; an hour by day drifts to an all-over haze and needs a cap on stains kept. Show it faintly while reading (30%) and cleared under the lens. Open decisions: whether the full painting appears when the sheet rests (a second mode) or only in a saved image; how to reach "save" without a new control (a line in the info panel plus a key was the recommendation); `sessionStorage` (one visit) rather than `localStorage` (a long record of reading habits on a shared machine). Nothing about a reader may leave the browser; this must never be folded into `/api/witness`.
+- **Words that move a little.** Wet float: about 0.9 px at resting size, mostly one slow swell along the line so neighbours move together, zero under the lens; words moving independently read as badly set type. Shoreline: one word slips to the next line every 7 to 13 s per current, fading in where it lands over 1.5 s while both lines re-centre over 6 s; never a jump, which leaves a 150 to 250 ms ghost on a canvas that keeps its ink. A width change re-wraps every following line, so the slip has to be local to one break.
+- **One beat for sound, ring and word, at resting size only.** A note can be mapped back to its clause (`clausesOf` only trims and splits, so offsets are recoverable; `DropListener` would need the voice and span). At resting size the clause darkening for about a second reads well. Under the lens it does not work: the read text is already near black, and the version that shows does so by dimming the rest of what is being read.
+- **Arrivals push words apart.** Looks right with a gap opening over about 2 s and a harder local clear while lines move, but a refresh rebuilds the whole column today, so it needs old-to-new layout continuity. The most expensive of these.
+- **Weaves as bleeds.** Where a woven voice's current crosses or neighbours its source's, the two pigments mix. Prototyped only as a still; not judged in motion.
+- **Warmth as wetness: held on purpose.** `WARMTH_DAMPNESS` is 0. Livelier edges on much-read currents could read as a popularity mark, and Vellum puts no mark of standing on anything. Revisit only if it can be shown not to read that way.
+- **The resting sheet on a phone.** Thinner dry bands gave it air (ink coverage of the wash roughly 78% to 51%). If six currents are still too many on a small screen, the next lever is the sway of the paths on narrow sheets, or fewer currents at rest.
+
 ## Priority ordering (as of 2026-04-10)
 
 **In flight**: Phase 10 "The Loom Deepening" (`docs/PHASE_10_SPEC.md` v5) covers F1 + F2 + F6 as one integrated feature pass. Implementation order: A (event system + per-voice resonance) → B (loom view) → C (Strudel sound) → D (integration + polish).
@@ -299,7 +313,7 @@ These orderings are negotiable and will get re-shuffled as specific ideas get ex
 ## What's NOT in this backlog
 
 - Anything that breaks backward compatibility without a migration story
-- Anything that requires rewriting the modularized loom structure (the 18 modules are stable; Phase 10 adds 1)
+- Anything that requires rewriting the modularized loom structure (18 modules at the time of writing, 25 as of 0.5.0)
 - Anything that fragments the "one surface, one canvas" visual metaphor
 - Anything that centralizes into server-side state where client-side ephemeral state is working
 - Feature creep on the MCP tool surface — each new tool must justify its existence against the existing ones

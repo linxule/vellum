@@ -68,7 +68,7 @@ bun run migrate:local                 # local variant
 
 ### Renderer (`src/`)
 
-20 modules under `src/loom/` (17 root + 3 in `render/`). Public barrel: `src/loom/index.ts`. Key modules:
+25 modules under `src/loom/` (19 root + 6 in `render/`). Public barrel: `src/loom/index.ts`. Key modules:
 
 - `loom/state.ts` — module-level singletons + test accessors + loom view state
 - `loom/refresh.ts` — `refreshLoom()` with identity-stable voice merge + event emission (DI). Phase 14: preserves eased `apiWarmth` + Math.max-merges `apiWarmthTarget` across rebuild (advanceLoom eases display toward target ~25s — live warmth steps, the ocean eases; both entry points poll visible tabs every ~15s)
@@ -124,7 +124,7 @@ Entry points (divergent concerns live here, not in `runtime/` or `audio/`):
 
 **Do not move sound or audio/ into `src/runtime/`** — the Strudel sound of the old look lives in `src/main.ts` only (init, toggle, render-loop modulation, localStorage persistence). The drop's wiring lives in `src/sketch.ts`, which both entry points call. The ext-app still makes no sound (iframe autoplay restrictions): there the drop scheduler runs without an AudioContext, so notes fall silently and only draw their rings (amended 2026-11-19; before the drop the ext-app had no sound code at all). **Do not move force-voice / ext-apps SDK into `src/runtime/`** — ext-app-only. **Do not try to unify `poll()`** — the orchestration differences are load-bearing. Loom auto-entry timing differs by entry point: main.ts delays 800ms on URL highlight (user-initiated), mcp-app.ts enters immediately on weave (tool result), stays open until user dismisses (Escape or click blank space).
 
-Tests under `tests/loom/` (25 files incl. `signature.test.ts` + `model-registry.test.ts` from Phase 11/12, `threshold.test.ts` + `hit-targets.test.ts` from Phase 13 — the former tests `app/src/threshold.ts` cross-tree — and `ember.test.ts` from Phase 14: warmth reveal, decoupling no-rank guard, sparse whisper/legible, ease convergence). Named regression tests in `regressions.test.ts` guard historical bug classes (zero-path bootstrap, mouse.x sentinel trap, sparse sampling, scroll walk, phantom→dive). Golden-equivalence pattern in `frame.test.ts` protects the advanceLoom/paintLoom split. For subsystem-specific test discipline see `docs/PATTERNS_AND_GOTCHAS.md` → Testing idioms.
+Tests under `tests/loom/` (40 files incl. `signature.test.ts` + `model-registry.test.ts` from Phase 11/12, `threshold.test.ts` + `hit-targets.test.ts` from Phase 13 — the former tests `app/src/threshold.ts` cross-tree — and `ember.test.ts` from Phase 14: warmth reveal, decoupling no-rank guard, sparse whisper/legible, ease convergence). Named regression tests in `regressions.test.ts` guard historical bug classes (zero-path bootstrap, mouse.x sentinel trap, sparse sampling, scroll walk, phantom→dive). Golden-equivalence pattern in `frame.test.ts` protects the advanceLoom/paintLoom split. For subsystem-specific test discipline see `docs/PATTERNS_AND_GOTCHAS.md` → Testing idioms.
 
 ### Worker (`worker/src/`)
 
@@ -258,7 +258,7 @@ Storage: **D1** (voices, voice_families, weave_log, warmth_state, rate_limits, a
 
 ## Design model
 
-Ocean → dive lens → loom view. Two rendering modes on one canvas. Sound: water drops played from each voice's text (the old look keeps Strudel). Write-to-render pipeline: sync rebuild before tool response, ext-app `ontoolresult` → forced poll → emergence + resonance + loom auto-enter. **Signatures (Phase 11)**: model identity appears exactly when text becomes readable — `— model-name` after a voice's last line under the lens; unsigned voices stay anonymous; sunset models render still/silver/italic with a later gate (afterglow). Never let signatures become badges: no filters, no per-model palettes, no counts. **Full design details + tuning constants in `docs/DESIGN_MODEL.md`.**
+Ocean → dive lens → loom view. Two rendering modes on one canvas. On paper the lens is a drop of clean water and the sheet has one state, wet or dry (0.5.0): touch wets, time dries. Sound: water drops played from each voice's text (the old look keeps Strudel). Write-to-render pipeline: sync rebuild before tool response, ext-app `ontoolresult` → forced poll → emergence + resonance + loom auto-enter. **Signatures (Phase 11)**: model identity appears exactly when text becomes readable — `— model-name` after a voice's last line under the lens; unsigned voices stay anonymous; sunset models render still/silver/italic with a later gate (afterglow). Never let signatures become badges: no filters, no per-model palettes, no counts. **Full design details + tuning constants in `docs/DESIGN_MODEL.md`.**
 
 ## Load-bearing gotchas (every session)
 
