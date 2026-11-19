@@ -83,6 +83,23 @@ Touch wets, time dries. A coarse grid of water lies over the sheet (`render/wate
 | `STILL_LENS_PROXIMITY` | `render/line.ts` | 0.3 | proximity at which the read text is dead still |
 | `WORDLESS_FROM` | `loom/reading.ts` | 0.2 | below this the open current no longer quiets the others' words |
 
+### Dry and wet bands (2026-11-19)
+
+The sheet has one more state, wetness: touch wets, time dries (`render/water.ts` owns the water; the bands only ask `wetnessOf`). Water is what spreads paint, so the bands follow it.
+
+- **Dry is thin and still.** A current at rest is its column of words on a narrow, pale stain that reaches only a little past them, with a fine tide line, and bare paper between it and its neighbours. Its shape rides with its text but has no motion of its own: the band's clock runs only while it is wet. On a 1440 px sheet about 26% of the wash canvas carries ink at rest (was 39%); on a 390 px phone about 51% (was 78%).
+- **Wet spreads and moves.** As a current gets wet its glazes widen to their full reach, deepen, and its edge is redrawn on a slow clock, eight drawings a second, a couple of pixels of fresh wander each time, in proportion to wetness, as in hand-drawn animation. Text is never redrawn on that clock. Wetness is eased (a quarter second rising, nearly a second falling) so neither change is a pop.
+- **Speed roughens.** Text moving fast (a flick of the wheel, a drag of the read current) breaks its band into dry-brush streaks: long thin runs of bare paper along the band, riding with its words, and the remaining pigment stronger. They heal within about a second as it slows. A jump of the text (a wrap, a voice brought into view) is not a stroke.
+
+| Constant | Where | Value | Meaning |
+|---|---|---|---|
+| `DRY_WRAP` / `DRY_MARGIN` | `render/wash.ts` | 1.02, 0.8, 0.48 / 2, 0, 0 | the three glazes' reach when dry (wet: `GLAZE_WRAP` / `GLAZE_MARGIN`) |
+| `DRY_DEPTH` / `WET_DEPTH` | `render/wash.ts` | 0.9 / 1.2 | pigment strength, dry and wet |
+| `BOIL_MS` / `BOIL_PX` | `render/wash.ts` | 125 / 2.2 px | the slow clock; how far a fully wet outer edge wanders per drawing (inner glazes less) |
+| `WET_RISE_MS` / `WET_DRY_MS` | `render/wash.ts` | 250 / 900 | easing of wetness on the band's side |
+| `ROUGH_FROM` / `ROUGH_FULL` / `ROUGH_JUMP` | `render/wash.ts` | 30 / 150 / 600 lines/s | where dry brush starts, is full, and where a move counts as a jump |
+| `ROUGH_HEAL_MS` / `DRY_LANE_PX` | `render/wash.ts` | 350 / 7 px | how fast streaks heal; their spacing across a band |
+
 ### Reading by touch (2026-11-19)
 
 On a phone the first version put the pool under the finger, where the hand covers it, and one drag both moved the lens and scrolled the text. Now a finger works differently from a pointer.
