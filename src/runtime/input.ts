@@ -2,7 +2,7 @@ import type { MouseState } from '../loom.js'
 
 /** Reading by touch (loom/reading.ts), injected so this module stays off the loom barrel. */
 export interface TouchReading {
-  /** False where touch keeps the old follow-the-finger lens (the lineage view). */
+  /** False where a tap does not open a current (the lineage view, which reads by its own taps: sheet-tap.ts). */
   enabled(): boolean
   /** False where a drag on a resting sheet belongs to the page around it (an inline ext-app in a scrolling chat). Default: true. */
   dragOpens?(): boolean

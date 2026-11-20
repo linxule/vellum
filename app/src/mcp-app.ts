@@ -39,11 +39,13 @@ const sketch = setupSketch()
 // load, with its companions; otherwise the Noto Serif set, so one script is
 // never drawn half in one design and half in another.
 {
+  // These definitions arrive after the script has started, perhaps after the sheet was
+  // measured: once one is in, the currents are measured again if their text needs its faces.
   const addStyles = (href: string, onload?: () => void, onerror?: () => void) => {
     const link = document.createElement('link')
     link.rel = 'stylesheet'
     link.href = href
-    if (onload) link.onload = onload
+    link.onload = () => { onload?.(); measureInTypeface() }
     if (onerror) link.onerror = onerror
     document.head.appendChild(link)
   }
@@ -98,14 +100,14 @@ let consecutivePollFailures = 0
 // initLoom(), and even once ready, poll's diff path misses the tool-result
 // voice because initialFetch already pulled the post-write state. Buffer
 // all arrivals during boot (array, not single slot — multiple tool results
-// may arrive before fonts.ready resolves) and flush them together after
+// may arrive before the sheet starts) and flush them together after
 // initLoom so they emerge in one refreshLoom pass.
 let bootComplete = false
 const pendingBootArrivals: Array<{ voiceId: string; sourceId: string | null }> = []
 
 // Tracks whether initLoom() has run. applyContainerDimensions may fire from
-// `app.connect().then()` or `onhostcontextchanged` before fonts.ready has
-// resolved (initLoom is gated on fonts.ready). resizeLoom() runs fine on
+// `app.connect().then()` or `onhostcontextchanged` before the first state and
+// the typeface wait are done (initLoom runs after them). resizeLoom() runs fine on
 // empty threads, but skipping it pre-init makes the intent explicit.
 let loomInitialized = false
 
@@ -157,7 +159,7 @@ function wovenVoiceAt(x: number, y: number): boolean {
 attachInputHandlers({
   mouse, scrollThread, aperture,
   // Touch: tap a current to open it where the tap fell (a drop falls there), drag to move its text (loom/reading.ts).
-  // The lineage view keeps the lens under the finger.
+  // The lineage view reads by its own taps (runtime/sheet-tap.ts: a tap holds a voice open).
   reading: { enabled: () => !isLoomViewActive(), dragOpens: () => !inlineInHost(), active: isReading, receding: isReceding, tap: (x, y, byDrag) => tapCurrent(x, y, wovenVoiceAt(x, y), byDrag), dropped: (x, y) => sketch.tapDrop(x, y), drag: dragReading, fling: flingReading, release: closeReading,
     // A pointer leaving the frame (often, inline in a chat) lets the current under it ease shut where it was.
     left: () => recedeFromPointer(mouse) },
@@ -596,7 +598,7 @@ function applyContainerDimensions() {
     szEl.style.height = newHeight
     // Skip resizeLoom pre-init — initLoom() will read the current innerWidth
     // /innerHeight (which reflects the spacer-driven iframe size) when it
-    // runs later in the fonts.ready handler.
+    // runs later, at boot.
     if (loomInitialized) resizeLoom()
   } catch (e) {
     console.warn('Vellum ext-app: host context read failed', e)

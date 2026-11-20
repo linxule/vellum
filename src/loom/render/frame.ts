@@ -207,7 +207,11 @@ export function advanceLoom(vw: number, vh: number, now: number, dt: number, mou
     }
   }
   // The current the pointer itself holds this frame, if nothing else steers the lens.
-  loomState.pointerThread = phantomTarget || kept || loomState.loomViewActive ? null : loomState.touchedThread
+  // One the pointer let go by leaving the sheet is still the pointer's: if it comes back onto bare
+  // paper (which ends that recession, runtime/input.ts) the current goes on easing shut (letGo above).
+  loomState.pointerThread = phantomTarget || loomState.loomViewActive ? null
+    : kept ? (!held && loomState.recedingPointer ? kept : null)
+    : loomState.touchedThread
   // Easing shut by itself, it is not being read (the witness counts no dwell on it).
   loomState.pointerLetGo = letGo !== null && loomState.pointerThread === letGo
   if (touchedThreadIndex >= 0) visAlpha[touchedThreadIndex] = 1
@@ -349,6 +353,9 @@ export function advanceLoom(vw: number, vh: number, now: number, dt: number, mou
  */
 export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
   if (!loomState.ready) return
+  // Set around single draw calls (render/thread.ts); a throw between must not leave the next frame pale.
+  paper.lineFaint = 0
+  paper.lineInk = 0
   const ac = loomState.currentAperture
   if (!ac) return
   const mouse = loomState.currentMouse ?? SENTINEL_MOUSE

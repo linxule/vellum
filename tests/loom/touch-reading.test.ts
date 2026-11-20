@@ -415,6 +415,30 @@ describe('a pointer that lets go', () => {
     expect(mouse.x).toBe(-9e3)
   })
 
+  test('a pointer that left and comes back onto bare paper: the current goes on easing shut', () => {
+    enablePaper()
+    wide()
+    hover(attention, 400)
+    recedeFromPointer(mouse)
+    frames(5)
+    const open = attention.proximity
+    expect(open).toBeGreaterThan(0.5)
+    // As the page does on the next mouse move (runtime/input.ts): the recession ends, the pointer is real again.
+    closeReading()
+    mouse.x = bare(400); mouse.y = 400
+    frames(1)
+    // Dropped here, its open text went back to texture in one frame.
+    expect(loomState.touchedThread).toBe(attention)
+    expect(getLoomState().families).toEqual([])
+    frames(3)
+    expect(attention.proximity).toBeGreaterThan(open * 0.9)
+    expect(attention.proximity).toBeLessThan(open)
+    frames(400)
+    // Shut, and no longer the pointer's (what is left is the swell of any current near a pointer).
+    expect(loomState.touchedThread).toBeNull()
+    expect(attention.proximity).toBeLessThan(0.06)
+  })
+
   test('its closing is not witnessed, and on a large sheet the others keep their words', () => {
     enablePaper()
     wide()

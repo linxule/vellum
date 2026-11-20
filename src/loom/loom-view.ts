@@ -492,6 +492,13 @@ let lastLayoutVw = 0
 let lastLayoutVh = 0
 let lastLayoutTree: LoomTree | null = null
 
+/** The typeface arrived after an open lineage was measured (refresh.ts, remeasureLoom): measure its voices and lay it out again. */
+export function remeasureLoomTree(): void {
+  const tree = loomState.loomTree
+  if (tree) for (const node of tree.nodes.values()) node.prepared = null
+  lastLayoutTree = null
+}
+
 let lastLayoutPaper = false
 
 function layoutTreeIfNeeded(tree: LoomTree, vw: number, vh: number, rest: { layoutW: number, fontRatio: number, lineH: number }): void {
@@ -988,9 +995,17 @@ export function renderLoomTree(
     if (et < 0.3) { node.proximity = 0; continue }
 
     const mdx = mouseOn ? lensX - node.renderX : 0
-    const mdy = mouseOn ? lensY - node.renderY : 0
+    // On paper a voice being read near an edge is moved to stay on the sheet (openShift): the
+    // pointer may follow its words from where it rests to where it is painted and keep it open.
+    let nearY = node.renderY
+    if (paper.on && !held && node.proximity > 0.3) {
+      const ext = lastExtent.get(node)
+      if (ext) nearY = Math.max(Math.min(node.renderY, ext[1]), Math.min(lensY, Math.max(node.renderY, ext[1])))
+    }
+    const mdy = mouseOn ? lensY - nearY : 0
     const dist = mouseOn ? Math.sqrt(mdx * mdx + mdy * mdy) : Infinity
-    const target = mouseOn ? Math.max(0, 1 - dist / TREE_HOVER_RADIUS) : 0
+    // A voice held by touch opens alone: a neighbour within reach of it would half open beside it.
+    const target = held ? (node === held ? 1 : 0) : mouseOn ? Math.max(0, 1 - dist / TREE_HOVER_RADIUS) : 0
     const rate = target > node.proximity ? (held ? HELD_OPEN_RATE : 0.04) : 0.025
     node.proximity += (target - node.proximity) * frameMix(rate, loomState.frameRatio)
   }

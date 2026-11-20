@@ -239,6 +239,21 @@ describe('the read line keeps its words when a voice arrives in its current', ()
     expect(at(anchor.y)).toBe(read)
   })
 
+  test('a voice in and a voice out that leave as many pieces as before still move the text: the read line keeps its words', async () => {
+    attention().scroll = 60 / 3
+    frames(200, () => hold(300))
+    const anchor = attention()._anchor!
+    const read = at(anchor.y)
+    expect(read).toMatch(/^b/)
+    const pieces = attention().prepared.segments.length
+    // 60 words in above the read voice, a0's 120 out, 60 in below: the count is as it was, every index is not.
+    await arrive([{ id: 'n0', text: words('n', 60) }, before[1]!, { id: 'n1', text: words('n', 60) }])
+    expect(attention().prepared.segments.length).toBe(pieces)
+    expect(attention()._anchor).toBeDefined()
+    frames(30, () => hold(300))
+    expect(at(anchor.y)).toBe(read)
+  })
+
   test('a voice is found again by its words, even when the arrival repeats its text', async () => {
     // The reader is in the second "x" voice; the arrival is a third "x", placed first.
     const x = words('x', 50)

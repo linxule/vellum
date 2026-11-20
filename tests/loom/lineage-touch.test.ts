@@ -118,6 +118,38 @@ test('a held voice opens with no finger on the glass; its kin do not swell; a re
   expect(loomHeldVoice()).toBeNull()
 })
 
+test('a held voice opens alone: a neighbour within reach of it stays shut', async () => {
+  paper.on = true
+  const tree = await open()
+  frames(tree, 10)
+  const a = tree.nodes.get('a')!, c = tree.nodes.get('c')!
+  // Not kin of a, and laid 30 px from it: a pointer there would half open it.
+  c.treeX = a.treeX + 20; c.treeY = a.treeY + 22
+  holdLoomVoice('a')
+  frames(tree, 150)
+  expect(a.proximity).toBeGreaterThan(0.95)
+  expect(c.proximity).toBeLessThan(0.05)
+})
+
+test('paper, by mouse: a voice moved to stay on the sheet stays open when the pointer follows its words', async () => {
+  paper.on = true
+  const tree = await open(1240, 880)
+  frames(tree, 10, 1240, 880)
+  const b = tree.nodes.get('a')!
+  b.treeY = 880 - 24
+  const mouse = loomState.currentMouse!
+  mouse.touch = false
+  mouse.x = b.treeX; mouse.y = b.treeY
+  frames(tree, 200, 1240, 880)
+  expect(b.proximity).toBeGreaterThan(0.9)
+  const cy = loomState.lastFrameHitTargets.find(t => t[0] === 'a')![2]
+  // Its words were moved up, farther than a pointer's reach from where it rests.
+  expect(b.treeY - cy).toBeGreaterThan(65)
+  mouse.y = cy
+  frames(tree, 120, 1240, 880)
+  expect(b.proximity).toBeGreaterThan(0.9)
+})
+
 test('a finger parked off the sheet does not let a held voice go', async () => {
   paper.on = true
   const tree = await open()

@@ -30,12 +30,13 @@ export function within<T>(promise: Promise<T>, ms: number, fallback: T): Promise
 /**
  * Resolves once every stylesheet matching `selector` has loaded or failed: the page loads
  * its face definitions beside it (worker/public/index.html), so they may still be on the
- * way when the sheet starts.
+ * way when the sheet starts. One that failed before this script ran has no sheet and will
+ * send no event: the page marks it (`data-failed`, set by the link's own onerror).
  */
 export function stylesheetsIn(selector: string): Promise<void> {
   if (typeof document === 'undefined') return Promise.resolve()
   const links = Array.from(document.querySelectorAll<HTMLLinkElement>(selector))
-  return Promise.all(links.map(link => link.sheet ? undefined : new Promise<void>(resolve => {
+  return Promise.all(links.map(link => link.sheet || link.dataset?.failed ? undefined : new Promise<void>(resolve => {
     link.addEventListener('load', () => resolve(), { once: true })
     link.addEventListener('error', () => resolve(), { once: true })
   }))).then(() => undefined)

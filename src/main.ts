@@ -106,7 +106,7 @@ const wovenVoiceAt = (x: number, y: number): boolean => isWoven(getLastFrameHitV
 attachInputHandlers({
   mouse, scrollThread, aperture,
   // Touch: tap a current to open it where the tap fell (a drop falls there), drag to move its text (loom/reading.ts).
-  // The lineage view keeps the lens under the finger.
+  // The lineage view reads by its own taps (runtime/sheet-tap.ts: a tap holds a voice open).
   reading: { enabled: () => !isLoomViewActive(), active: isReading, receding: isReceding, tap: (x, y, byDrag) => tapCurrent(x, y, wovenVoiceAt(x, y), byDrag), dropped: (x, y) => sketch?.tapDrop(x, y), drag: dragReading, fling: flingReading, release: closeReading,
     // On paper a pointer leaving the sheet lets the current under it ease shut where it was.
     left: () => sketch !== null && recedeFromPointer(mouse) },

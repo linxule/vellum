@@ -31,8 +31,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- The faces load beside the page, never before it (media="print" until loaded): a slow font
      host must not hold the sheet back. src/main.ts waits for them a short while (data-face). -->
-<link rel="stylesheet" data-face media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,300..700;1,300..700&family=Klee+One:wght@400;600&family=Gowun+Batang&family=Noto+Serif+Thai:wght@300;400;500&family=IBM+Plex+Mono:wght@300&display=swap">
-<link rel="stylesheet" data-face media="print" onload="this.media='all'" href="/lib/fonts/lxgw-wenkai/lxgwwenkai-regular.css">
+<link rel="stylesheet" data-face media="print" onload="this.media='all'" onerror="this.dataset.failed='1'" href="https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,300..700;1,300..700&family=Klee+One:wght@400;600&family=Gowun+Batang&family=Noto+Serif+Thai:wght@300;400;500&family=IBM+Plex+Mono:wght@300&display=swap">
+<link rel="stylesheet" data-face media="print" onload="this.media='all'" onerror="this.dataset.failed='1'" href="/lib/fonts/lxgw-wenkai/lxgwwenkai-regular.css">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box }
   html, body { width: 100%; height: 100%; overflow: hidden; background: #060508; touch-action: none; -webkit-touch-callout: none }

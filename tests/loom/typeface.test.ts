@@ -68,6 +68,15 @@ describe('measured again when the face arrives', () => {
     }
   })
 
+  test('the scroll is renumbered, not moved: the wash that rides with the text stays where it is', () => {
+    for (const t of loomState.threads) t.scroll = 17.4
+    const ride = loomState.threads.map(t => t.scroll - (t._scrollBase ?? 0))
+    restore = measureAt(0.5)
+    remeasureLoom()
+    expect(loomState.threads.some(t => Math.abs(t.scroll - 17.4) > 0.5)).toBe(true)
+    loomState.threads.forEach((t, i) => expect(t.scroll - (t._scrollBase ?? 0)).toBeCloseTo(ride[i]!, 9))
+  })
+
   test('the read current keeps its anchored line, which re-wraps around it', () => {
     const ctx = new CanvasContextStub()
     const mouse = makeMouse()
@@ -89,6 +98,14 @@ describe('measured again when the face arrives', () => {
     // Its remembered width was the fallback's: forgotten, as on a resize.
     expect(next._anchor?.width).toBe(0)
     expect(next._anchor?.prox).toBe(-1)
+  })
+
+  test('an open lineage is measured again too', () => {
+    const node = { prepared: {} as unknown }
+    loomState.loomTree = { nodes: new Map([['v', node]]) } as unknown as typeof loomState.loomTree
+    remeasureLoom()
+    expect(node.prepared).toBeNull()
+    loomState.loomTree = null
   })
 
   test('before the sheet is built there is nothing to measure', () => {
@@ -151,6 +168,14 @@ describe('runtime/fonts.ts', () => {
     expect(done).toBe(false)
     listeners.error!.forEach(fn => fn())
     await p
+    expect(done).toBe(true)
+  })
+
+  test('a definition that failed before the script ran sends no event: the page marked it, and it is not waited for', async () => {
+    const failed = { sheet: null, dataset: { failed: '1' }, addEventListener: () => { throw new Error('not waited for') } }
+    g.document = { querySelectorAll: () => [failed] }
+    let done = false
+    await within(stylesheetsIn('link[data-face]').then(() => { done = true }), 50, undefined)
     expect(done).toBe(true)
   })
 })
