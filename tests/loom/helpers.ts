@@ -50,7 +50,12 @@ export class CanvasContextStub {
   // Axis-aligned only: enough for the lens clear's translate + scale.
   translate(x: number, y: number) { this.m = { ...this.m, e: this.m.a * x + this.m.e, f: this.m.d * y + this.m.f } }
   scale(x: number, y: number) { this.m = { ...this.m, a: this.m.a * x, d: this.m.d * y } }
-  beginPath() {}
+  beginPath() { this.pathRects = [] }
+  // Rectangles of the path being built, and each clip made of them (page space, no transform).
+  pathRects: { x: number, y: number, w: number, h: number }[] = []
+  clipCalls: { x: number, y: number, w: number, h: number }[][] = []
+  rect(x: number, y: number, w: number, h: number) { this.pathRects.push({ x, y, w, h }) }
+  clip() { this.clipCalls.push(this.pathRects) }
   moveTo() {}
   lineTo() {}
   bezierCurveTo() {}
@@ -234,13 +239,17 @@ function fontSizeFromFont(font: string): number {
   return match ? Number(match[1]) : 0
 }
 
+// Every letter measures this many em. A test may change it to stand for a face that arrived late.
+let emPerLetter = 0.62
+export function setMeasuredEm(em: number) { emPerLetter = em }
+
 function installMeasurementCanvas() {
   class MeasureContextStub {
     font = '400 15px serif'
 
     measureText(text: string) {
       const size = fontSizeFromFont(this.font)
-      return { width: text.length * size * 0.62 }
+      return { width: text.length * size * emPerLetter }
     }
   }
 

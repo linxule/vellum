@@ -19,6 +19,10 @@ export const paper = {
   // text stays on the sheet between frames, so a line shows more ink by its
   // colour, not by its opacity.
   lineInk: 0,
+  // How far the line being drawn still lies under the paper (0..1), set around one
+  // draw call: an arriving voice's lines rise into their ink from the paper's own
+  // colour (render/thread.ts). By colour, not opacity, for the same reason as lineInk.
+  lineFaint: 0,
   // Diagnostic (?probe&water=0): the sheet without its water, to measure what the water costs.
   noWater: false,
 }

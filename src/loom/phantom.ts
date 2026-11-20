@@ -97,6 +97,7 @@ export function drivePhantomHover(now: number, mouse: MouseState, ac: ApertureCo
     if (held) {
       loomState.recedingKey = threadGroupKey(held.familyNames)
       loomState.recedingY = mouse.y
+      loomState.recedingPointer = false
     }
     return
   }
@@ -114,6 +115,7 @@ export function drivePhantomHover(now: number, mouse: MouseState, ac: ApertureCo
     if (loomState.readingKey === null && mouse.x > -1000) {
       loomState.recedingKey = threadGroupKey(resolved.thread.familyNames)
       loomState.recedingY = mouse.y
+      loomState.recedingPointer = false
     }
     return
   }

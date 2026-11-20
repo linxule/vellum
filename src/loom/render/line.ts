@@ -14,6 +14,8 @@ export const LOD_LETTER_DIVE_T = 0.15
 // font + text: texture lines reuse a handful of sizes, so this is paid once per
 // word per size. Bounded by a blunt clear.
 const nativeWidthCache = new Map<string, number>()
+/** The typeface changed under the same font string (it arrived late): widths measured before are the fallback's. */
+export function clearNativeWidths(): void { nativeWidthCache.clear() }
 function nativeWidth(ctx: CanvasRenderingContext2D, text: string): number {
   const key = ctx.font + '|' + text
   let w = nativeWidthCache.get(key)

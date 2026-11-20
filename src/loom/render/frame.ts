@@ -2,7 +2,8 @@ import { aperture } from '../aperture.js'
 import { threadColor } from '../color.js'
 import { depthLerp, frameMix } from '../math.js'
 import { drivePhantomHover, resolvePhantomTarget } from '../phantom.js'
-import { driveReading, readingThread, recedingThread, TOUCH_OPEN_RATE } from '../reading.js'
+import { driveReading, readingThread, RECEDED_PROXIMITY, recedingThread, TOUCH_OPEN_RATE } from '../reading.js'
+import { threadGroupKey } from '../refresh.js'
 import { computePath, oceanCurrent, pathXAtY } from '../path.js'
 import { loomState } from '../state.js'
 import { paper } from '../paper.js'
@@ -161,6 +162,24 @@ export function advanceLoom(vw: number, vh: number, now: number, dt: number, mou
     }
   }
 
+  // On paper, a current the pointer has moved off onto bare paper (no other current in
+  // reach) keeps the lens, at a hand's reach, until it has eased shut where it was read:
+  // dropped at once, its open text went back to texture in one frame. Another current
+  // under the pointer wins at once (the scan above found it). The old look drops it.
+  // Only one the pointer itself held last frame: not an arrival's, nor a read held by touch.
+  let letGo: Thread | null = null
+  const prev = loomState.pointerThread
+  if (paper.on && !loomState.touchedThread && prev && prev.proximity >= RECEDED_PROXIMITY && mouse.x > -1000
+    && loomState.readingKey === null && loomState.recedingKey === null && !loomState.loomViewActive) {
+    // A poll may have rebuilt the currents since the last frame: the same one, by its group.
+    letGo = loomState.threads.includes(prev) ? prev : loomState.threads.find(t => threadGroupKey(t.familyNames) === threadGroupKey(prev.familyNames)) ?? null
+    if (letGo) {
+      touchedThreadIndex = loomState.threads.indexOf(letGo)
+      loomState.touchedThread = letGo
+      letGo._handDist = ac.touchRadius
+    }
+  }
+
   // Phantom override: if the phantom is active, force its target thread to be
   // the touched thread regardless of _handDist sampling / visibility. This
   // bypasses two latent traps: (1) invisible target thread gets skipped by
@@ -177,16 +196,24 @@ export function advanceLoom(vw: number, vh: number, now: number, dt: number, mou
   // Touch reading holds its current the same way (a crossing neighbour must not take the lens).
   // A receding one keeps the lens too, at a hand's reach, so it eases shut where it was read.
   let held: Thread | null = null
+  let kept: Thread | null = null
   if (!phantomTarget && !loomState.loomViewActive) {
     held = readingThread()
-    const receding = held ? null : recedingThread()
-    const kept = held ?? receding
+    kept = held ?? recedingThread()
     if (kept) {
       touchedThreadIndex = loomState.threads.indexOf(kept)
       loomState.touchedThread = kept
       kept._handDist = held ? 0 : ac.touchRadius
     }
   }
+  // The current the pointer itself holds this frame, if nothing else steers the lens.
+  // One the pointer let go by leaving the sheet is still the pointer's: if it comes back onto bare
+  // paper (which ends that recession, runtime/input.ts) the current goes on easing shut (letGo above).
+  loomState.pointerThread = phantomTarget || loomState.loomViewActive ? null
+    : kept ? (!held && loomState.recedingPointer ? kept : null)
+    : loomState.touchedThread
+  // Easing shut by itself, it is not being read (the witness counts no dwell on it).
+  loomState.pointerLetGo = letGo !== null && loomState.pointerThread === letGo
   if (touchedThreadIndex >= 0) visAlpha[touchedThreadIndex] = 1
 
   const touchedFamilies = loomState.touchedThread ? loomState.touchedThread.families : new Set()
@@ -260,7 +287,7 @@ export function advanceLoom(vw: number, vh: number, now: number, dt: number, mou
 
     if (thread.emergenceStart > 0) {
       const emergenceT = Math.min(1, (now - thread.emergenceStart) / 5000)
-      thread.restingDepth = thread.emergenceDepthFrom + (thread.baseDepth - thread.emergenceDepthFrom) * (1 - Math.pow(1 - emergenceT, 3))
+      if (thread.emergenceDepthFrom >= 0) thread.restingDepth = thread.emergenceDepthFrom + (thread.baseDepth - thread.emergenceDepthFrom) * (1 - Math.pow(1 - emergenceT, 3))
       if (emergenceT >= 1) { thread.emergenceStart = 0; thread.emergenceVoiceUids.clear() }
     }
 
@@ -326,6 +353,9 @@ export function advanceLoom(vw: number, vh: number, now: number, dt: number, mou
  */
 export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
   if (!loomState.ready) return
+  // Set around single draw calls (render/thread.ts); a throw between must not leave the next frame pale.
+  paper.lineFaint = 0
+  paper.lineInk = 0
   const ac = loomState.currentAperture
   if (!ac) return
   const mouse = loomState.currentMouse ?? SENTINEL_MOUSE

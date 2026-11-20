@@ -2,7 +2,7 @@ import type { MouseState } from '../loom.js'
 
 /** Reading by touch (loom/reading.ts), injected so this module stays off the loom barrel. */
 export interface TouchReading {
-  /** False where touch keeps the old follow-the-finger lens (the lineage view). */
+  /** False where a tap does not open a current (the lineage view, which reads by its own taps: sheet-tap.ts). */
   enabled(): boolean
   /** False where a drag on a resting sheet belongs to the page around it (an inline ext-app in a scrolling chat). Default: true. */
   dragOpens?(): boolean
@@ -19,6 +19,12 @@ export interface TouchReading {
   fling(pxPerFrame: number): void
   /** Lets the current go: `recede` eases it shut where it was read (a touch); otherwise at once (a pointer takes over). */
   release(recede?: boolean): void
+  /**
+   * A real pointer left the sheet. True when the current under it eases shut where it
+   * was (the pointer stays until it has, and is parked then); false to park it now.
+   * Not given (the old look): parked now.
+   */
+  left?(): boolean
 }
 
 /** A finger must travel this far (px) before a touch is a drag and not a tap. */
@@ -93,7 +99,8 @@ export function attachInputHandlers(opts: {
     mouse.touch = false
     mouse.x = e.clientX; mouse.y = e.clientY
   }
-  const handleMouseLeave = () => { if (!afterTouch()) park() }
+  // A pointer that leaves lets the current under it ease shut (reading.left), if the page says so.
+  const handleMouseLeave = () => { if (!afterTouch() && (mouse.touch || !reading?.left?.())) park() }
   const handleMouseDown = () => {
     mouse.down = true; mouse.downStart = performance.now()
     // Only clear touch flag for real mouse clicks — synthetic mousedown fires

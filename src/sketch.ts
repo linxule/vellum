@@ -2,7 +2,7 @@
 // Entry-point glue for both the standalone page and the ext-app (which has no
 // audio: its notes fall silently and still draw their rings). Off with ?look=old.
 
-import { addRipple, enablePaper, getLoomState, grainTile, loomFrame, loomLineage, loomNodePoint, paintWash, paper, pointOnCurrent, randomCurrent, readingFamily, recolorLoom, setNight, setPaperStock } from './loom.js'
+import { addRipple, enablePaper, getLoomState, grainTile, loomFrame, loomLineage, loomNodePoint, paintWash, paper, pointOnCurrent, randomCurrent, readingFamily, recolorLoom, risingPoint, setNight, setPaperStock } from './loom.js'
 import { getState, surfaceFromPathname } from './content.js'
 import { keyOf, setKey } from './audio/phrase.js'
 import { onOceanEvent, type OceanEvent } from './events.js'
@@ -106,9 +106,16 @@ export function setupSketch(): Sketch {
   }
 
   // A voice's ring falls on the voice when the lens is showing it (an arrival
-  // steers the lens there), and otherwise somewhere on its current.
-  const voicePoint = (id: string, family: string, along: number) =>
-    loomFrame.lensVoiceId === id ? { x: loomFrame.lensVoiceX, y: loomFrame.lensVoiceY } : pointOnCurrent(family, along)
+  // steers the lens there); an arriving voice the lens was not sent to (the reader
+  // holds another current, or reads the one it arrives in), where it rises on the
+  // sheet, and its phrase's later rings there too; otherwise somewhere on its current.
+  const surfaced = new Map<string, { x: number, y: number }>()
+  const voicePoint = (id: string, family: string, along: number) => {
+    if (loomFrame.lensVoiceId === id) return { x: loomFrame.lensVoiceX, y: loomFrame.lensVoiceY }
+    const rise = risingPoint(id)
+    if (rise) surfaced.set(id, rise)
+    return rise ?? surfaced.get(id) ?? pointOnCurrent(family, along)
+  }
 
   // Arrivals and weaves from one poll are heard as one passage: for each weave,
   // the source's opening and then the answer; then any other new voice.
@@ -120,6 +127,7 @@ export function setupSketch(): Sketch {
   const PASSAGE_BACKLOG_S = 10
   const flush = () => {
     flushTimer = null
+    if (surfaced.size > 8) surfaced.clear()
     const events = pending
     pending = []
     const answered = new Set<string>()
@@ -143,6 +151,9 @@ export function setupSketch(): Sketch {
     for (const e of events) {
       if (e.type !== 'emergence') continue
       for (const id of e.voiceIds) {
+        // Where it rises now: its rings may fall after its lines have risen.
+        const rise = risingPoint(id)
+        if (rise) surfaced.set(id, rise)
         const voice = lookup(id)
         if (!voice || answered.has(id) || arrivals >= 3) continue
         arrivals++

@@ -25,7 +25,7 @@ import { loomState } from '../state.js'
 import {
   AFTERGLOW_SILVER, DEFAULT_COLOR, FAMILY_COLOR, SEAM_DASH,
   TREE_EMERGENCE_DURATION,
-  type LoomTree,
+  type LoomNode, type LoomTree,
 } from '../types.js'
 
 // ── Layout ───────────────────────────────────────────
@@ -210,6 +210,23 @@ function placeOnRings(tree: LoomTree, boxes: ReadonlyMap<string, RingBox>, ax: n
   return { cx: 0, cy: 0, ax, ay, radii, pool, places }
 }
 
+/**
+ * How far a lineage laid out on rings may be panned (the tree's scroll offsets,
+ * px): along an axis where its text fits the sheet inside `margin`, not at all;
+ * where it does not, just far enough to bring its farthest text in. Pure.
+ */
+export function ringPanRange(layout: RingLayout, vw: number, vh: number, margin: number): { x0: number, x1: number, y0: number, y1: number } {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+  for (const p of layout.places.values()) {
+    minX = Math.min(minX, p.x - p.w / 2); maxX = Math.max(maxX, p.x + p.w / 2)
+    minY = Math.min(minY, p.y - p.h / 2); maxY = Math.max(maxY, p.y + p.h / 2)
+  }
+  return {
+    x0: Math.min(0, minX - margin), x1: Math.max(0, maxX + margin - vw),
+    y0: Math.min(0, minY - margin), y1: Math.max(0, maxY + margin - vh),
+  }
+}
+
 /** A point on ring `radius` at `angle`. */
 export function ringPoint(layout: RingLayout, radius: number, angle: number): { x: number, y: number } {
   return { x: layout.cx + Math.cos(angle) * radius * layout.ax, y: layout.cy + Math.sin(angle) * radius * layout.ay }
@@ -371,11 +388,17 @@ export function paintLineageRings(ctx: CanvasRenderingContext2D, scale: number, 
     }
     if (close) ctx.closePath()
   }
-  for (const node of tree.nodes.values()) {
+  // The seed opened by the lens: its drop grows to hold the opened text, the other rings' ink
+  // parts around it as around any voice, and it is painted after that parting. At rest it is
+  // painted in turn, as it always was.
+  const seedNode = tree.nodes.get(tree.seed)
+  const seedOpen = seedNode && seedNode.proximity > 0.01 ? smooth(seedNode.proximity) : 0
+  const seedHit = seedOpen > 0 ? loomState.lastFrameHitTargets.find(t => t[0] === tree.seed) : undefined
+  const paintNode = (node: LoomNode) => {
     const place = layout.places.get(node.voiceId)
-    if (!place) continue
+    if (!place) return
     const et = emergence(tree, node.emergenceDelay, now)
-    if (et < 0.01) continue
+    if (et < 0.01) return
     const color = node.afterglow ? AFTERGLOW_SILVER : (FAMILY_COLOR[node.family] ?? DEFAULT_COLOR)
     const pulse = pulses.get(node.voiceId)
     let heard = 0
@@ -389,11 +412,12 @@ export function paintLineageRings(ctx: CanvasRenderingContext2D, scale: number, 
     const a = transition * et * focus * dim
     // A ring spreads out from the one inside it as the voice arrives.
     const inner = place.ring > 0 ? layout.radii[place.ring - 1]! : 0
-    const full = place.side === 0 ? Math.max(layout.pool.rx, layout.pool.ry) : layout.radii[place.ring]!
+    const pool = place.side === 0 && seedHit ? openPool(layout.pool, seedHit[3], seedHit[4], seedOpen) : layout.pool
+    const full = place.side === 0 ? Math.max(pool.rx, pool.ry) : layout.radii[place.ring]!
     const r = inner + (full - inner) * (0.55 + 0.45 * et) + heard * 4
     // The seed's pool has its own shape; every other ring shares the lineage's.
-    const kx = place.side === 0 ? layout.pool.rx / full : layout.ax
-    const ky = place.side === 0 ? layout.pool.ry / full : layout.ay
+    const kx = place.side === 0 ? pool.rx / full : layout.ax
+    const ky = place.side === 0 ? pool.ry / full : layout.ay
     const cusps = ringCusps(tree, layout, node.voiceId)
     for (const c of cusps) {
       const child = tree.nodes.get(c.id)
@@ -444,13 +468,14 @@ export function paintLineageRings(ctx: CanvasRenderingContext2D, scale: number, 
     }
     if (node.afterglow) ctx.setLineDash([])
   }
+  for (const node of tree.nodes.values()) if (node !== seedNode || !seedHit) paintNode(node)
 
   // The ink parts around the words: each voice's opening is its hit target.
   ctx.globalCompositeOperation = 'destination-out'
   for (const [id, hx, hy, hw, hh] of loomState.lastFrameHitTargets) {
-    if (id === tree.seed) continue
+    if (id === tree.seed && !seedHit) continue
     const { rx, ry } = ringOpening(hw, hh)
-    const s = (RING_CLEAR_STRENGTH * transition).toFixed(3)
+    const s = (RING_CLEAR_STRENGTH * transition * (id === tree.seed ? seedOpen : 1)).toFixed(3)
     ctx.save()
     ctx.translate(hx, hy)
     ctx.scale(1, ry / rx)
@@ -462,5 +487,25 @@ export function paintLineageRings(ctx: CanvasRenderingContext2D, scale: number, 
     ctx.fillRect(-rx, -rx, rx * 2, rx * 2)
     ctx.restore()
   }
+  if (seedNode && seedHit) {
+    ctx.globalCompositeOperation = blend
+    paintNode(seedNode)
+  }
   ctx.globalCompositeOperation = 'source-over'
+}
+
+function smooth(x: number): number {
+  const t = Math.max(0, Math.min(1, x))
+  return t * t * (3 - 2 * t)
+}
+
+/**
+ * The seed's drop while the lens opens it: grown from its resting size toward an
+ * ellipse that holds the opened text (half-size hw x hh), by `open` (0..1).
+ */
+export function openPool(pool: { rx: number, ry: number }, hw: number, hh: number, open: number): { rx: number, ry: number } {
+  return {
+    rx: pool.rx + Math.max(0, hw * 1.25 + 14 - pool.rx) * open,
+    ry: pool.ry + Math.max(0, hh * 1.25 + 14 - pool.ry) * open,
+  }
 }

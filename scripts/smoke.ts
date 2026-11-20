@@ -5,7 +5,8 @@ const EXPECTED_THREADS = 6
 const FETCH_TIMEOUT_MS = 10_000
 // Pretext 1.0.0 carries a port of each browser's line breaker: the renderer went from
 // 117,967 to 166,847 bytes (41.6 to 66.1 KB gzipped) on 2026-11-18.
-const BUNDLE_LIMIT_BYTES = 235_000
+// 0.5.3 (the lineage by touch, arrivals that rise, the typeface asked for by the text) passed 235,000.
+const BUNDLE_LIMIT_BYTES = 250_000
 
 type CheckResult = {
   passed: boolean

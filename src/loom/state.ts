@@ -46,6 +46,15 @@ export const loomState = {
   // A current let go by touch, easing shut with the lens kept at its line.
   recedingKey: null as string | null,
   recedingY: Number.NaN,
+  // The receding current was let go by a pointer that left the sheet (reading.ts,
+  // recedeFromPointer): the lens stays where the pointer left it, nothing is steered.
+  recedingPointer: false,
+  // This frame, on paper, the current under the lens is one the pointer moved off onto
+  // bare paper, easing shut (render/frame.ts): not read, so not witnessed.
+  pointerLetGo: false,
+  // The current the pointer itself held last frame (none while an arrival, a read held by
+  // touch, a receding current or the lineage view steers the lens): what may be let go.
+  pointerThread: null as Thread | null,
   phantomResolvedThreadIdx: -1,
   phantomResolvedVoiceFlatIdx: -1,
   diagHook: null as DiagFn | null,
@@ -57,6 +66,8 @@ export const loomState = {
   loomViewAutoExit: null as ReturnType<typeof setTimeout> | null,
   loomTreeScrollX: 0,
   loomTreeScrollY: 0,
+  // On paper, by touch: the lineage voice held open for reading (the lens stays on it, no finger on the glass).
+  loomHeldId: null as string | null,
   // The voice being read this frame (dive lens or hovered loom node), for sound.
   lensVoiceId: null as string | null,
   lensVoiceX: 0,
@@ -97,6 +108,9 @@ export function resetLoomState() {
   loomState.readingY = Number.NaN
   loomState.recedingKey = null
   loomState.recedingY = Number.NaN
+  loomState.recedingPointer = false
+  loomState.pointerLetGo = false
+  loomState.pointerThread = null
   loomState.phantomResolvedThreadIdx = -1
   loomState.phantomResolvedVoiceFlatIdx = -1
   loomState.diagHook = null
@@ -106,6 +120,7 @@ export function resetLoomState() {
   loomState.loomTree = null
   loomState.loomTreeScrollX = 0
   loomState.loomTreeScrollY = 0
+  loomState.loomHeldId = null
   if (loomState.loomViewAutoExit) {
     clearTimeout(loomState.loomViewAutoExit)
     loomState.loomViewAutoExit = null
@@ -149,9 +164,9 @@ export function getInteractionState(): { immersion: number, proximity: number, f
   return {
     immersion: loomState.immersion,
     proximity: loomState.touchedThread.proximity,
-    // A current easing shut by itself (let go by touch, or an arrival the lens let go)
-    // is no longer being read: the witness reporter counts no dwell on it.
-    families: loomState.readingKey === null && loomState.recedingKey !== null ? [] : [...loomState.touchedThread.families],
+    // A current easing shut by itself (let go by touch or by a pointer, or an arrival the
+    // lens let go) is no longer being read: the witness reporter counts no dwell on it.
+    families: loomState.readingKey === null && (loomState.recedingKey !== null || loomState.pointerLetGo) ? [] : [...loomState.touchedThread.families],
   }
 }
 

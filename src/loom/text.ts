@@ -149,6 +149,75 @@ export function voiceUidAtCursor(thread: Thread, cursor: LayoutCursor): number {
   return thread.segVoiceUid[cursor.segmentIndex] ?? -1
 }
 
+/**
+ * Where a cursor lies in a current's text, by its words rather than its index: in
+ * which voice's text, in which tiled copy, and how many characters into it. A
+ * rebuild that adds or drops other voices moves every index after them; the words
+ * stay the words (cursorAt finds them again). Two voices can carry the same text
+ * (an exact repeat is welcome), so a voice is also known by the voice before it,
+ * and then by how many such pairs come before it.
+ */
+export interface TextPlace { text: string, before: string, nth: number, cycle: number, chars: number, grapheme: number }
+
+/** Each voice's text in a current's first copy, by voice index (its separating space dropped). */
+function voiceTexts(thread: Thread): string[] {
+  const n = thread.groupBoundaries[thread.groupBoundaries.length - 1] ?? 0
+  const texts: string[] = Array.from({ length: n }, () => '')
+  const segments = thread.prepared.segments
+  for (let s = 0; s < segments.length; s++) {
+    const uid = thread.segVoiceUid[s] ?? -1
+    if (uid < 0 || uid >= n) break
+    texts[uid] += segments[s]!
+  }
+  return texts.map(t => t.trimEnd())
+}
+
+const sameVoice = (texts: string[], i: number, j: number) =>
+  texts[i] === texts[j] && texts[(i + texts.length - 1) % texts.length] === texts[(j + texts.length - 1) % texts.length]
+
+export function placeOf(thread: Thread, cursor: LayoutCursor): TextPlace | null {
+  const n = thread.groupBoundaries[thread.groupBoundaries.length - 1] ?? 0
+  const seg = cursor.segmentIndex
+  const uid = thread.segVoiceUid[seg] ?? -1
+  if (n <= 0 || uid < 0) return null
+  let start = seg
+  while (start > 0 && thread.segVoiceUid[start - 1] === uid) start--
+  let chars = 0
+  for (let s = start; s < seg; s++) chars += thread.prepared.segments[s]!.length
+  const texts = voiceTexts(thread)
+  const v = uid % n
+  let nth = 0
+  for (let i = 0; i < v; i++) if (sameVoice(texts, i, v)) nth++
+  return { text: texts[v]!, before: texts[(v + n - 1) % n]!, nth, cycle: Math.floor(uid / n), chars, grapheme: cursor.graphemeIndex }
+}
+
+/** The cursor at a place in a (rebuilt) current's text; null if its voice is no longer there. */
+export function cursorAt(thread: Thread, place: TextPlace): LayoutCursor | null {
+  const n = thread.groupBoundaries[thread.groupBoundaries.length - 1] ?? 0
+  const texts = voiceTexts(thread)
+  // The same text after the same voice first; failing that, the same text anywhere.
+  let v = -1
+  for (const strict of [true, false]) {
+    let seen = 0
+    for (let i = 0; i < n; i++) {
+      if (texts[i] !== place.text || (strict && texts[(i + n - 1) % n] !== place.before)) continue
+      v = i
+      if (seen++ === place.nth) break
+    }
+    if (v >= 0) break
+  }
+  if (v < 0) return null
+  const find = (uid: number) => thread.segVoiceUid.indexOf(uid)
+  let s = find(place.cycle * n + v)
+  if (s < 0) s = find(v)
+  if (s < 0) return null
+  const segments = thread.prepared.segments
+  let chars = 0
+  while (chars < place.chars && s < segments.length) chars += segments[s++]!.length
+  if (s >= segments.length) return null
+  return { segmentIndex: s, graphemeIndex: place.grapheme }
+}
+
 const voiceSpanUidsScratch: number[] = []
 const voiceSpanRunsScratch: { uid: number, weight: number }[] = []
 

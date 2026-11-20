@@ -35,13 +35,13 @@ export function threadColor(base: readonly number[], brightness: number, glow: n
         const c = base[i]! + (PAPER_RGB[i]! - base[i]!) * thin
         _tc[i] = Math.max(0, Math.min(255, (c + (255 - c) * lift) | 0))
       }
-      return _tc
+      return paper.lineFaint > 0 ? underPaper(_tc, paper.lineFaint) : _tc
     }
     const deep = Math.max(0.3, 1 - 0.42 * glow - Math.max(0, b - 1) * 0.3 - 0.5 * paper.lineInk)
     _tc[0] = Math.max(0, Math.min(255, ((base[0]! + (PAPER_RGB[0] - base[0]!) * thin) * deep) | 0))
     _tc[1] = Math.max(0, Math.min(255, ((base[1]! + (PAPER_RGB[1] - base[1]!) * thin) * deep) | 0))
     _tc[2] = Math.max(0, Math.min(255, ((base[2]! + (PAPER_RGB[2] - base[2]!) * thin) * deep) | 0))
-    return _tc
+    return paper.lineFaint > 0 ? underPaper(_tc, paper.lineFaint) : _tc
   }
   const r = base[0] * b
   const g = base[1] * b
@@ -53,4 +53,14 @@ export function threadColor(base: readonly number[], brightness: number, glow: n
   _tc[1] = Math.min(255, (g + (sg - g) * glow) | 0)
   _tc[2] = Math.min(255, (bl + (sb - bl) * glow) | 0)
   return _tc
+}
+
+/**
+ * Mixes a colour (in place) toward the paper by `faint` (0 its own, 1 the paper's):
+ * ink still under the paper, as an arriving voice's lines are before they rise.
+ */
+export function underPaper(c: [number, number, number], faint: number): [number, number, number] {
+  const f = Math.max(0, Math.min(1, faint))
+  for (let i = 0; i < 3; i++) c[i] = (c[i]! + (PAPER_RGB[i]! - c[i]!) * f) | 0
+  return c
 }

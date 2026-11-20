@@ -88,6 +88,25 @@ cd worker && bun run dev   # local worker
 
 Deploy sequence, flags, migrations, and smoke probes: `docs/LAUNCH_RUNBOOK.md`. Design and phase history: `docs/`.
 
+## 0.5.3 — 2026-11-20
+
+Four gaps between what the design documents promise and what a reader saw.
+
+- **The sheet is set in its own typeface.** Until now every load measured the text in a fallback
+  face and drew it in Cormorant, so letters under the lens sat unevenly ("becom ing"). The faces
+  are now asked for by the sheet's own text before it is measured; a slow font host holds the
+  sheet back two seconds at most, and the text is measured again when the faces arrive. Lines
+  hold about a seventh more text. This changes the line breaks of both looks.
+- **An arriving voice rises into its current**: its own lines come up from the paper's colour to
+  their ink, line by line over about three seconds; nothing else in the current changes. The
+  words you are reading stay where they are when a voice arrives in the same current (they were
+  replaced by other text), and a current keeps its shape from one state to the next.
+- **The lineage reads by touch**: entering holds the seed open; a tap holds a voice open, a tap
+  on it again lets it go, two taps recentre, a tap on bare paper leaves. A voice near an edge
+  opens inside the sheet, its last lines are drawn, and a drag stops where the lineage ends.
+- **A mouse that leaves a current lets it ease shut** where it was, instead of dropping it in one
+  frame.
+
 ## 0.5.2 — 2026-11-19
 
 After a trial on a phone ("the water drops seem to be at the same location regardless where I tap

@@ -9,7 +9,7 @@ import { depthLerp, fontRatioForScale, fontSizeForScale, frameMix, lerp } from '
 import { fullSignatureFor, isAfterglow } from './model-registry.js'
 import { diveGaussian } from './path.js'
 import { paper } from './paper.js'
-import { layoutRings, setRingLayout, type RingBox } from './render/lineage-rings.js'
+import { layoutRings, ringLayoutFor, ringPanRange, setRingLayout, type RingBox } from './render/lineage-rings.js'
 import { loomState } from './state.js'
 import { graphemeSegmenter, letterAdvances, scriptClass } from './text.js'
 import {
@@ -366,6 +366,7 @@ export function enterLoomView(seedVoiceId: string, autoExitMs?: number): void {
   loomState.loomTree = tree
   loomState.loomTreeScrollX = 0
   loomState.loomTreeScrollY = 0
+  loomState.loomHeldId = null
   lastLayoutTree = null
 
   if (autoExitMs) {
@@ -410,6 +411,7 @@ export function recenterLoomView(newSeedId: string): void {
   loomState.loomTree = tree
   loomState.loomTreeScrollX = 0
   loomState.loomTreeScrollY = 0
+  loomState.loomHeldId = null
   lastLayoutTree = null
   emitOceanEvent({ type: 'loom-enter', seedId: newSeedId })
 }
@@ -421,7 +423,59 @@ export function exitLoomView(): void {
     loomState.loomViewAutoExit = null
   }
   loomState.loomViewActive = false
+  loomState.loomHeldId = null
   emitOceanEvent({ type: 'loom-exit' })
+}
+
+/**
+ * On paper, by touch: hold a voice of the open lineage open for reading, or let
+ * it go (null). The lens stays on the held voice with no finger on the glass, as
+ * a tap holds a current open on the ocean. False where holding does not apply
+ * (the old look, no lineage showing, a voice not in it).
+ */
+export function holdLoomVoice(id: string | null): boolean {
+  if (id === null) { loomState.loomHeldId = null; return true }
+  if (!paper.on || !loomState.loomViewActive || !loomState.loomTree?.nodes.has(id)) return false
+  loomState.loomHeldId = id
+  return true
+}
+
+export function loomHeldVoice(): string | null {
+  return loomState.loomHeldId
+}
+
+/** A finger's reach around a lineage voice's printed text (px): a tap this close is on it, not on bare paper. */
+export const LOOM_TOUCH_REACH_PX = 16
+
+/**
+ * The lineage voice whose printed text (last frame) lies within `reach` px of
+ * (x, y), the nearest one; null when none does.
+ */
+export function loomVoiceNear(x: number, y: number, reach = LOOM_TOUCH_REACH_PX): string | null {
+  if (!loomState.loomViewActive) return null
+  let best: string | null = null
+  let bestD = reach
+  for (const [id, cx, cy, hw, hh] of loomState.lastFrameHitTargets) {
+    const d = Math.hypot(Math.max(0, Math.abs(x - cx) - hw), Math.max(0, Math.abs(y - cy) - hh))
+    if (d <= bestD) { bestD = d; best = id }
+  }
+  return best
+}
+
+/**
+ * On paper, pans the open lineage by (dx, dy) px of scroll, no farther than it
+ * overflows the sheet: a lineage that fits does not move, and one that does not
+ * can be brought in edge to edge but never lost off the sheet.
+ */
+export function panLoomOnRings(dx: number, dy: number): void {
+  loomState.loomTreeScrollX += dx
+  loomState.loomTreeScrollY += dy
+  const tree = loomState.loomTree
+  const layout = tree ? ringLayoutFor(tree) : null
+  if (!layout) return
+  const r = ringPanRange(layout, loomState.VW, loomState.VH, OPEN_EDGE_PX)
+  loomState.loomTreeScrollX = Math.max(r.x0, Math.min(r.x1, loomState.loomTreeScrollX))
+  loomState.loomTreeScrollY = Math.max(r.y0, Math.min(r.y1, loomState.loomTreeScrollY))
 }
 
 export function isLoomViewActive(): boolean {
@@ -437,6 +491,14 @@ export function getCurrentLoomSeed(): string | null {
 let lastLayoutVw = 0
 let lastLayoutVh = 0
 let lastLayoutTree: LoomTree | null = null
+
+/** The typeface arrived after an open lineage was measured (refresh.ts, remeasureLoom): measure its voices and lay it out again. */
+export function remeasureLoomTree(): void {
+  const tree = loomState.loomTree
+  if (tree) for (const node of tree.nodes.values()) node.prepared = null
+  lastLayoutTree = null
+  restScaleFor = null
+}
 
 let lastLayoutPaper = false
 
@@ -613,7 +675,7 @@ function drawTreeLineSegmented(
         const cursorGlow = Math.max(0, 1 - Math.abs(mouseX - gCenter) / 40) * proximity * 0.35
 
         // Traveling wave shimmer — visible undulation sweeping through text
-        const shimmerDampen = 1 - proximity * 0.8
+        const shimmerDampen = 1 - proximity * (paper.on ? 1 : 0.8) // on paper the voice being read is still
         const shimmerPhase = xPos * 0.02 - now * TREE_BREATH_RATE * 4 * scFreq + node.breathSeed
         const shimmerY = (Math.sin(shimmerPhase) * 0.8 * scAmp + Math.sin(shimmerPhase * 1.7 + 2.3) * 0.3 * scAmp) * shimmerDampen
         const shimmerX = scSway > 0 ? Math.sin(shimmerPhase * 0.6 + 1.1) * scSway * 0.5 * shimmerDampen : 0
@@ -655,7 +717,7 @@ function drawTreeLineSegmented(
 
     const segCenter = xPos + renderedW / 2
     const cursorGlow = Math.max(0, 1 - Math.abs(mouseX - segCenter) / 40) * proximity * 0.35
-    const shimmerDampen = 1 - proximity * 0.8
+    const shimmerDampen = 1 - proximity * (paper.on ? 1 : 0.8)
     const shimmerPhase = xPos * 0.02 - now * TREE_BREATH_RATE * 4 * scFreq + node.breathSeed
     const shimmerY = (Math.sin(shimmerPhase) * 0.8 * scAmp + Math.sin(shimmerPhase * 1.7 + 2.3) * 0.3 * scAmp) * shimmerDampen
     const shimmerX = scSway > 0 ? Math.sin(shimmerPhase * 0.6 + 1.1) * scSway * 0.5 * shimmerDampen : 0
@@ -802,6 +864,42 @@ function drawConnectorWisp(
 
 // Where each node was painted last frame: [centreX, centreY, halfW, halfH].
 const lastExtent = new WeakMap<LoomNode, [number, number, number, number]>()
+// How tall each node's text was painted last frame (px), and how far it was moved (openShift).
+const renderedHeight = new WeakMap<LoomNode, number>()
+const openShifts = new WeakMap<LoomNode, number>()
+/** Share of the way per frame a voice's text moves toward where it opens (openShift). */
+const OPEN_SHIFT_RATE = 0.12
+/** Proximity per frame a voice held by touch opens at (a hover: 0.04), as a current held by touch does. */
+const HELD_OPEN_RATE = 0.05
+/** A voice being read is kept this far inside the sheet's top and bottom edges (px): clear of the corner controls. */
+const OPEN_EDGE_PX = 44
+
+/**
+ * Paper: how far (px) to move a voice's text from its resting place this frame. The
+ * voice being read (proximity past 0.3) grows about its middle, not down from its
+ * top, and is kept on the sheet, top and bottom. From last frame's painted height,
+ * so it follows the lens as it opens and holds once open.
+ */
+function openShift(node: LoomNode, restTop: number, vh: number): number {
+  const h = renderedHeight.get(node) ?? 0
+  const restH = node.pathEndY - node.pathStartY
+  // Only the voice being read: a neighbour opened a little by kinship stays where it rests.
+  const reading = smoothstep((node.proximity - 0.3) / 0.4)
+  let target = 0
+  if (h > restH && reading > 0) {
+    const top = restTop + (restH - h) / 2
+    const fit = h <= vh - 2 * OPEN_EDGE_PX
+      ? Math.min(Math.max(top, OPEN_EDGE_PX), vh - OPEN_EDGE_PX - h)
+      : OPEN_EDGE_PX
+    target = (fit - restTop) * reading
+  }
+  // Eased: the height it answers to depends on where the lens finds the lines, so taken at
+  // once it swings between two places every frame (measured under a still pointer).
+  const prev = openShifts.get(node) ?? 0
+  const shift = Math.abs(target - prev) < 0.05 ? target : prev + (target - prev) * frameMix(OPEN_SHIFT_RATE, loomState.frameRatio)
+  openShifts.set(node, shift)
+  return shift
+}
 
 function clearUnderRead(ctx: CanvasRenderingContext2D, node: LoomNode): void {
   const ext = lastExtent.get(node)
@@ -868,7 +966,8 @@ export function renderLoomTree(
   // ── Compute per-node breath positions (coherent with seed) ──
   for (const node of tree.nodes.values()) {
     const absDepth = Math.abs(node.generationDepth)
-    const depthDampen = 1 / (1 + absDepth * 0.3)
+    // On paper a voice holds still as the lens opens it (text being read does not move).
+    const depthDampen = 1 / (1 + absDepth * 0.3) * (paper.on ? 1 - node.proximity : 1)
     const depthT = nodeDepthT(node, tree)
     const blendedSeed = lerp(seedBreathSeed, node.breathSeed, 0.3 + depthT * 0.7)
     const phase = now * TREE_BREATH_RATE + blendedSeed
@@ -885,22 +984,48 @@ export function renderLoomTree(
 
   // ── Compute per-node proximity (hover) ──
   const mouse = loomState.currentMouse
-  const mouseOn = mouse != null && mouse.x > -1000
+  // On paper, a voice held by touch keeps the lens on itself; a real pointer takes it back.
+  if (loomState.loomHeldId !== null && mouse && mouse.x > -1000 && !mouse.touch) loomState.loomHeldId = null
+  const held = paper.on && loomState.loomHeldId !== null ? tree.nodes.get(loomState.loomHeldId) ?? null : null
+  const mouseOn = held !== null || (mouse != null && mouse.x > -1000)
+  const lensX = held ? held.renderX : mouseOn ? mouse!.x : -9999
+  const lensY = held ? held.renderY : mouseOn ? mouse!.y : -9999
+
+  // On paper a voice being read near an edge is moved to stay on the sheet (openShift): the
+  // pointer may follow its words from where it rests to where they were painted and keep it
+  // open. Only the voice most open, and while the pointer is on that stretch nothing else opens.
+  let follow: LoomNode | null = null
+  let followY = 0
+  let following = false
+  if (paper.on && !held && mouseOn) {
+    let most = 0.3
+    for (const node of tree.nodes.values()) if (node.proximity > most) { most = node.proximity; follow = node }
+    const ext = follow ? lastExtent.get(follow) : undefined
+    if (follow && ext) {
+      followY = Math.max(Math.min(follow.renderY, ext[1]), Math.min(lensY, Math.max(follow.renderY, ext[1])))
+      following = followY !== follow.renderY && Math.hypot(lensX - follow.renderX, lensY - followY) < TREE_HOVER_RADIUS
+    } else follow = null
+  }
 
   for (const node of tree.nodes.values()) {
     const et = nodeEmergenceT(node, tree, now)
     if (et < 0.3) { node.proximity = 0; continue }
 
-    const mdx = mouseOn ? mouse!.x - node.renderX : 0
-    const mdy = mouseOn ? mouse!.y - node.renderY : 0
+    const mdx = mouseOn ? lensX - node.renderX : 0
+    const mdy = mouseOn ? lensY - (node === follow ? followY : node.renderY) : 0
     const dist = mouseOn ? Math.sqrt(mdx * mdx + mdy * mdy) : Infinity
-    const target = mouseOn ? Math.max(0, 1 - dist / TREE_HOVER_RADIUS) : 0
-    const rate = target > node.proximity ? 0.04 : 0.025
+    // A voice held by touch opens alone: a neighbour within reach of it would half open beside it.
+    // So does one whose moved words the pointer is on: what rests under them stays shut.
+    const target = held ? (node === held ? 1 : 0)
+      : following && node !== follow ? 0
+      : mouseOn ? Math.max(0, 1 - dist / TREE_HOVER_RADIUS) : 0
+    const rate = target > node.proximity ? (held ? HELD_OPEN_RATE : 0.04) : 0.025
     node.proximity += (target - node.proximity) * frameMix(rate, loomState.frameRatio)
   }
 
   // ── Kinship glow: hover propagates to parent and children ──
-  for (const node of tree.nodes.values()) {
+  // Not while a voice is held by touch: on a phone a neighbour opened halfway prints over it.
+  if (!held) for (const node of tree.nodes.values()) {
     if (node.proximity < 0.15) continue
     const kinGlow = node.proximity * 0.35
     if (node.parentId) {
@@ -914,8 +1039,9 @@ export function renderLoomTree(
   }
 
   // ── Draw setup ──
-  const mouseX = mouseOn ? mouse!.x : -9999
-  const mouseY = mouseOn ? mouse!.y : -9999
+  // A held voice has no hand on it: no glow follows a cursor across its letters.
+  const mouseX = held ? -9999 : lensX
+  const mouseY = lensY
 
   ctx.textBaseline = 'top'
   let prevFontStr = ''
@@ -989,8 +1115,9 @@ export function renderLoomTree(
     const emergenceRise = (1 - et) * 12
     const rStartX = node.pathStartX + breathOffsetX
     const rEndX = node.pathEndX + breathOffsetX
-    const rStartY = node.pathStartY + breathOffsetY + emergenceRise
-    const rEndY = node.pathEndY + breathOffsetY + emergenceRise
+    const shiftY = paper.on ? openShift(node, node.pathStartY + breathOffsetY + emergenceRise, vh) : 0
+    const rStartY = node.pathStartY + breathOffsetY + emergenceRise + shiftY
+    const rEndY = node.pathEndY + breathOffsetY + emergenceRise + shiftY
 
     // Parent endpoint for lean computation
     const parentNode = (node.parentId ? tree.nodes.get(node.parentId) : null) ?? null
@@ -1010,10 +1137,15 @@ export function renderLoomTree(
     let lastLineDiveT = 0      // dive of the final rendered line — gates the signature below it
     let lastLineCenterX = node.renderX
 
+    // On paper a voice held by touch opens whole, every line at once: no finger marks a centre.
+    const reading = paper.on ? smoothstep((node.proximity - 0.3) / 0.4) : 0
+    const whole = node === held ? reading : 0
+
     while (true) {
-      const diveT = node.proximity > 0.01
+      const lensDive = node.proximity > 0.01
         ? node.proximity * diveGaussian(lineY, mouseY, diveSigma)
         : 0
+      const diveT = whole > 0 ? lerp(lensDive, node.proximity, whole) : lensDive
 
       const lineFontScale = lerp(textureScale, diveScale, diveT)
       const lineFontSize = fontSizeForScale(lineFontScale)
@@ -1036,12 +1168,19 @@ export function renderLoomTree(
 
       const displayWidth = line.width * lineFontRatio
 
-      // Path emergence + variable density (dense center, ghostly edges)
-      const pathT = rEndY > rStartY ? (lineY - rStartY) / (rEndY - rStartY) : 0
+      // Path emergence + variable density (dense center, ghostly edges). On paper a line below
+      // the resting block (a magnified voice is taller than its rest) is past the path's end, not
+      // ever further along it: unclamped, its last line or two faded to nothing.
+      const pathRaw = rEndY > rStartY ? (lineY - rStartY) / (rEndY - rStartY) : 0
+      const pathT = paper.on ? Math.min(1, pathRaw) : pathRaw
       const lineEmergenceMod = smoothstep(et * 1.4 - pathT * 0.4)
       const lineAlpha = baseAlpha * lineEmergenceMod
 
-      let lineCenterX = nodePathX(rStartX, rEndX, rStartY, rEndY, lineY, diveT,
+      // On paper the voice being read is straight and still, every line of it, the lens's edge
+      // lines too (no lean, no breath wave); elsewhere a line straightens as the lens opens it.
+      // nodePathX keeps 1 - 0.7 x its diveT of the curve, so `straight` / 0.7 keeps 1 - straight.
+      const straight = paper.on ? Math.min(1, Math.max(diveT / 0.7, reading)) / 0.7 : diveT
+      let lineCenterX = nodePathX(rStartX, rEndX, rStartY, rEndY, lineY, straight,
         parentEndX, now, depthT, blendedBreathSeed)
 
       // Clamp dive text within viewport (prevents overflow on narrow screens)
@@ -1106,7 +1245,9 @@ export function renderLoomTree(
       ? Math.max((maxRenderedX - minRenderedX) / 2, 20)
       : 20
     const hitHalfH = Math.max(totalRenderedH / 2, (rEndY - rStartY) / 2, 15)
-    const hitCenterY = (rStartY + rEndY) / 2
+    // On paper, where the text is: an opened voice runs past its resting block.
+    const hitCenterY = paper.on ? rStartY + Math.max(totalRenderedH, rEndY - rStartY) / 2 : (rStartY + rEndY) / 2
+    renderedHeight.set(node, totalRenderedH)
     lastExtent.set(node, [hitCenterX, hitCenterY, hitHalfW, hitHalfH])
 
     loomState.lastFrameHitTargets.push([
