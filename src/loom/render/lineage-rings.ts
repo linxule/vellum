@@ -517,10 +517,12 @@ export function paintLineageRings(ctx: CanvasRenderingContext2D, scale: number, 
     if (node.afterglow) ctx.setLineDash(SEAM_DASH)
     trace(1, whole)
     ctx.strokeStyle = ink(color, RING_BLEED_ALPHA * a)
-    ctx.lineWidth = 7
+    // The seed's rim is finer than a ring: it runs close around words being read.
+    const fine = place.side === 0 ? 0.6 : 1
+    ctx.lineWidth = 7 * fine
     ctx.stroke()
     ctx.strokeStyle = ink(color, RING_LINE_ALPHA * a)
-    ctx.lineWidth = 1.2 + node.proximity * 0.6 + heard * 0.8
+    ctx.lineWidth = (1.2 + node.proximity * 0.6) * fine + heard * 0.8
     ctx.stroke()
     if (place.side === -1) {
       // An older ring, pushed out and thinned into two.
@@ -639,11 +641,13 @@ function smooth(x: number): number {
 
 /**
  * The seed's drop while the lens opens it: grown from its resting size toward an
- * ellipse that holds the opened text (half-size hw x hh), by `open` (0..1).
+ * ellipse that holds the opened text (half-size hw x hh), by `open` (0..1). The
+ * margins keep the block's corners inside the rim for a block wider than it is tall,
+ * so the rim does not run through a line (the signature is part of the block).
  */
 export function openPool(pool: { rx: number, ry: number }, hw: number, hh: number, open: number): { rx: number, ry: number } {
   return {
-    rx: pool.rx + Math.max(0, hw * 1.25 + 14 - pool.rx) * open,
-    ry: pool.ry + Math.max(0, hh * 1.25 + 14 - pool.ry) * open,
+    rx: pool.rx + Math.max(0, hw * 1.3 + 16 - pool.rx) * open,
+    ry: pool.ry + Math.max(0, hh * 1.3 + 10 - pool.ry) * open,
   }
 }

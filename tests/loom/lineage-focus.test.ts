@@ -327,7 +327,7 @@ test('paper, read by focus: far voices take next to no room, so the rings stay c
 })
 
 // A sheet too short for the lineage: some far voices sit off it.
-const SHORT = 520
+const SHORT = 560
 
 test('paper, read by focus: a far voice\'s target is on its own visible arc, on the sheet, clear of anyone\'s words', async () => {
   paper.on = true
