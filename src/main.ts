@@ -76,10 +76,11 @@ const HIGHLIGHT_RETRY_DELAYS_MS = [3_000, 10_000, 30_000]
 // /api/state gets fetched (and witnessed) differs.
 setSurface(surfaceFromPathname(location.pathname))
 const highlightId = new URLSearchParams(location.search).get('highlight')
-// A large lineage read by focus (loom/loom-view.ts), on trial: only with ?lineage=focus. Read once
-// here; the view's own URL rewrites keep it (`withTrial`), so a reload or a copied link stays in the trial.
-lineageFocus.on = new URLSearchParams(location.search).get('lineage') === 'focus'
-const withTrial = (url: string) => lineageFocus.on ? url + (url.includes('?') ? '&' : '?') + 'lineage=focus' : url
+// A large lineage reads by focus (loom/loom-view.ts) on this page; ?lineage=whole keeps the whole
+// lineage printed at its small resting size, as before. Read once here; the view's own URL
+// rewrites keep the choice (`withTrial`), so a reload or a copied link stays with it.
+lineageFocus.on = new URLSearchParams(location.search).get('lineage') !== 'whole'
+const withTrial = (url: string) => lineageFocus.on ? url : url + (url.includes('?') ? '&' : '?') + 'lineage=whole'
 let highlightRetryIndex = 0
 let pollInFlight = false
 let pendingForcedRefresh = false

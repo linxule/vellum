@@ -579,8 +579,8 @@ const PAPER_REST_MARGIN = 28
 
 // ── Focus and context (paper) ─────────────────────────
 //
-// Behind a flag while it is tried on real phones: the standalone page turns it on with
-// ?lineage=focus (src/main.ts, read once at boot); the ext-app never does. Off, the lineage
+// The standalone page turns it on (src/main.ts, read once at boot) unless the URL has
+// ?lineage=whole; the ext-app never does (unseen in a host). Off, the lineage
 // view lays out and paints exactly as before.
 //
 // A lineage too large to rest readable whole (on a phone, nearly any) reads by focus: the voice
@@ -591,7 +591,7 @@ const PAPER_REST_MARGIN = 28
 // around the new neighbourhood: they glide there, the newly held voice stays where it is as far
 // as the sheet allows, and words come and go by colour, toward the paper.
 
-/** Reading a large lineage by focus: on only with ?lineage=focus (shared module state; tests reset it with resetLineageFocusForTest). */
+/** Reading a large lineage by focus: set by the standalone page, off with ?lineage=whole (shared module state; tests reset it with resetLineageFocusForTest). */
 export const lineageFocus = { on: false }
 export function resetLineageFocusForTest(): void {
   lineageFocus.on = false
