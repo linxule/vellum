@@ -8,7 +8,7 @@ import { computePath, oceanCurrent, pathXAtY } from '../path.js'
 import { loomState } from '../state.js'
 import { paper } from '../paper.js'
 import { DEFAULT_COLOR, DEPTH_BRIGHTNESS, DIVE_SIGMA_LINES, FRAME_TIME, LENS_CLEAR_SIGMAS, LENS_OPENING_ALPHA, LENS_SETTLE_STEP, LENS_STILL_ALPHA, WARMTH_EASE_K, type MouseState, type Thread } from '../types.js'
-import { renderLoomTree } from '../loom-view.js'
+import { loomClearsWhole, renderLoomTree } from '../loom-view.js'
 import { renderThread } from './thread.js'
 
 // Fallback mouse used by paintLoom() when called without a preceding
@@ -387,7 +387,8 @@ export function paintLoom(ctx: CanvasRenderingContext2D, now: number) {
     // The canvas holds only ink; the paper is underneath. Fade the ink instead
     // of painting the ground over it.
     ctx.globalCompositeOperation = 'destination-out'
-    ctx.fillStyle = `rgba(0,0,0,${seaClear})`
+    // A lineage being moved (panned, or gliding to a new focus) is cleared whole, or its print trails.
+    ctx.fillStyle = `rgba(0,0,0,${loomClearsWhole() ? '1' : seaClear})`
     ctx.fillRect(0, 0, vw, vh)
     ctx.globalCompositeOperation = 'source-over'
   } else {
