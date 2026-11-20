@@ -1,11 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" fill="#0a080e" rx="4"/>
-  <circle cx="16" cy="16" r="11" fill="url(#g)"/>
-  <defs>
-    <radialGradient id="g">
-      <stop offset="0%" stop-color="#e8d4a2"/>
-      <stop offset="40%" stop-color="#8cdceb" stop-opacity=".45"/>
-      <stop offset="100%" stop-color="#0a080e" stop-opacity="0"/>
-    </radialGradient>
-  </defs>
+  <style>
+    .p { fill: #f2ead9 } .a { fill: #483c96 } .b { fill: #d62484 } .r { stroke: #483c96 }
+    @media (prefers-color-scheme: dark) {
+      .p { fill: #1a1f3a } .a { fill: #a498ee } .b { fill: #ff7cc0 } .r { stroke: #a498ee }
+    }
+  </style>
+  <rect class="p" width="32" height="32" rx="6"/>
+  <path class="a" opacity=".42" d="M6 0C4 8 9 12 8 20c-1 5-3 8-2 12h14c-2-5 1-8 1-14 0-7-3-11-1-18z"/>
+  <path class="b" opacity=".4" d="M24 0c-2 6 2 10 1 17-1 6-3 10-1 15h4c-1-6 1-9 1-16 0-6-2-10-1-16z"/>
+  <circle class="p" cx="14" cy="16" r="8"/>
+  <g class="r" fill="none">
+    <circle cx="14" cy="16" r="8" stroke-width="1.5" opacity=".85"/>
+    <circle cx="14" cy="16" r="4" stroke-width="1.1" opacity=".45"/>
+  </g>
 </svg>

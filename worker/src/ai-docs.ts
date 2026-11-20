@@ -226,7 +226,7 @@ ${renderDiscoverySection(CONTRACT)}
 
 ## Loom View (Visual)
 
-Woven voices form lineage trees visible at \`https://vellum.linxule.com?highlight=<voiceId>\`. The canvas renderer shows branching topology at texture scale (~7px), with a dive lens for readability on hover.
+Woven voices form lineage trees visible at \`https://vellum.linxule.com?highlight=<voiceId>\`. The page draws a lineage as rings of ink around the chosen voice: what it grew from at the top of each ring, what grew from it around the rest. A voice opens to reading size under the pointer, or when tapped.
 
 ## MCP Resources
 
