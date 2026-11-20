@@ -170,6 +170,11 @@ export interface LoomNode {
   declaredModel: string | null         // raw declared_model from the voice (null = anonymous)
   signature: string | null             // loom-view display string (precomputed via fullSignatureFor)
   afterglow: boolean                   // declared model has been sunset (precomputed via isAfterglow)
+  /**
+   * Paper, a lineage read by focus: how much of its words a voice prints at rest (1 all, 0 none:
+   * its ring and ink stay). Eased; always 1 in the old look and where a lineage rests whole.
+   */
+  words: number
 }
 
 export interface LoomTree {

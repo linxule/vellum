@@ -9,7 +9,7 @@ import { depthLerp, fontRatioForScale, fontSizeForScale, frameMix, lerp } from '
 import { fullSignatureFor, isAfterglow } from './model-registry.js'
 import { diveGaussian } from './path.js'
 import { paper } from './paper.js'
-import { layoutRings, ringLayoutFor, ringPanRange, setRingLayout, type RingBox } from './render/lineage-rings.js'
+import { blockOf, layoutRings, openPool, ringLayoutFor, ringOpening, ringPanRange, setRingLayout, wordlessTarget, type RingBox, type RingLayout, type RingPlace } from './render/lineage-rings.js'
 import { loomState } from './state.js'
 import { graphemeSegmenter, letterAdvances, scriptClass } from './text.js'
 import {
@@ -109,6 +109,7 @@ export function buildLoomTree(seedId: string): LoomTree | null {
       pathStartY: 0,
       pathEndX: 0,
       pathEndY: 0,
+      words: 1,
     }
   }
 
@@ -367,6 +368,7 @@ export function enterLoomView(seedVoiceId: string, autoExitMs?: number): void {
   loomState.loomTreeScrollX = 0
   loomState.loomTreeScrollY = 0
   loomState.loomHeldId = null
+  loomState.loomFocusId = null
   lastLayoutTree = null
 
   if (autoExitMs) {
@@ -412,6 +414,7 @@ export function recenterLoomView(newSeedId: string): void {
   loomState.loomTreeScrollX = 0
   loomState.loomTreeScrollY = 0
   loomState.loomHeldId = null
+  loomState.loomFocusId = null
   lastLayoutTree = null
   emitOceanEvent({ type: 'loom-enter', seedId: newSeedId })
 }
@@ -424,6 +427,7 @@ export function exitLoomView(): void {
   }
   loomState.loomViewActive = false
   loomState.loomHeldId = null
+  loomState.loomFocusId = null
   emitOceanEvent({ type: 'loom-exit' })
 }
 
@@ -437,6 +441,9 @@ export function holdLoomVoice(id: string | null): boolean {
   if (id === null) { loomState.loomHeldId = null; return true }
   if (!paper.on || !loomState.loomViewActive || !loomState.loomTree?.nodes.has(id)) return false
   loomState.loomHeldId = id
+  // Where the lineage reads by focus, the voice taken up is the focus: its kin print their words.
+  // Letting it go keeps the focus where it was, so nothing moves under the hand that let go.
+  if (lineageFocus.on) loomState.loomFocusId = id
   return true
 }
 
@@ -468,6 +475,8 @@ export function loomVoiceNear(x: number, y: number, reach = LOOM_TOUCH_REACH_PX)
  * can be brought in edge to edge but never lost off the sheet.
  */
 export function panLoomOnRings(dx: number, dy: number): void {
+  const x = loomState.loomTreeScrollX
+  const y = loomState.loomTreeScrollY
   loomState.loomTreeScrollX += dx
   loomState.loomTreeScrollY += dy
   const tree = loomState.loomTree
@@ -476,6 +485,12 @@ export function panLoomOnRings(dx: number, dy: number): void {
   const r = ringPanRange(layout, loomState.VW, loomState.VH, OPEN_EDGE_PX)
   loomState.loomTreeScrollX = Math.max(r.x0, Math.min(r.x1, loomState.loomTreeScrollX))
   loomState.loomTreeScrollY = Math.max(r.y0, Math.min(r.y1, loomState.loomTreeScrollY))
+  if (lineageFocus.on && (loomState.loomTreeScrollX !== x || loomState.loomTreeScrollY !== y)) {
+    // The reader's own pan wins over a glide toward the focus, and the moving print is not left to trail.
+    if (glide) glide.scroll = null
+    settleFrames = PAN_SETTLE_FRAMES
+    panQuiet = 0
+  }
 }
 
 export function isLoomViewActive(): boolean {
@@ -491,24 +506,35 @@ export function getCurrentLoomSeed(): string | null {
 let lastLayoutVw = 0
 let lastLayoutVh = 0
 let lastLayoutTree: LoomTree | null = null
+let lastLayoutFocus: string | null = null
 
 /** The typeface arrived after an open lineage was measured (refresh.ts, remeasureLoom): measure its voices and lay it out again. */
 export function remeasureLoomTree(): void {
   const tree = loomState.loomTree
   if (tree) for (const node of tree.nodes.values()) node.prepared = null
   lastLayoutTree = null
-  restScaleFor = null
+  restPlanFor = null
+  glide = null
 }
 
 let lastLayoutPaper = false
 
-function layoutTreeIfNeeded(tree: LoomTree, vw: number, vh: number, rest: { layoutW: number, fontRatio: number, lineH: number }): void {
-  if (tree === lastLayoutTree && vw === lastLayoutVw && vh === lastLayoutVh && paper.on === lastLayoutPaper) return
+interface RestSize { layoutW: number, fontRatio: number, lineH: number }
+
+function layoutTreeIfNeeded(tree: LoomTree, vw: number, vh: number, rest: RestSize, plan: RestPlan | null): void {
+  const focus = plan?.focus ? focusOf(tree) : null
+  if (tree === lastLayoutTree && vw === lastLayoutVw && vh === lastLayoutVh && paper.on === lastLayoutPaper && focus === lastLayoutFocus) {
+    if (focus !== null) glideRings(tree)
+    return
+  }
+  const sameSheet = tree === lastLayoutTree && vw === lastLayoutVw && vh === lastLayoutVh && paper.on === lastLayoutPaper
   lastLayoutVw = vw
   lastLayoutVh = vh
   lastLayoutTree = tree
   lastLayoutPaper = paper.on
-  if (paper.on) layoutTreeOnRings(tree, vw, vh, rest)
+  lastLayoutFocus = focus
+  if (paper.on && plan?.focus && focus !== null) placeFocused(tree, vw, vh, plan, focus, !sameSheet)
+  else if (paper.on) { glide = null; layoutTreeOnRings(tree, vw, vh, rest) }
   else layoutTree(tree, vw, vh)
 }
 
@@ -550,39 +576,186 @@ function ringBoxes(measures: Map<string, NodeMeasure>, fontRatio: number, lineH:
 /** Resting sizes tried for a lineage on paper, largest first; the tree's own scale when none fits. */
 const PAPER_REST_SCALES = [1, 0.85, 0.7] as const
 const PAPER_REST_MARGIN = 28
-let restScaleFor: { tree: LoomTree, vw: number, vh: number, scale: number } | null = null
+
+// ── Focus and context (paper) ─────────────────────────
+//
+// Behind a flag while it is tried on real phones: the standalone page turns it on with
+// ?lineage=focus (src/main.ts, read once at boot); the ext-app never does. Off, the lineage
+// view lays out and paints exactly as before.
+//
+// A lineage too large to rest readable whole (on a phone, nearly any) reads by focus: the voice
+// in focus (held, else the seed) and its parent and children print their words at a size that
+// can be read; every voice further out keeps its ring and its ink and prints none, as an ocean
+// current not being read keeps its colour and drops its words. Only the voices that print words
+// need room on their rings, so the resting size can rise. Moving the focus re-lays the rings
+// around the new neighbourhood: they glide there, the newly held voice stays where it is as far
+// as the sheet allows, and words come and go by colour, toward the paper.
+
+/** Reading a large lineage by focus: on only with ?lineage=focus (shared module state; tests reset it with resetLineageFocusForTest). */
+export const lineageFocus = { on: false }
+export function resetLineageFocusForTest(): void {
+  lineageFocus.on = false
+  glide = null
+  settleFrames = 0
+  panQuiet = Infinity
+}
+
+/**
+ * Resting sizes tried when a lineage reads by focus, largest first, as [scale, column]: the
+ * column is a share of the sheet's width (0: the usual resting column). A narrower column at a
+ * larger size fits a phone better than a wide one, because a ring's voices sit side by side.
+ */
+const FOCUS_REST: ReadonlyArray<readonly [number, number]> = [
+  [0.85, 0], [0.85, 0.36], [0.8, 0], [0.8, 0.36], [0.7, 0], [0.7, 0.36], [0.7, 0.3],
+]
+/** Room a voice that prints no words takes on its ring, and its target for a finger (px). */
+export const WORDLESS_BOX = { w: 44, h: 34 }
+/** Room a voice that prints no words needs on its ring when the rings are laid out: next to none, so rings of wordless voices stay close. */
+const FAR_RING_BOX: RingBox = { w: 12, h: 12, wordless: true }
+/** Share of the way per frame the rings glide to a new focus's layout. */
+const FOCUS_GLIDE_RATE = 0.1
+/** Per frame, how fast a voice's words come or go when the focus moves (about 0.8 s). */
+const WORDS_RATE = 0.06
+/** Frames the text canvas is cleared whole after the lineage moves (its print otherwise trails, render/frame.ts). */
+const PAN_SETTLE_FRAMES = 3
+
+interface RestPlan {
+  tree: LoomTree, vw: number, vh: number
+  flag: boolean            // lineageFocus.on when it was made
+  scale: number
+  layoutW: number          // the resting column, layout units
+  focus: boolean           // reads by focus (far voices print no words)
+  boxes: Map<string, RingBox>
+  open: Map<string, RingBox> | null   // by focus: each voice's block held open (reading size, open width)
+  openWidth: number                   // the open column (px)
+  heights: Map<string, number>
+}
+let restPlanFor: RestPlan | null = null
+
+/** The voices that print words around a focus: itself, its parent, its children. */
+export function focusWords(tree: LoomTree, id: string): Set<string> {
+  const node = tree.nodes.get(id)
+  const out = new Set<string>([id])
+  if (!node) return out
+  if (node.parentId && tree.nodes.has(node.parentId)) out.add(node.parentId)
+  for (const c of node.childIds) if (tree.nodes.has(c)) out.add(c)
+  return out
+}
+
+function focusOf(tree: LoomTree): string {
+  const f = loomState.loomFocusId
+  return f !== null && tree.nodes.has(f) ? f : tree.seed
+}
+
+/**
+ * The boxes a lineage read by focus is laid out with: the focus's words as they are held open,
+ * with the water cleared around them (the seed's pool grown to hold them, render/lineage-rings.ts
+ * openPool; any voice being read clears the paper under it, clearUnderRead), its kin at rest,
+ * the rest wordless.
+ */
+function focusBoxes(plan: RestPlan, words: ReadonlySet<string>, focus: string): Map<string, RingBox> {
+  const out = new Map<string, RingBox>()
+  for (const [id, b] of plan.boxes) out.set(id, words.has(id) ? b : FAR_RING_BOX)
+  const rest = plan.boxes.get(focus)
+  const o = plan.open?.get(focus)
+  if (rest && o) {
+    const hw = o.w / 2
+    const hh = o.h / 2
+    const drop = focus === plan.tree.seed ? openPool({ rx: rest.w / 2 + 14, ry: rest.h / 2 + 14 }, hw, hh, 1) : ringOpening(hw, hh)
+    const cleared = readClearing(hw, hh)
+    out.set(focus, { ...rest, open: { w: o.w, h: o.h, rx: Math.max(drop.rx, cleared.rx), ry: Math.max(drop.ry, cleared.ry) } })
+  }
+  return out
+}
+
+/**
+ * How far (px) the voices printing words around a focus overflow the sheet when brought into
+ * view, 0 when they fit. Sideways counts far more (as in layoutRings): a voice too far down is
+ * panned to, but one that overflows sideways beside a focus held open is cut by the sheet's edge.
+ */
+function neighbourhoodOverflow(layout: RingLayout, words: ReadonlySet<string>, vw: number, vh: number): number {
+  const b = boundsOf(layout, words)
+  return Math.max(0, b.x1 - b.x0 - (vw - 2 * PAPER_REST_MARGIN)) * 40 + Math.max(0, b.y1 - b.y0 - (vh - 2 * PAPER_REST_MARGIN))
+}
+
+function boundsOf(layout: RingLayout, ids: ReadonlySet<string>): { x0: number, x1: number, y0: number, y1: number } {
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
+  for (const id of ids) {
+    const p = layout.places.get(id)
+    if (!p) continue
+    const { w, h } = blockOf(p)
+    x0 = Math.min(x0, p.x - w / 2); x1 = Math.max(x1, p.x + w / 2)
+    y0 = Math.min(y0, p.y - h / 2); y1 = Math.max(y1, p.y + h / 2)
+  }
+  return { x0, x1, y0, y1 }
+}
 
 /**
  * A lineage of three voices need not rest at the size a lineage of thirty
  * does: on paper it rests at the largest size whose rings still fit the sheet.
+ * When none does, it reads by focus, at the largest size at which every
+ * voice's neighbourhood fits the sheet (the least overflowing when none does).
  * `lineHAt(scale)` gives the line height at a scale (the same lerp a hover uses).
  */
-function paperRestScale(tree: LoomTree, vw: number, vh: number, layoutW: number, maxWidth: number, lineHAt: (scale: number) => number): number {
-  if (restScaleFor && restScaleFor.tree === tree && restScaleFor.vw === vw && restScaleFor.vh === vh) return restScaleFor.scale
+function paperRestPlan(tree: LoomTree, vw: number, vh: number, layoutW: number, maxWidth: number, lineHAt: (scale: number) => number, diveScale: number): RestPlan {
+  if (restPlanFor && restPlanFor.tree === tree && restPlanFor.vw === vw && restPlanFor.vh === vh && restPlanFor.flag === lineageFocus.on) return restPlanFor
   const measures = measureNodes(tree, layoutW)
-  let scale: number = TREE_TEXTURE_SCALE
+  let open: Map<string, RingBox> | null = null
+  const plan = (scale: number, w: number, focus: boolean, m = measures): RestPlan => {
+    const { boxes, heights } = ringBoxes(m, fontRatioForScale(scale), lineHAt(scale))
+    if (focus && !open) {
+      const ratio = fontRatioForScale(diveScale)
+      open = ringBoxes(measureNodes(tree, maxWidth / ratio), ratio, lineHAt(diveScale)).boxes
+    }
+    return { tree, vw, vh, flag: lineageFocus.on, scale, layoutW: w, focus, boxes, heights, open: focus ? open : null, openWidth: maxWidth }
+  }
+  let chosen: RestPlan | null = null
   for (const k of PAPER_REST_SCALES) {
     // A resting column never wider than an opened one.
     if (layoutW * fontRatioForScale(k) > maxWidth) continue
-    const { boxes } = ringBoxes(measures, fontRatioForScale(k), lineHAt(k))
-    const layout = layoutRings(tree, boxes, vw, vh)
+    const p = plan(k, layoutW, false)
+    const layout = layoutRings(tree, p.boxes, vw, vh)
     let fits = true
     for (const place of layout.places.values()) {
       if (place.x - place.w / 2 < PAPER_REST_MARGIN || place.x + place.w / 2 > vw - PAPER_REST_MARGIN
         || place.y - place.h / 2 < PAPER_REST_MARGIN || place.y + place.h / 2 > vh - PAPER_REST_MARGIN) { fits = false; break }
     }
-    if (fits) { scale = k; break }
+    if (fits) { chosen = p; break }
   }
-  restScaleFor = { tree, vw, vh, scale }
-  return scale
+  if (!chosen && lineageFocus.on) {
+    let best: RestPlan | null = null
+    let bestOver = Infinity
+    for (const [k, share] of FOCUS_REST) {
+      const ratio = fontRatioForScale(k)
+      const w = share > 0 ? (share * vw) / ratio : layoutW
+      if (w * ratio > maxWidth) continue
+      const p = plan(k, w, true, w === layoutW ? measures : measureNodes(tree, w))
+      let worst = 0
+      for (const id of tree.nodes.keys()) {
+        const words = focusWords(tree, id)
+        worst = Math.max(worst, neighbourhoodOverflow(layoutRings(tree, focusBoxes(p, words, id), vw, vh), words, vw, vh))
+        if (worst >= bestOver) break
+      }
+      if (worst < bestOver) { best = p; bestOver = worst }
+      if (worst === 0) break
+    }
+    chosen = best
+  }
+  chosen ??= plan(TREE_TEXTURE_SCALE, layoutW, false)
+  restPlanFor = chosen
+  return chosen
 }
 
 // Paper: the lineage floats as rings of ink around the seed (render/lineage-rings.ts).
 // Each voice is a compact block centred on its ring; its path is just its own height.
-function layoutTreeOnRings(tree: LoomTree, vw: number, vh: number, rest: { layoutW: number, fontRatio: number, lineH: number }): void {
+function layoutTreeOnRings(tree: LoomTree, vw: number, vh: number, rest: RestSize): void {
   const { boxes, heights } = ringBoxes(measureNodes(tree, rest.layoutW), rest.fontRatio, rest.lineH)
   const layout = layoutRings(tree, boxes, vw, vh)
   setRingLayout(tree, layout)
+  placeNodes(tree, layout, heights)
+}
+
+function placeNodes(tree: LoomTree, layout: RingLayout, heights: ReadonlyMap<string, number>): void {
   for (const node of tree.nodes.values()) {
     const p = layout.places.get(node.voiceId)
     if (!p) continue
@@ -594,6 +767,173 @@ function layoutTreeOnRings(tree: LoomTree, vw: number, vh: number, rest: { layou
     node.treeX = p.x
     node.treeY = p.y
   }
+}
+
+/** Rings gliding from one focus's layout to the next: `shown` is what is painted and eases toward `target`. */
+let glide: {
+  tree: LoomTree
+  shown: RingLayout
+  target: RingLayout
+  heights: Map<string, number>
+  scroll: { x: number, y: number } | null
+} | null = null
+let settleFrames = 0
+let clearedWhole = false
+
+/**
+ * Called once per frame by the painter before it clears the text canvas (render/frame.ts):
+ * true when the lineage moved (a pan, a glide), so the canvas is to be cleared whole this
+ * frame and the lineage printed at the ink it otherwise builds up (`settledInk`).
+ */
+export function loomClearsWhole(): boolean {
+  clearedWhole = lineageFocus.on && paper.on && settleFrames > 0 && loomState.loomViewTransition > 0.99
+  if (settleFrames > 0) settleFrames--
+  return clearedWhole
+}
+
+/** Text printed every frame at alpha a over a canvas keeping 82% of the last builds up to this; printed once on a cleared canvas, it is printed at this. */
+function settledInk(a: number): number {
+  return clearedWhole ? a / (0.18 + 0.82 * a) : a
+}
+
+function cloneLayout(l: RingLayout): RingLayout {
+  const places = new Map<string, RingPlace>()
+  for (const [id, p] of l.places) places.set(id, { ...p })
+  return { ...l, radii: [...l.radii], pool: { ...l.pool }, places }
+}
+
+function placeFocused(tree: LoomTree, vw: number, vh: number, plan: RestPlan, focus: string, snap: boolean): void {
+  const words = focusWords(tree, focus)
+  const target = layoutRings(tree, focusBoxes(plan, words, focus), vw, vh)
+  const prev = glide && glide.tree === tree && !snap ? glide : null
+  const shown = prev ? prev.shown : cloneLayout(target)
+  let sx = loomState.loomTreeScrollX
+  let sy = loomState.loomTreeScrollY
+  // The voice taken up stays where it is on the glass...
+  const was = prev?.shown.places.get(focus)
+  const will = target.places.get(focus)
+  if (was && will) { sx += will.x - was.x; sy += will.y - was.y }
+  // ...as far as its neighbourhood can still be brought onto the sheet.
+  const b = boundsOf(target, words)
+  const m = PAPER_REST_MARGIN
+  const into = (lo: number, hi: number, s: number, size: number) =>
+    hi - lo > size - 2 * m ? lo - m : lo - s < m ? lo - m : hi - s > size - m ? hi - (size - m) : s
+  sx = into(b.x0, b.x1, sx, vw)
+  sy = into(b.y0, b.y1, sy, vh)
+  // Its opened words keep the margin an open column has centred on the sheet (the seed's), and
+  // clear of the top and bottom, where an opened voice would otherwise be moved (openShift).
+  const hold = { x: Math.max(WHOLE_MARGIN, (vw - plan.openWidth) / 2), y: OPEN_EDGE_PX }
+  ;({ x: sx, y: sy } = wholeOrOff(target, words, focus, sx, sy, vw, vh, hold))
+  // A new placing answers for itself: a pan from before it must not settle the view again without the held margins.
+  panQuiet = Infinity
+  glide = { tree, shown, target, heights: plan.heights, scroll: { x: sx, y: sy } }
+  setRingLayout(tree, shown)
+  if (!prev) {
+    loomState.loomTreeScrollX = sx
+    loomState.loomTreeScrollY = sy
+    glide.scroll = null
+  }
+  glideRings(tree)
+}
+
+/** Margin (px) inside (or beyond) the sheet's edge at which a voice printing words counts as wholly on (or off) it. */
+const WHOLE_MARGIN = 8
+
+/**
+ * A scroll near (sx, sy) at which no voice printing words around a focus is cut by the sheet's
+ * edge: each is wholly on the sheet or wholly off it. Tried: staying, and each move that brings
+ * one such voice wholly on or takes it wholly off, along each axis; the nearest at which none is
+ * cut and the focus is on the sheet wins (else the fewest cut). Kept within how far the lineage
+ * pans. Pure.
+ */
+export function wholeOrOff(
+  layout: RingLayout, words: ReadonlySet<string>, focus: string, sx: number, sy: number, vw: number, vh: number,
+  hold: { x: number, y: number } | null = null,
+): { x: number, y: number } {
+  const r = ringPanRange(layout, vw, vh, OPEN_EDGE_PX)
+  const m = WHOLE_MARGIN
+  const boxes: Array<{ id: string, x0: number, x1: number, y0: number, y1: number }> = []
+  for (const id of words) {
+    const p = layout.places.get(id)
+    if (!p) continue
+    const { w, h } = blockOf(p)
+    boxes.push({ id, x0: p.x - w / 2, x1: p.x + w / 2, y0: p.y - h / 2, y1: p.y + h / 2 })
+  }
+  const xs = new Set([sx])
+  const ys = new Set([sy])
+  for (const b of boxes) {
+    xs.add(b.x0 - m); xs.add(b.x1 - (vw - m)); xs.add(b.x1 + m); xs.add(b.x0 - vw - m)
+    ys.add(b.y0 - m); ys.add(b.y1 - (vh - m)); ys.add(b.y1 + m); ys.add(b.y0 - vh - m)
+    if (hold && b.id === focus) {
+      xs.add(b.x0 - hold.x); xs.add(b.x1 - (vw - hold.x))
+      ys.add(b.y0 - hold.y); ys.add(b.y1 - (vh - hold.y))
+    }
+  }
+  let best = { x: sx, y: sy }
+  let bestScore = Infinity
+  for (let x of xs) {
+    x = Math.max(r.x0, Math.min(r.x1, x))
+    for (let y of ys) {
+      y = Math.max(r.y0, Math.min(r.y1, y))
+      let cut = 0
+      let focusOff = 0
+      for (const b of boxes) {
+        const x0 = b.x0 - x, x1 = b.x1 - x, y0 = b.y0 - y, y1 = b.y1 - y
+        if (b.id === focus) {
+          if (hold ? x0 < hold.x - 0.5 || x1 > vw - hold.x + 0.5 || y0 < hold.y - 0.5 || y1 > vh - hold.y + 0.5
+            : x1 <= 0 || x0 >= vw || y1 <= 0 || y0 >= vh) focusOff = 1
+          continue
+        }
+        // Within the margin of an edge counts as at it: a voice sways a little as it breathes.
+        if (x1 <= -m + 0.5 || x0 >= vw + m - 0.5 || y1 <= -m + 0.5 || y0 >= vh + m - 0.5) continue
+        if (x0 < m - 0.5 || x1 > vw - m + 0.5 || y0 < m - 0.5 || y1 > vh - m + 0.5) cut++
+      }
+      const score = (focusOff * 1000 + cut) * 1e6 + Math.abs(x - sx) + Math.abs(y - sy)
+      if (score < bestScore) { bestScore = score; best = { x, y } }
+    }
+  }
+  return best
+}
+
+/** Frames without a pan; when it reaches PAN_REST_FRAMES the lineage settles so no voice printing words is cut. */
+let panQuiet = Infinity
+const PAN_REST_FRAMES = 15
+
+function glideRings(tree: LoomTree): void {
+  const g = glide
+  if (!g || g.tree !== tree) return
+  // A pan has come to rest: a voice printing words left cut by the sheet's edge comes wholly on.
+  if (++panQuiet === PAN_REST_FRAMES && !g.scroll) {
+    const focus = focusOf(tree)
+    const at = wholeOrOff(g.target, focusWords(tree, focus), focus, loomState.loomTreeScrollX, loomState.loomTreeScrollY, loomState.VW, loomState.VH)
+    if (at.x !== loomState.loomTreeScrollX || at.y !== loomState.loomTreeScrollY) g.scroll = at
+  }
+  const k = frameMix(FOCUS_GLIDE_RATE, loomState.frameRatio)
+  let moved = 0
+  const ease = (a: number, b: number, eps = 0.05) => {
+    const d = b - a
+    if (Math.abs(d) < eps) return b
+    moved = Math.max(moved, Math.abs(d * k))
+    return a + d * k
+  }
+  const s = g.shown, t = g.target
+  s.cx = ease(s.cx, t.cx); s.cy = ease(s.cy, t.cy)
+  s.ax = ease(s.ax, t.ax, 0.0005); s.ay = ease(s.ay, t.ay, 0.0005)
+  s.pool.rx = ease(s.pool.rx, t.pool.rx); s.pool.ry = ease(s.pool.ry, t.pool.ry)
+  for (let i = 0; i < t.radii.length; i++) s.radii[i] = ease(s.radii[i] ?? t.radii[i]!, t.radii[i]!)
+  for (const [id, tp] of t.places) {
+    const sp = s.places.get(id)
+    if (!sp) { s.places.set(id, { ...tp }); continue }
+    sp.x = ease(sp.x, tp.x); sp.y = ease(sp.y, tp.y); sp.w = ease(sp.w, tp.w); sp.h = ease(sp.h, tp.h)
+    sp.a0 = tp.a0; sp.a1 = tp.a1; sp.angle = tp.angle
+  }
+  if (g.scroll) {
+    loomState.loomTreeScrollX = ease(loomState.loomTreeScrollX, g.scroll.x)
+    loomState.loomTreeScrollY = ease(loomState.loomTreeScrollY, g.scroll.y)
+    if (loomState.loomTreeScrollX === g.scroll.x && loomState.loomTreeScrollY === g.scroll.y) g.scroll = null
+  }
+  if (moved > 0.15) settleFrames = Math.max(settleFrames, 1)
+  placeNodes(tree, s, g.heights)
 }
 
 // ── Per-grapheme text renderer ───────────────────────
@@ -625,7 +965,7 @@ function drawTreeLineSegmented(
   if (lineEnd.graphemeIndex > 0) endSeg++
   if (endSeg <= startSeg || startSeg >= segments.length) {
     const [fr, fg, fb] = threadColor(nodeColor, brightness, proximity * 0.3)
-    ctx.fillStyle = `rgba(${fr},${fg},${fb},${baseAlpha * emergenceT})`
+    ctx.fillStyle = `rgba(${fr},${fg},${fb},${settledInk(baseAlpha * emergenceT)})`
     ctx.fillText(fallbackText, centerX - displayWidth / 2, y)
     return graphemeOffset
   }
@@ -682,7 +1022,7 @@ function drawTreeLineSegmented(
 
         const glowVal = Math.min(1, baseGlow + cursorGlow)
         const [cr, cg, cb] = threadColor(nodeColor, brightness + cursorGlow * 0.25, glowVal)
-        const charAlpha = Math.min(1, (baseAlpha + cursorGlow * 0.3) * charEmergenceAlpha)
+        const charAlpha = settledInk(Math.min(1, (baseAlpha + cursorGlow * 0.3) * charEmergenceAlpha))
 
         if (charAlpha >= 0.02) {
           const fill = `rgba(${cr},${cg},${cb},${charAlpha})`
@@ -723,7 +1063,7 @@ function drawTreeLineSegmented(
     const shimmerX = scSway > 0 ? Math.sin(shimmerPhase * 0.6 + 1.1) * scSway * 0.5 * shimmerDampen : 0
     const glowVal = Math.min(1, baseGlow + cursorGlow)
     const [cr, cg, cb] = threadColor(nodeColor, brightness + cursorGlow * 0.25, glowVal)
-    const alpha = Math.min(1, (baseAlpha + cursorGlow * 0.3) * charEmergenceAlpha)
+    const alpha = settledInk(Math.min(1, (baseAlpha + cursorGlow * 0.3) * charEmergenceAlpha))
 
     if (alpha >= 0.02) {
       const fill = `rgba(${cr},${cg},${cb},${alpha})`
@@ -901,6 +1241,11 @@ function openShift(node: LoomNode, restTop: number, vh: number): number {
   return shift
 }
 
+/** The paper cleared under a voice being read, half-size (hw, hh) (clearUnderRead): the ellipse it clears wholly or in part. */
+function readClearing(hw: number, hh: number): { rx: number, ry: number } {
+  return { rx: (hw + 18) * 1.25, ry: (hh + 14) * 1.25 }
+}
+
 function clearUnderRead(ctx: CanvasRenderingContext2D, node: LoomNode): void {
   const ext = lastExtent.get(node)
   if (!ext) return
@@ -945,20 +1290,32 @@ export function renderLoomTree(
 
   for (const node of tree.nodes.values()) prepareNodeText(node, restingLayoutW)
 
+  let plan: RestPlan | null = null
+  let restLayoutW = restingLayoutW
   if (paper.on) {
-    // The wrap (in layout units) stays the same at every size, so only the block sizes change.
+    // The wrap (in layout units) stays the same at every size, so only the block sizes change
+    // (unless the lineage reads by focus, which may choose a narrower column).
     const baseLineH = textureLineH
     const lineHAt = (scale: number) => lerp(baseLineH, diveLineH, Math.max(0, (scale - TREE_TEXTURE_SCALE) / Math.max(0.01, diveScale - TREE_TEXTURE_SCALE)))
-    const chosen = paperRestScale(tree, vw, vh, restingLayoutW, openWidth, lineHAt)
-    if (chosen !== textureScale) {
-      textureScale = chosen
-      textureLineH = lineHAt(chosen)
-      restingFontRatio = fontRatioForScale(chosen)
-      restingWidth = restingLayoutW * restingFontRatio
+    plan = paperRestPlan(tree, vw, vh, restingLayoutW, openWidth, lineHAt, diveScale)
+    if (plan.scale !== textureScale || plan.layoutW !== restingLayoutW) {
+      textureScale = plan.scale
+      textureLineH = lineHAt(plan.scale)
+      restingFontRatio = fontRatioForScale(plan.scale)
+      restLayoutW = plan.layoutW
+      restingWidth = restLayoutW * restingFontRatio
     }
   }
 
-  layoutTreeIfNeeded(tree, vw, vh, { layoutW: restingLayoutW, fontRatio: restingFontRatio, lineH: textureLineH })
+  layoutTreeIfNeeded(tree, vw, vh, { layoutW: restLayoutW, fontRatio: restingFontRatio, lineH: textureLineH }, plan)
+
+  // Which voices print their words: by focus, the focus and its kin; otherwise all. Eased.
+  const wordsOf = plan?.focus ? focusWords(tree, focusOf(tree)) : null
+  const wordsMix = frameMix(WORDS_RATE, loomState.frameRatio)
+  for (const node of tree.nodes.values()) {
+    const target = !wordsOf || wordsOf.has(node.voiceId) ? 1 : 0
+    node.words = Math.abs(target - node.words) < 0.004 ? target : node.words + (target - node.words) * wordsMix
+  }
 
   const current = loomState.current
   const seedBreathSeed = tree.nodes.get(tree.seed)?.breathSeed ?? 0
@@ -1082,6 +1439,7 @@ export function renderLoomTree(
   }
 
   // ── Draw nodes (z-ordered by proximity) ──
+  const wordless: LoomNode[] = []
   for (const node of nodeDrawOrder) {
     const et = nodeEmergenceT(node, tree, now)
     if (et < 0.01) continue
@@ -1095,8 +1453,9 @@ export function renderLoomTree(
 
     const baseBrightness = Math.max(0.7, depthLerp(DEPTH_BRIGHTNESS, d)) + current * 0.06
       + node.proximity * TREE_HOVER_BRIGHTNESS_BOOST
-    // Gentle spotlight: focused node stays full, distant nodes soften slightly
-    const spotlightDim = spotlightActive
+    // Gentle spotlight: focused node stays full, distant nodes soften slightly. Not while a voice
+    // is held in a lineage read by focus: its kin, all that print words, are what it is read with.
+    const spotlightDim = spotlightActive && !(held && plan?.focus)
       ? lerp(1, 0.45 + 0.55 * node.proximity, spotlightStrength)
       : 1
     const baseAlpha = (Math.max(0.55, depthLerp(DEPTH_ALPHA, d)) + node.proximity * TREE_HOVER_ALPHA_BOOST)
@@ -1108,6 +1467,21 @@ export function renderLoomTree(
     _nodeDc[0] = dc[0]; _nodeDc[1] = dc[1]; _nodeDc[2] = dc[2]
 
     if (!node.prepared) continue
+
+    // A voice that prints no words (by focus, far from it) keeps its ring and a target for a finger
+    // on it, where its words would rest. Opened by the lens (a hover), it prints them as it opens.
+    const reading = paper.on ? smoothstep((node.proximity - 0.3) / 0.4) : 0
+    const printed = Math.max(node.words, reading)
+    if (printed < 0.02) {
+      const hw = WORDLESS_BOX.w / 2
+      const hh = WORDLESS_BOX.h / 2
+      renderedHeight.set(node, 0)
+      lastExtent.set(node, [node.renderX, node.renderY, hw, hh])
+      wordless.push(node)
+      continue
+    }
+    // Words coming or going fade by colour toward the paper (opacity barely shows on a canvas that keeps its ink).
+    const faint = printed < 1 ? 1 - printed : 0
 
     // Render-time path positions (layout + breath offset + emergence rise)
     const breathOffsetX = node.renderX - node.treeX
@@ -1138,7 +1512,6 @@ export function renderLoomTree(
     let lastLineCenterX = node.renderX
 
     // On paper a voice held by touch opens whole, every line at once: no finger marks a centre.
-    const reading = paper.on ? smoothstep((node.proximity - 0.3) / 0.4) : 0
     const whole = node === held ? reading : 0
 
     while (true) {
@@ -1197,6 +1570,7 @@ export function renderLoomTree(
       if (lineLeft < minRenderedX) minRenderedX = lineLeft
       if (lineRight > maxRenderedX) maxRenderedX = lineRight
 
+      if (faint > 0) paper.lineFaint = faint
       graphemeOffset = drawTreeLineSegmented(
         ctx, node, lineStart, line.end, line.text,
         lineCenterX, lineY, displayWidth,
@@ -1204,6 +1578,7 @@ export function renderLoomTree(
         mouseX, lineFontRatio, _nodeDc, now,
         et * lineEmergenceMod, graphemeOffset,
       )
+      if (faint > 0) paper.lineFaint = 0
 
       lastLineDiveT = diveT
       lastLineCenterX = lineCenterX
@@ -1218,7 +1593,7 @@ export function renderLoomTree(
     if (node.signature) {
       const gate = node.afterglow ? AFTERGLOW_DIVE_GATE : 0.5
       if (lastLineDiveT > gate) {
-        const sigAlpha = (lastLineDiveT - gate) * 2 * baseAlpha * SIGNATURE_ALPHA
+        const sigAlpha = settledInk((lastLineDiveT - gate) * 2 * baseAlpha * SIGNATURE_ALPHA)
         if (sigAlpha > 0.01) {
           const sigFontSize = fontSizeForScale(lerp(textureScale, diveScale, lastLineDiveT) * SIGNATURE_RATIO)
           const fontStr = node.afterglow
@@ -1258,6 +1633,22 @@ export function renderLoomTree(
       0,
       true,
     ])
+  }
+
+  // A voice printing no words is found on its own ring: where it sits, or, off the sheet or under
+  // another voice's words, the nearest point of its arc that is on the sheet and clear of words.
+  if (wordless.length) {
+    const rings = ringLayoutFor(tree)
+    const hw = WORDLESS_BOX.w / 2
+    const hh = WORDLESS_BOX.h / 2
+    const printedTargets = loomState.lastFrameHitTargets.slice()
+    const blocked = (x: number, y: number) => printedTargets.some(t => Math.abs(x - t[1]) < t[3] + hw && Math.abs(y - t[2]) < t[4] + hh)
+    for (const node of wordless) {
+      const at = rings
+        ? wordlessTarget(rings, node.voiceId, current * 2 - loomState.loomTreeScrollX, -loomState.loomTreeScrollY, vw, vh, hw + 2, hh + 2, blocked)
+        : { x: node.renderX, y: node.renderY }
+      if (at) loomState.lastFrameHitTargets.push([node.voiceId, at.x, at.y, hw, hh, at.x, at.y, 0, true])
+    }
   }
 }
 

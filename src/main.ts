@@ -28,6 +28,7 @@ import { initStrudelSound, modulateSound, toggleStrudelSound, isStrudelReady, is
 import { preloadStrudelScript } from './audio/strudel-loader.js'
 import { setupSketch } from './sketch.js'
 import { paper } from './loom/paper.js'
+import { lineageFocus } from './loom/loom-view.js'
 import { dropsAudioState } from './audio/drops.js'
 
 // Sketch: paper look and the drop instrument. ?look=old keeps the sea and the drone.
@@ -75,6 +76,9 @@ const HIGHLIGHT_RETRY_DELAYS_MS = [3_000, 10_000, 30_000]
 // /api/state gets fetched (and witnessed) differs.
 setSurface(surfaceFromPathname(location.pathname))
 const highlightId = new URLSearchParams(location.search).get('highlight')
+// A large lineage read by focus (loom/loom-view.ts), on trial: only with ?lineage=focus. Read once
+// here; the view's own URL rewrites (highlightUrlFor) drop the query, so it lasts until a reload.
+lineageFocus.on = new URLSearchParams(location.search).get('lineage') === 'focus'
 let highlightRetryIndex = 0
 let pollInFlight = false
 let pendingForcedRefresh = false

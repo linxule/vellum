@@ -30,8 +30,23 @@ import {
 
 // ── Layout ───────────────────────────────────────────
 
-/** The resting size of a voice's text block, in CSS px. */
-export interface RingBox { w: number, h: number }
+/**
+ * The resting size of a voice's text block, in CSS px. A wordless voice (a lineage read by
+ * focus, far from it) prints nothing, so text need not clear it, nor it the text: its ring may
+ * pass under another voice's words, which part around them.
+ */
+export interface RingBox {
+  w: number, h: number, wordless?: boolean
+  /**
+   * The voice in focus (a lineage read by focus): the block its words take when it is held open,
+   * and the clear water around them (the seed's grown pool, or the paper cleared under a voice
+   * being read). Other voices' words are laid clear of both from the start, so nothing moves
+   * as it opens.
+   */
+  open?: OpenBlock
+}
+
+export interface OpenBlock { w: number, h: number, rx: number, ry: number }
 
 export interface RingPlace {
   ring: number            // generations from the seed (0 = the seed)
@@ -43,6 +58,8 @@ export interface RingPlace {
   y: number
   w: number
   h: number
+  wordless?: boolean
+  open?: OpenBlock
 }
 
 export interface RingLayout {
@@ -71,8 +88,23 @@ const ASPECTS: ReadonlyArray<readonly [number, number]> = [
 ]
 
 function overlaps(a: RingPlace, b: RingPlace): boolean {
-  return Math.abs(a.x - b.x) * 2 < a.w + b.w + GAP_X * 2
+  if (a.wordless !== b.wordless) return false
+  const o = a.open ? a : b.open ? b : null
+  if (!o) return Math.abs(a.x - b.x) * 2 < a.w + b.w + GAP_X * 2
     && Math.abs(a.y - b.y) * 2 < a.h + b.h + GAP_Y * 2
+  // The voice in focus: the other's words clear its opened words and the water around them.
+  const q = o === a ? b : a
+  const ob = blockOf(o)
+  if (Math.abs(o.x - q.x) * 2 < ob.w + q.w + GAP_X * 2 && Math.abs(o.y - q.y) * 2 < ob.h + q.h + GAP_Y * 2) return true
+  const { rx, ry } = o.open!
+  const nx = Math.max(q.x - q.w / 2, Math.min(o.x, q.x + q.w / 2)) - o.x
+  const ny = Math.max(q.y - q.h / 2, Math.min(o.y, q.y + q.h / 2)) - o.y
+  return (nx / rx) ** 2 + (ny / ry) ** 2 < 1
+}
+
+/** The most room a voice's words take on the sheet: its resting block, or its opened one when it is in focus. */
+export function blockOf(p: RingPlace): { w: number, h: number } {
+  return p.open ? { w: Math.max(p.w, p.open.w), h: Math.max(p.h, p.open.h) } : p
 }
 
 /**
@@ -107,8 +139,9 @@ export function layoutRings(tree: LoomTree, boxes: ReadonlyMap<string, RingBox>,
     const [a, z] = whi - wlo <= size - 2 * margin ? [wlo, whi] : [lo, hi]
     return Math.max(margin + half, Math.min(size - margin - half, size / 2 - (a + z) / 2))
   }
-  const cx = fit(b.minX, b.maxX, outer * layout.ax, vw, seed.w / 2)
-  const cy = fit(b.minY, b.maxY, outer * layout.ay, vh, seed.h / 2)
+  const seedBlock = blockOf(seed)
+  const cx = fit(b.minX, b.maxX, outer * layout.ax, vw, seedBlock.w / 2)
+  const cy = fit(b.minY, b.maxY, outer * layout.ay, vh, seedBlock.h / 2)
   for (const p of layout.places.values()) { p.x += cx; p.y += cy }
   layout.cx = cx
   layout.cy = cy
@@ -118,8 +151,9 @@ export function layoutRings(tree: LoomTree, boxes: ReadonlyMap<string, RingBox>,
 function bounds(layout: RingLayout): { minX: number, maxX: number, minY: number, maxY: number } {
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
   for (const p of layout.places.values()) {
-    minX = Math.min(minX, p.x - p.w / 2); maxX = Math.max(maxX, p.x + p.w / 2)
-    minY = Math.min(minY, p.y - p.h / 2); maxY = Math.max(maxY, p.y + p.h / 2)
+    const { w, h } = blockOf(p)
+    minX = Math.min(minX, p.x - w / 2); maxX = Math.max(maxX, p.x + w / 2)
+    minY = Math.min(minY, p.y - h / 2); maxY = Math.max(maxY, p.y + h / 2)
   }
   return { minX, maxX, minY, maxY }
 }
@@ -132,7 +166,7 @@ function placeOnRings(tree: LoomTree, boxes: ReadonlyMap<string, RingBox>, ax: n
   const seedBox = box(tree.seed)
   const radii: number[] = [Math.hypot(seedBox.w / 2 / ax, seedBox.h / 2 / ay) + 6]
   const pool = { rx: seedBox.w / 2 + 14, ry: seedBox.h / 2 + 14 }
-  places.set(tree.seed, { ring: 0, side: 0, angle: UP, a0: -Math.PI, a1: Math.PI, x: 0, y: 0, w: seedBox.w, h: seedBox.h })
+  places.set(tree.seed, { ring: 0, side: 0, angle: UP, a0: -Math.PI, a1: Math.PI, x: 0, y: 0, w: seedBox.w, h: seedBox.h, wordless: seedBox.wordless, open: seedBox.open })
   if (!seed) return { cx: 0, cy: 0, ax, ay, radii, pool, places }
 
   // Descendants: each branch takes a share of its parent's arc in proportion to
@@ -159,7 +193,7 @@ function placeOnRings(tree: LoomTree, boxes: ReadonlyMap<string, RingBox>, ax: n
       const span = (a1 - a0) * leaves.get(c)! / total
       const ring = tree.nodes.get(c)!.generationDepth
       const b = box(c)
-      places.set(c, { ring, side: 1, angle: a + span / 2, a0: a, a1: a + span, x: 0, y: 0, w: b.w, h: b.h })
+      places.set(c, { ring, side: 1, angle: a + span / 2, a0: a, a1: a + span, x: 0, y: 0, w: b.w, h: b.h, wordless: b.wordless, open: b.open })
       ;(byRing[ring] ??= []).push(c)
       assign(c, a, a + span)
       a += span
@@ -172,7 +206,7 @@ function placeOnRings(tree: LoomTree, boxes: ReadonlyMap<string, RingBox>, ax: n
     if (node.generationDepth >= 0) continue
     const ring = -node.generationDepth
     const b = box(node.voiceId)
-    places.set(node.voiceId, { ring, side: -1, angle: UP, a0: UP - RING_PAST_SECTOR / 2, a1: UP + RING_PAST_SECTOR / 2, x: 0, y: 0, w: b.w, h: b.h })
+    places.set(node.voiceId, { ring, side: -1, angle: UP, a0: UP - RING_PAST_SECTOR / 2, a1: UP + RING_PAST_SECTOR / 2, x: 0, y: 0, w: b.w, h: b.h, wordless: b.wordless, open: b.open })
     ;(byRing[ring] ??= []).push(node.voiceId)
   }
 
@@ -218,8 +252,9 @@ function placeOnRings(tree: LoomTree, boxes: ReadonlyMap<string, RingBox>, ax: n
 export function ringPanRange(layout: RingLayout, vw: number, vh: number, margin: number): { x0: number, x1: number, y0: number, y1: number } {
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
   for (const p of layout.places.values()) {
-    minX = Math.min(minX, p.x - p.w / 2); maxX = Math.max(maxX, p.x + p.w / 2)
-    minY = Math.min(minY, p.y - p.h / 2); maxY = Math.max(maxY, p.y + p.h / 2)
+    const { w, h } = blockOf(p)
+    minX = Math.min(minX, p.x - w / 2); maxX = Math.max(maxX, p.x + w / 2)
+    minY = Math.min(minY, p.y - h / 2); maxY = Math.max(maxY, p.y + h / 2)
   }
   return {
     x0: Math.min(0, minX - margin), x1: Math.max(0, maxX + margin - vw),
@@ -230,6 +265,33 @@ export function ringPanRange(layout: RingLayout, vw: number, vh: number, margin:
 /** A point on ring `radius` at `angle`. */
 export function ringPoint(layout: RingLayout, radius: number, angle: number): { x: number, y: number } {
   return { x: layout.cx + Math.cos(angle) * radius * layout.ax, y: layout.cy + Math.sin(angle) * radius * layout.ay }
+}
+
+/**
+ * Where a finger finds a voice that prints no words (pure): its place on its ring when that is
+ * on the sheet and not `blocked` (under another voice's words), else the nearest such point of
+ * its own arc, else null (none of its arc is free on the sheet; a pan brings it in). (ox, oy)
+ * is the layout's offset on the sheet.
+ */
+export function wordlessTarget(
+  layout: RingLayout, id: string, ox: number, oy: number, vw: number, vh: number, mx: number, my: number,
+  blocked: (x: number, y: number) => boolean = () => false,
+): { x: number, y: number } | null {
+  const p = layout.places.get(id)
+  if (!p) return null
+  const on = (x: number, y: number) => x >= mx && x <= vw - mx && y >= my && y <= vh - my && !blocked(x, y)
+  if (on(p.x + ox, p.y + oy)) return { x: p.x + ox, y: p.y + oy }
+  const r = layout.radii[p.ring]!
+  let best: { x: number, y: number } | null = null
+  let bestD = Infinity
+  for (const th of arcSamples(p.a0, p.a1, r, [], 4)) {
+    const x = layout.cx + ox + Math.cos(th) * r * layout.ax
+    const y = layout.cy + oy + Math.sin(th) * r * layout.ay
+    if (!on(x, y)) continue
+    const d = Math.abs(th - p.angle)
+    if (d < bestD) { bestD = d; best = { x, y } }
+  }
+  return best
 }
 
 const layouts = new WeakMap<LoomTree, RingLayout>()
@@ -408,7 +470,8 @@ export function paintLineageRings(ctx: CanvasRenderingContext2D, scale: number, 
       else if (age > 0) heard = Math.min(1, pulse.strength) * Math.pow(1 - age / PULSE_S, 2) * Math.min(1, age * 8)
     }
     const focus = 1 + node.proximity * 0.9 + heard * 1.2
-    const dim = 1 - spot * 0.5 * (1 - node.proximity)
+    // The lens dims the rings it is not on; a voice printing no words keeps its ring, all it shows.
+    const dim = 1 - spot * 0.5 * (1 - node.proximity) * node.words
     const a = transition * et * focus * dim
     // A ring spreads out from the one inside it as the voice arrives.
     const inner = place.ring > 0 ? layout.radii[place.ring - 1]! : 0
@@ -470,12 +533,46 @@ export function paintLineageRings(ctx: CanvasRenderingContext2D, scale: number, 
   }
   for (const node of tree.nodes.values()) if (node !== seedNode || !seedHit) paintNode(node)
 
+  // A lineage read by focus: far voices print no words, so each generation's ring is closed
+  // faintly where no voice of it sits, in the ink of the voice nearest along the ring; the
+  // past's sector at the top stays open unless an ancestor's ring runs through it.
+  let byFocus = 0
+  for (const n of tree.nodes.values()) byFocus = Math.max(byFocus, 1 - n.words)
+  if (byFocus > 0.01) {
+    for (const [ring, gaps] of generationGaps(layout)) {
+      const r = layout.radii[ring]!
+      for (const g of gaps) {
+        const node = tree.nodes.get(g.id)
+        if (!node) continue
+        const et = emergence(tree, node.emergenceDelay, now)
+        if (et < 0.01) continue
+        const color = node.afterglow ? AFTERGLOW_SILVER : (FAMILY_COLOR[node.family] ?? DEFAULT_COLOR)
+        const a = transition * et * byFocus
+        xs.length = 0
+        ys.length = 0
+        for (const th of arcSamples(g.a0, g.a1, r, [], 5)) {
+          const wob = 1 + 0.012 * Math.sin(th * 3 + node.breathSeed + t) + 0.007 * Math.sin(th * 7 + node.breathSeed * 2.3 - t * 1.7)
+          xs.push(cx + Math.cos(th) * r * wob * layout.ax)
+          ys.push(cy + Math.sin(th) * r * wob * layout.ay)
+        }
+        trace(1, false)
+        ctx.strokeStyle = ink(color, GENERATION_LINE_ALPHA * a)
+        ctx.lineWidth = 1
+        ctx.stroke()
+      }
+    }
+  }
+
   // The ink parts around the words: each voice's opening is its hit target.
   ctx.globalCompositeOperation = 'destination-out'
+  // A voice that prints no words (a lineage read by focus) leaves its ring whole.
   for (const [id, hx, hy, hw, hh] of loomState.lastFrameHitTargets) {
     if (id === tree.seed && !seedHit) continue
+    const n = tree.nodes.get(id)
+    const printed = n ? Math.max(n.words, smooth((n.proximity - 0.3) / 0.4)) : 1
+    if (printed < 0.02) continue
     const { rx, ry } = ringOpening(hw, hh)
-    const s = (RING_CLEAR_STRENGTH * transition * (id === tree.seed ? seedOpen : 1)).toFixed(3)
+    const s = (RING_CLEAR_STRENGTH * transition * (id === tree.seed ? seedOpen : 1) * printed).toFixed(3)
     ctx.save()
     ctx.translate(hx, hy)
     ctx.scale(1, ry / rx)
@@ -492,6 +589,47 @@ export function paintLineageRings(ctx: CanvasRenderingContext2D, scale: number, 
     paintNode(seedNode)
   }
   ctx.globalCompositeOperation = 'source-over'
+}
+
+const GENERATION_LINE_ALPHA = 0.3
+
+/**
+ * Where each generation's ring has no voice of its own (pure): the stretches of ring `k`
+ * between its descendants' arcs, and, when no ancestor shares the ring, out to the edges
+ * of the past's sector. Each stretch is split at its middle and given to the voice on
+ * either side of it.
+ */
+export function generationGaps(layout: RingLayout): Map<number, Array<{ id: string, a0: number, a1: number }>> {
+  const rings = new Map<number, Array<[string, RingPlace]>>()
+  const withAncestor = new Set<number>()
+  for (const [id, p] of layout.places) {
+    if (p.side === -1) withAncestor.add(p.ring)
+    if (p.side !== 1) continue
+    let list = rings.get(p.ring)
+    if (!list) rings.set(p.ring, list = [])
+    list.push([id, p])
+  }
+  const lo = UP + RING_PAST_SECTOR / 2
+  const hi = UP + 2 * Math.PI - RING_PAST_SECTOR / 2
+  const out = new Map<number, Array<{ id: string, a0: number, a1: number }>>()
+  for (const [ring, list] of rings) {
+    list.sort((p, q) => p[1].a0 - q[1].a0)
+    const gaps: Array<{ id: string, a0: number, a1: number }> = []
+    const open = !withAncestor.has(ring)
+    const first = list[0]!
+    const last = list[list.length - 1]!
+    if (open && first[1].a0 - lo > 1e-6) gaps.push({ id: first[0], a0: lo, a1: first[1].a0 })
+    for (let i = 1; i < list.length; i++) {
+      const [pid, p] = list[i - 1]!
+      const [nid, n] = list[i]!
+      if (n.a0 - p.a1 <= 1e-6) continue
+      const mid = (p.a1 + n.a0) / 2
+      gaps.push({ id: pid, a0: p.a1, a1: mid }, { id: nid, a0: mid, a1: n.a0 })
+    }
+    if (open && hi - last[1].a1 > 1e-6) gaps.push({ id: last[0], a0: last[1].a1, a1: hi })
+    if (gaps.length) out.set(ring, gaps)
+  }
+  return out
 }
 
 function smooth(x: number): number {

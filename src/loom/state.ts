@@ -68,6 +68,8 @@ export const loomState = {
   loomTreeScrollY: 0,
   // On paper, by touch: the lineage voice held open for reading (the lens stays on it, no finger on the glass).
   loomHeldId: null as string | null,
+  // On paper, a lineage too large to rest readable whole: the voice whose kin print their words (null: the seed).
+  loomFocusId: null as string | null,
   // The voice being read this frame (dive lens or hovered loom node), for sound.
   lensVoiceId: null as string | null,
   lensVoiceX: 0,
@@ -121,6 +123,7 @@ export function resetLoomState() {
   loomState.loomTreeScrollX = 0
   loomState.loomTreeScrollY = 0
   loomState.loomHeldId = null
+  loomState.loomFocusId = null
   if (loomState.loomViewAutoExit) {
     clearTimeout(loomState.loomViewAutoExit)
     loomState.loomViewAutoExit = null
