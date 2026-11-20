@@ -1590,9 +1590,12 @@ export function renderLoomTree(
     // radial lens swells this node to reading size (Phase 11 F7). Sunset models
     // arrive a beat later, in italic silver. Gated on the last line's dive so it
     // never renders at rest (would become a permanent badge — the failure mode).
+    let signatureH = 0
     if (node.signature) {
       const gate = node.afterglow ? AFTERGLOW_DIVE_GATE : 0.5
       if (lastLineDiveT > gate) {
+        // On paper the signature is part of what the voice prints: its opening and the seed's pool hold it too.
+        if (paper.on) signatureH = fontSizeForScale(lerp(textureScale, diveScale, lastLineDiveT) * SIGNATURE_RATIO) * 1.4 * Math.min(1, (lastLineDiveT - gate) * 2)
         const sigAlpha = settledInk((lastLineDiveT - gate) * 2 * baseAlpha * SIGNATURE_ALPHA)
         if (sigAlpha > 0.01) {
           const sigFontSize = fontSizeForScale(lerp(textureScale, diveScale, lastLineDiveT) * SIGNATURE_RATIO)
@@ -1619,9 +1622,10 @@ export function renderLoomTree(
     const hitHalfW = maxRenderedX > minRenderedX
       ? Math.max((maxRenderedX - minRenderedX) / 2, 20)
       : 20
-    const hitHalfH = Math.max(totalRenderedH / 2, (rEndY - rStartY) / 2, 15)
+    const printedH = totalRenderedH + signatureH
+    const hitHalfH = Math.max(printedH / 2, (rEndY - rStartY) / 2, 15)
     // On paper, where the text is: an opened voice runs past its resting block.
-    const hitCenterY = paper.on ? rStartY + Math.max(totalRenderedH, rEndY - rStartY) / 2 : (rStartY + rEndY) / 2
+    const hitCenterY = paper.on ? rStartY + Math.max(printedH, rEndY - rStartY) / 2 : (rStartY + rEndY) / 2
     renderedHeight.set(node, totalRenderedH)
     lastExtent.set(node, [hitCenterX, hitCenterY, hitHalfW, hitHalfH])
 

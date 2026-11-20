@@ -363,8 +363,8 @@ test('openPool: at rest the seed\'s drop is as laid out; opened it holds the ope
   const pool = { rx: 60, ry: 30 }
   expect(openPool(pool, 160, 100, 0)).toEqual(pool)
   const o = openPool(pool, 160, 100, 1)
-  expect(o.rx).toBe(160 * 1.25 + 14)
-  expect(o.ry).toBe(100 * 1.25 + 14)
+  expect(o.rx).toBe(160 * 1.3 + 16)
+  expect(o.ry).toBe(100 * 1.3 + 10)
   expect(openPool({ rx: 400, ry: 300 }, 160, 100, 1)).toEqual({ rx: 400, ry: 300 }) // never shrinks
 })
 
