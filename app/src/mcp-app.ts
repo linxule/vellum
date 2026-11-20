@@ -731,11 +731,15 @@ if (inIframe) {
 // measured again once the face is in.
 const TYPEFACE_WAIT_MS = 2000
 const bootAt = performance.now()
-const sheetText = () => THREADS.map(voices => voices.map(v => v.text).join(' ')).join(' ')
+function sheetText(): string { return THREADS.map(voices => voices.map(v => v.text).join(' ')).join(' ') }
+// Not before the first state is in: until then the text is the offline seed's, in scripts the sheet may not hold.
+let stateFetched = false
 function measureInTypeface(): void {
+  if (!stateFetched) return
   void loadTypeface(FONT, sheetText()).then(loaded => { if (loaded) remeasureLoom() })
 }
 void initialFetch.then(async () => {
+  stateFetched = true
   const typeface = loadTypeface(FONT, sheetText())
   const inTime = await within(typeface.then(() => true), TYPEFACE_WAIT_MS - (performance.now() - bootAt), false)
   if (!inTime) console.warn('Vellum ext-app: typeface late, booting with a fallback face')

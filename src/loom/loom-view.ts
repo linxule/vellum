@@ -497,6 +497,7 @@ export function remeasureLoomTree(): void {
   const tree = loomState.loomTree
   if (tree) for (const node of tree.nodes.values()) node.prepared = null
   lastLayoutTree = null
+  restScaleFor = null
 }
 
 let lastLayoutPaper = false
@@ -990,22 +991,34 @@ export function renderLoomTree(
   const lensX = held ? held.renderX : mouseOn ? mouse!.x : -9999
   const lensY = held ? held.renderY : mouseOn ? mouse!.y : -9999
 
+  // On paper a voice being read near an edge is moved to stay on the sheet (openShift): the
+  // pointer may follow its words from where it rests to where they were painted and keep it
+  // open. Only the voice most open, and while the pointer is on that stretch nothing else opens.
+  let follow: LoomNode | null = null
+  let followY = 0
+  let following = false
+  if (paper.on && !held && mouseOn) {
+    let most = 0.3
+    for (const node of tree.nodes.values()) if (node.proximity > most) { most = node.proximity; follow = node }
+    const ext = follow ? lastExtent.get(follow) : undefined
+    if (follow && ext) {
+      followY = Math.max(Math.min(follow.renderY, ext[1]), Math.min(lensY, Math.max(follow.renderY, ext[1])))
+      following = followY !== follow.renderY && Math.hypot(lensX - follow.renderX, lensY - followY) < TREE_HOVER_RADIUS
+    } else follow = null
+  }
+
   for (const node of tree.nodes.values()) {
     const et = nodeEmergenceT(node, tree, now)
     if (et < 0.3) { node.proximity = 0; continue }
 
     const mdx = mouseOn ? lensX - node.renderX : 0
-    // On paper a voice being read near an edge is moved to stay on the sheet (openShift): the
-    // pointer may follow its words from where it rests to where it is painted and keep it open.
-    let nearY = node.renderY
-    if (paper.on && !held && node.proximity > 0.3) {
-      const ext = lastExtent.get(node)
-      if (ext) nearY = Math.max(Math.min(node.renderY, ext[1]), Math.min(lensY, Math.max(node.renderY, ext[1])))
-    }
-    const mdy = mouseOn ? lensY - nearY : 0
+    const mdy = mouseOn ? lensY - (node === follow ? followY : node.renderY) : 0
     const dist = mouseOn ? Math.sqrt(mdx * mdx + mdy * mdy) : Infinity
     // A voice held by touch opens alone: a neighbour within reach of it would half open beside it.
-    const target = held ? (node === held ? 1 : 0) : mouseOn ? Math.max(0, 1 - dist / TREE_HOVER_RADIUS) : 0
+    // So does one whose moved words the pointer is on: what rests under them stays shut.
+    const target = held ? (node === held ? 1 : 0)
+      : following && node !== follow ? 0
+      : mouseOn ? Math.max(0, 1 - dist / TREE_HOVER_RADIUS) : 0
     const rate = target > node.proximity ? (held ? HELD_OPEN_RATE : 0.04) : 0.025
     node.proximity += (target - node.proximity) * frameMix(rate, loomState.frameRatio)
   }

@@ -145,9 +145,14 @@ test('paper, by mouse: a voice moved to stay on the sheet stays open when the po
   const cy = loomState.lastFrameHitTargets.find(t => t[0] === 'a')![2]
   // Its words were moved up, farther than a pointer's reach from where it rests.
   expect(b.treeY - cy).toBeGreaterThan(65)
+  // Another voice rests right where those words were moved to: it stays shut under them.
+  const c = tree.nodes.get('c')!
+  c.treeX = b.treeX; c.treeY = cy
   mouse.y = cy
   frames(tree, 120, 1240, 880)
   expect(b.proximity).toBeGreaterThan(0.9)
+  // (A sibling keeps the faint kinship it has through the seed, about an eighth.)
+  expect(c.proximity).toBeLessThan(0.2)
 })
 
 test('a finger parked off the sheet does not let a held voice go', async () => {
