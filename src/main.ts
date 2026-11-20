@@ -77,8 +77,9 @@ const HIGHLIGHT_RETRY_DELAYS_MS = [3_000, 10_000, 30_000]
 setSurface(surfaceFromPathname(location.pathname))
 const highlightId = new URLSearchParams(location.search).get('highlight')
 // A large lineage read by focus (loom/loom-view.ts), on trial: only with ?lineage=focus. Read once
-// here; the view's own URL rewrites (highlightUrlFor) drop the query, so it lasts until a reload.
+// here; the view's own URL rewrites keep it (`withTrial`), so a reload or a copied link stays in the trial.
 lineageFocus.on = new URLSearchParams(location.search).get('lineage') === 'focus'
+const withTrial = (url: string) => lineageFocus.on ? url + (url.includes('?') ? '&' : '?') + 'lineage=focus' : url
 let highlightRetryIndex = 0
 let pollInFlight = false
 let pendingForcedRefresh = false
@@ -198,7 +199,7 @@ window.addEventListener('resize', resizeLoom)
 
 // ── Loom view interaction ────────────────────────────
 
-const showHighlight = (id: string) => history.replaceState(null, '', highlightUrlFor(location.pathname, id))
+const showHighlight = (id: string) => history.replaceState(null, '', withTrial(highlightUrlFor(location.pathname, id)))
 const parkMouse = () => { mouse.x = -9e3; mouse.y = -9e3; mouse.prevX = -9e3; mouse.prevY = -9e3 }
 // On paper, a lineage opened by touch (or on a touch screen) opens with its seed held for reading:
 // at rest a large lineage is too small to read on a phone. No hand stays where the finger was.
@@ -215,7 +216,7 @@ const lineageTap = createSheetTap({
   enter: (id) => { enterLoomView(id); showHighlight(id); readSeed(id, mouse.touch) },
   recenter: (id) => { recenterLoomView(id); showHighlight(id); readSeed(id, mouse.touch) },
   // Left by touch, the lens is not left behind on the ocean under the finger.
-  exit: () => { exitLoomView(); history.replaceState(null, '', location.pathname); if (mouse.touch) parkMouse() },
+  exit: () => { exitLoomView(); history.replaceState(null, '', withTrial(location.pathname)); if (mouse.touch) parkMouse() },
   ...(sketch ? { hold: (id: string | null) => { holdLoomVoice(id); parkMouse() }, held: loomHeldVoice, near: (x: number, y: number) => loomVoiceNear(x, y) } : {}),
 })
 
@@ -235,7 +236,7 @@ function sheetTap(x: number, y: number, e: Event): void {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && isLoomViewActive()) {
     exitLoomView()
-    history.replaceState(null, '', location.pathname)
+    history.replaceState(null, '', withTrial(location.pathname))
   }
 })
 
