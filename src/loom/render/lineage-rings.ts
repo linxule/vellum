@@ -568,13 +568,7 @@ export function paintLineageRings(ctx: CanvasRenderingContext2D, scale: number, 
   // The ink parts around the words: each voice's opening is its hit target.
   ctx.globalCompositeOperation = 'destination-out'
   // A voice that prints no words (a lineage read by focus) leaves its ring whole.
-  for (const [id, hx, hy, hw, hh] of loomState.lastFrameHitTargets) {
-    if (id === tree.seed && !seedHit) continue
-    const n = tree.nodes.get(id)
-    const printed = n ? Math.max(n.words, smooth((n.proximity - 0.3) / 0.4)) : 1
-    if (printed < 0.02) continue
-    const { rx, ry } = ringOpening(hw, hh)
-    const s = (RING_CLEAR_STRENGTH * transition * (id === tree.seed ? seedOpen : 1) * printed).toFixed(3)
+  const part = (hx: number, hy: number, rx: number, ry: number, s: string) => {
     ctx.save()
     ctx.translate(hx, hy)
     ctx.scale(1, ry / rx)
@@ -586,9 +580,31 @@ export function paintLineageRings(ctx: CanvasRenderingContext2D, scale: number, 
     ctx.fillRect(-rx, -rx, rx * 2, rx * 2)
     ctx.restore()
   }
+  const printedOf = (id: string) => {
+    const n = tree.nodes.get(id)
+    return n ? Math.max(n.words, smooth((n.proximity - 0.3) / 0.4)) : 1
+  }
+  for (const [id, hx, hy, hw, hh] of loomState.lastFrameHitTargets) {
+    if (id === tree.seed && !seedHit) continue
+    const printed = printedOf(id)
+    if (printed < 0.02) continue
+    const { rx, ry } = ringOpening(hw, hh)
+    part(hx, hy, rx, ry, (RING_CLEAR_STRENGTH * transition * (id === tree.seed ? seedOpen : 1) * printed).toFixed(3))
+  }
   if (seedNode && seedHit) {
     ctx.globalCompositeOperation = blend
     paintNode(seedNode)
+    // The seed's grown pool yields to its neighbours' words: where it reaches a voice's
+    // block, its rim parts closely around the words rather than running through a line.
+    const pool = openPool(layout.pool, seedHit[3], seedHit[4], seedOpen)
+    ctx.globalCompositeOperation = 'destination-out'
+    for (const [id, hx, hy, hw, hh] of loomState.lastFrameHitTargets) {
+      if (id === tree.seed) continue
+      if (Math.abs(hx - seedHit[1]) > pool.rx + hw + 8 || Math.abs(hy - seedHit[2]) > pool.ry + hh + 8) continue
+      const printed = printedOf(id)
+      if (printed < 0.02) continue
+      part(hx, hy, hw * 1.15 + 10, hh * 1.15 + 8, (RING_CLEAR_STRENGTH * transition * seedOpen * printed).toFixed(3))
+    }
   }
   ctx.globalCompositeOperation = 'source-over'
 }

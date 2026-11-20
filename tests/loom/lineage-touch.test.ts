@@ -409,8 +409,9 @@ test('an opened seed: the ink parts around its text and its drop is painted afte
   const { rx, ry } = ringOpening(hw, hh)
   expect(rx).toBeGreaterThan(0)
   expect(ry).toBeGreaterThan(0)
-  // Strokes after the last clear: the seed's pool, painted with the blend, after the parting.
-  const lastClear = opened.calls.map(c => c.comp).lastIndexOf('destination-out')
+  // Strokes after the seed's own clear: its pool, painted with the blend, after the parting.
+  // (The pool is then parted again around any neighbour's words it reaches.)
+  const lastClear = opened.calls.findIndex(c => c.op === 'translate' && c.comp === 'destination-out' && c.args[0] === hx && c.args[1] === hy)
   const after = opened.calls.slice(lastClear + 1)
   expect(after.some(c => c.op === 'stroke' && c.comp === 'multiply')).toBe(true)
   // At rest nothing is stroked after the clears; open or not, the seed's drop is drawn once.
