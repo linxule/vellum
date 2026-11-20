@@ -4,9 +4,9 @@ import {
   buildLoomTree, focusWords, holdLoomVoice, lineageFocus, loomClearsWhole, loomVoiceNear, panLoomOnRings, renderLoomTree,
   resetLineageFocusForTest, wholeOrOff, WORDLESS_BOX,
 } from '../../src/loom/loom-view.js'
-import { paper, resetPaperForTest } from '../../src/loom/paper.js'
+import { PAPER_RGB, paper, resetPaperForTest } from '../../src/loom/paper.js'
 import {
-  generationGaps, openPool, paintLineageRings, RING_PAST_SECTOR, ringLayoutFor, wordlessTarget, type RingLayout, type RingPlace,
+  aroundOpenSeed, generationGaps, openPool, paintLineageRings, RING_PAST_SECTOR, ringLayoutFor, wordlessTarget, type RingLayout, type RingPlace,
 } from '../../src/loom/render/lineage-rings.js'
 import { getLastFrameHitVoiceIdAt, loomState, resetLoomState } from '../../src/loom/state.js'
 import { TREE_OPEN_WIDTH, type LoomTree } from '../../src/loom/types.js'
@@ -23,13 +23,14 @@ afterEach(() => { resetLoomState(); resetPaperForTest(); resetLineageFocusForTes
 const say = (n: string) => `Voice ${n} carries the thought a little further along the water, word after word, until it rests here. `
 
 // Seventeen voices: an ancestor, the seed, four children, eight grandchildren, three great-grandchildren.
-const BIG = makeState([
+// `short`: the seed's child d says two lines only.
+const big = (short = false) => makeState([
   {
     family: 'attention',
     voices: [
       { id: 'root', text: say('root'), weave_count: 1 },
       { id: 'seed', text: say('seed'), weave_from: 'root', weave_count: 4 },
-      ...['a', 'b', 'c', 'd'].map(k => ({ id: k, text: say(k), weave_from: 'seed', weave_count: 2 })),
+      ...['a', 'b', 'c', 'd'].map(k => ({ id: k, text: short && k === 'd' ? 'Only this, and a bit more. ' : say(k), weave_from: 'seed', weave_count: 2 })),
     ],
   },
   {
@@ -40,6 +41,7 @@ const BIG = makeState([
     ],
   },
 ], 777)
+const BIG = big()
 
 // Two voices: rests whole, at a readable size, on a phone.
 const SMALL = makeState([
@@ -119,8 +121,10 @@ test('paper, a large lineage on a phone: far voices print no words, but keep a h
   const tree = await open()
   frames(tree, 120)
   const near = focusWords(tree, 'seed')
-  // Exactly the focus's neighbourhood is printed, every letter of it.
-  expect(printed()).toBe(lettersOf(tree, near))
+  // Only the focus's neighbourhood is printed: the seed and its parent every letter, its children
+  // their first lines (the rings would not otherwise fit this sheet: see the entry tests below).
+  expect(printed()).toBeGreaterThan(lettersOf(tree, ['seed', 'root']))
+  expect(printed()).toBeLessThan(lettersOf(tree, near))
   const far = [...tree.nodes.keys()].filter(id => !near.has(id))
   expect(far.length).toBe(11)
   const layout = ringLayoutFor(tree)!
@@ -317,13 +321,107 @@ test('paper, read by focus: far voices take next to no room, so the rings stay c
   const outer = layout.radii.at(-1)!
   expect(2 * outer * layout.ay).toBeLessThan(VH * 1.15)
   // The rings of wordless voices step out evenly past the words, not past whole text blocks.
+  // (The first of them, around the seed held open, steps clear of its children's words: see the
+  // test after this one.)
   const words = focusWords(tree, 'seed')
   const wordRings = new Set([...words].map(id => layout.places.get(id)!.ring))
   const outerWords = Math.max(...wordRings)
-  for (let k = outerWords + 1; k < layout.radii.length; k++) {
+  for (let k = outerWords + 2; k < layout.radii.length; k++) {
     // A ring grows in steps of 1.5% of its radius until its voices clear (render/lineage-rings.ts).
     expect(layout.radii[k]! - layout.radii[k - 1]!).toBeLessThan(40 / Math.max(layout.ax, layout.ay) + layout.radii[k]! * 0.015 + 1)
   }
+})
+
+test('aroundOpenSeed: the seed held open puts its children above and below it, never level with it, in order around it', () => {
+  const offLevel = Math.sin((40 * Math.PI) / 180) - 1e-9
+  for (const past of [0, RING_PAST_SECTOR]) {
+    for (let n = 1; n <= 12; n++) {
+      const angles = aroundOpenSeed(n, past)
+      expect(angles).toHaveLength(n)
+      for (const a of angles) {
+        expect(Math.abs(Math.sin(a))).toBeGreaterThanOrEqual(offLevel)
+        // Clockwise from the top, within one turn, clear of the past's sector.
+        expect(a).toBeGreaterThanOrEqual(UP + past / 2 - 1e-9)
+        expect(a).toBeLessThanOrEqual(UP + 2 * Math.PI - past / 2 + 1e-9)
+      }
+      for (let i = 1; i < n; i++) expect(angles[i]!).toBeGreaterThan(angles[i - 1]!)
+      // Half (the fewer) above, the rest below.
+      expect(angles.filter(a => Math.sin(a) < 0)).toHaveLength(Math.floor(n / 2))
+    }
+  }
+  // Two side by side stand as far apart as they may.
+  expect(aroundOpenSeed(4, 0).map(a => Math.round((a * 180) / Math.PI))).toEqual([-40, 40, 140, 220])
+})
+
+test('paper, read by focus, on entry: the seed\'s children print clear of level with it, the rings fit the sheet\'s width, and every far voice has a target without a pan', async () => {
+  paper.on = true
+  const tree = await open()
+  frames(tree, 120)
+  const layout = ringLayoutFor(tree)!
+  const ox = loomState.current * 2 - loomState.loomTreeScrollX
+  const outer = layout.radii.at(-1)!
+  // On main the rings ran 144 px past the sheet's left edge and 146 past its right.
+  expect(layout.cx + ox - outer * layout.ax).toBeGreaterThanOrEqual(0)
+  expect(layout.cx + ox + outer * layout.ax).toBeLessThanOrEqual(VW)
+  for (const id of tree.nodes.get('seed')!.childIds) {
+    expect(Math.abs(Math.sin(layout.places.get(id)!.angle))).toBeGreaterThanOrEqual(Math.sin((40 * Math.PI) / 180) - 1e-9)
+  }
+  // Every voice printing words is wholly on the sheet.
+  const near = focusWords(tree, 'seed')
+  for (const [id, x, y, hw, hh] of loomState.lastFrameHitTargets) {
+    if (!near.has(id)) continue
+    expect(x - hw).toBeGreaterThanOrEqual(0)
+    expect(x + hw).toBeLessThanOrEqual(VW)
+    expect(y - hh).toBeGreaterThanOrEqual(0)
+    expect(y + hh).toBeLessThanOrEqual(VH)
+  }
+  // Far voices keep clear of the children's words, which sit off their arcs' middles, so each
+  // can be taken up where it is (on main six of the eleven could not, without a pan).
+  for (const id of tree.nodes.keys()) {
+    if (near.has(id)) continue
+    expect(loomState.lastFrameHitTargets.some(h => h[0] === id)).toBe(true)
+  }
+})
+
+test('paper, read by focus, on entry: when the rings would not fit the sheet, the seed\'s children print their first two lines, the second fading toward the paper along its end; one of two lines prints whole; one taken up prints all of it', async () => {
+  paper.on = true
+  const tree = await open(big(true))
+  frames(tree, 120)
+  // A voice's printed lines, each its letters left to right. Letters along a line sway a little
+  // up and down: a new line is a step of more than a few px.
+  const linesOf = (id: string) => {
+    const [, x, y, hw, hh] = hitOf(id)
+    const calls = ctx.fillTextCalls.filter(c => c.text.trim() && Math.abs(c.x - x) <= hw + 1 && Math.abs(c.y - y) <= hh + 1).sort((p, q) => p.y - q.y)
+    const lines: typeof calls[] = []
+    calls.forEach((c, i) => { if (i === 0 || c.y - calls[i - 1]!.y > 5) lines.push([]); lines.at(-1)!.push(c) })
+    return lines.map(l => l.sort((p, q) => p.x - q.x))
+  }
+  // How far a letter's ink is from the paper.
+  const ink = (c: { fillStyle: unknown }) => {
+    const [r, g, b] = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(String(c.fillStyle))!.slice(1).map(Number)
+    return Math.abs(r! - PAPER_RGB[0]) + Math.abs(g! - PAPER_RGB[1]) + Math.abs(b! - PAPER_RGB[2])
+  }
+  for (const id of ['a', 'b', 'c']) {
+    const lines = linesOf(id)
+    expect(lines.length).toBe(2)
+    // The first line is even ink; the second fades toward the paper along its end.
+    expect(ink(lines[0]!.at(-1)!)).toBe(ink(lines[0]![0]!))
+    expect(ink(lines[1]!.at(-1)!)).toBeLessThan(ink(lines[1]![0]!) * 0.5)
+    expect(ink(lines[1]![0]!)).toBe(ink(lines[0]![0]!))
+  }
+  // A voice of two lines prints whole, unfaded.
+  const d = linesOf('d')
+  expect(d.map(l => l.map(c => c.text).join(''))).toEqual(['Onlythis,anda', 'bitmore.'])
+  expect(ink(d[1]!.at(-1)!)).toBe(ink(d[1]![0]!))
+  // The rings fit the sheet.
+  const layout = ringLayoutFor(tree)!
+  expect(2 * layout.radii.at(-1)! * layout.ay).toBeLessThanOrEqual(VH)
+  // Taken up, a child prints all of its words, and they run past two lines, its second unfaded.
+  expect(holdLoomVoice('a')).toBe(true)
+  frames(tree, 150)
+  const a = linesOf('a')
+  expect(a.length).toBeGreaterThan(2)
+  expect(ink(a[1]!.at(-1)!)).toBeGreaterThan(ink(a[1]![0]!) * 0.8)
 })
 
 // A sheet too short for the lineage: some far voices sit off it.
@@ -332,7 +430,10 @@ const SHORT = 560
 test('paper, read by focus: a far voice\'s target is on its own visible arc, on the sheet, clear of anyone\'s words', async () => {
   paper.on = true
   const tree = await open(BIG, VW, SHORT)
-  frames(tree, 120, VW, SHORT)
+  // A child taken up: on entry the rings around the seed now fit even this sheet.
+  frames(tree, 30, VW, SHORT)
+  expect(holdLoomVoice('c')).toBe(true)
+  frames(tree, 150, VW, SHORT)
   const layout = ringLayoutFor(tree)!
   const ox = loomState.current * 2 - loomState.loomTreeScrollX
   const oy = -loomState.loomTreeScrollY
@@ -408,23 +509,25 @@ test('paper: a pan left at rest with a voice printing words cut by the edge sett
 const hitOf = (id: string) => loomState.lastFrameHitTargets.find(h => h[0] === id)!
 const alphaOf = (style: string) => Number(/rgba\([^)]*,\s*([\d.]+)\)/.exec(style)?.[1] ?? 1)
 
-test('paper, read by focus: the seed held open grows its pool clear of every voice printing words around it', async () => {
+test('paper, read by focus: the seed held open keeps its children\'s words clear of its own, and its pool parts around theirs', async () => {
   paper.on = true
   const tree = await open()
   expect(holdLoomVoice('seed')).toBe(true)
   frames(tree, 150)
-  const seed = hitOf('seed')
+  const [, sx, sy, shw, shh] = hitOf('seed')
+  const calls = recordRings()
+  const parted = calls.filter(c => c.op === 'translate' && c.comp === 'destination-out').map(c => c.args as number[])
   const layout = ringLayoutFor(tree)!
-  const pool = openPool(layout.pool, seed[3], seed[4], 1)
-  const cx = layout.cx + loomState.current * 2 - loomState.loomTreeScrollX
-  const cy = layout.cy - loomState.loomTreeScrollY
+  const pool = openPool(layout.pool, shw, shh, 1)
   for (const id of focusWords(tree, 'seed')) {
     if (id === 'seed') continue
     const [, x, y, hw, hh] = hitOf(id)
-    // The point of its printed block nearest the pool's centre lies outside the pool.
-    const nx = Math.max(x - hw, Math.min(cx, x + hw)) - cx
-    const ny = Math.max(y - hh, Math.min(cy, y + hh)) - cy
-    expect((nx / pool.rx) ** 2 + (ny / pool.ry) ** 2).toBeGreaterThanOrEqual(1)
+    // Clear of the seed's printed words, its signature included.
+    expect(Math.abs(x - sx) >= hw + shw || Math.abs(y - sy) >= hh + shh).toBe(true)
+    // Where the pool reaches its words, the pool parts around them.
+    if (Math.abs(x - sx) < pool.rx + hw && Math.abs(y - sy) < pool.ry + hh) {
+      expect(parted.some(([px, py]) => px === x && py === y)).toBe(true)
+    }
   }
 })
 

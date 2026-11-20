@@ -39,9 +39,8 @@ export interface RingBox {
   w: number, h: number, wordless?: boolean
   /**
    * The voice in focus (a lineage read by focus): the block its words take when it is held open,
-   * and the clear water around them (the seed's grown pool, or the paper cleared under a voice
-   * being read). Other voices' words are laid clear of both from the start, so nothing moves
-   * as it opens.
+   * and the clear water around them (rx, ry). Other voices' words are laid clear of both from the
+   * start, so nothing moves as it opens.
    */
   open?: OpenBlock
 }
@@ -87,8 +86,11 @@ const ASPECTS: ReadonlyArray<readonly [number, number]> = [
   [1, 0.55], [1, 0.7], [1, 0.85], [1, 1], [0.85, 1], [0.7, 1], [0.55, 1], [0.45, 1], [0.36, 1], [0.28, 1], [0.22, 1], [0.17, 1], [0.13, 1], [0.1, 1],
 ]
 
-function overlaps(a: RingPlace, b: RingPlace): boolean {
-  if (a.wordless !== b.wordless) return false
+function overlaps(a: RingPlace, b: RingPlace, entry = false): boolean {
+  // Voices that print no words take room only among themselves; around the seed held open its
+  // children's words sit off their arcs' middles, so there they also keep clear of those words,
+  // or a finger could find no point of a far voice's arc to take it up by.
+  if (a.wordless !== b.wordless && !(entry && !a.open && !b.open)) return false
   const o = a.open ? a : b.open ? b : null
   if (!o) return Math.abs(a.x - b.x) * 2 < a.w + b.w + GAP_X * 2
     && Math.abs(a.y - b.y) * 2 < a.h + b.h + GAP_Y * 2
@@ -119,11 +121,18 @@ export function layoutRings(tree: LoomTree, boxes: ReadonlyMap<string, RingBox>,
   for (const [ax, ay] of ASPECTS) {
     const layout = placeOnRings(tree, boxes, ax, ay)
     const b = bounds(layout)
-    const overX = Math.max(0, b.maxX - b.minX - (vw - 2 * margin))
-    const overY = Math.max(0, b.maxY - b.minY - (vh - 2 * margin))
+    // The seed held open (on entry, read by focus): the whole lineage's shape is its outermost
+    // ring, which should be seen whole too.
+    if (layout.places.get(tree.seed)?.open) {
+      const outer = layout.radii[layout.radii.length - 1]!
+      b.x0 = Math.min(b.x0, -outer * ax); b.x1 = Math.max(b.x1, outer * ax)
+      b.y0 = Math.min(b.y0, -outer * ay); b.y1 = Math.max(b.y1, outer * ay)
+    }
+    const overX = Math.max(0, b.x1 - b.x0 - (vw - 2 * margin))
+    const overY = Math.max(0, b.y1 - b.y0 - (vh - 2 * margin))
     // Sideways overflow is the worst (a page scrolls down, not across); then
     // prefer the roundest ring, then the smallest.
-    const score = overX * 40 + overY + 80 * Math.abs(Math.log(ay / ax)) + (b.maxX - b.minX + b.maxY - b.minY) * 0.05
+    const score = overX * 40 + overY + 80 * Math.abs(Math.log(ay / ax)) + (b.x1 - b.x0 + b.y1 - b.y0) * 0.05
     if (best === null || score < bestScore) { bestScore = score; best = layout }
   }
   const layout = best!
@@ -140,22 +149,51 @@ export function layoutRings(tree: LoomTree, boxes: ReadonlyMap<string, RingBox>,
     return Math.max(margin + half, Math.min(size - margin - half, size / 2 - (a + z) / 2))
   }
   const seedBlock = blockOf(seed)
-  const cx = fit(b.minX, b.maxX, outer * layout.ax, vw, seedBlock.w / 2)
-  const cy = fit(b.minY, b.maxY, outer * layout.ay, vh, seedBlock.h / 2)
+  const cx = fit(b.x0, b.x1, outer * layout.ax, vw, seedBlock.w / 2)
+  const cy = fit(b.y0, b.y1, outer * layout.ay, vh, seedBlock.h / 2)
   for (const p of layout.places.values()) { p.x += cx; p.y += cy }
   layout.cx = cx
   layout.cy = cy
   return layout
 }
 
-function bounds(layout: RingLayout): { minX: number, maxX: number, minY: number, maxY: number } {
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-  for (const p of layout.places.values()) {
+/** The box around the voices `ids` (all when omitted), each as large as its words can be. */
+export function bounds(layout: RingLayout, ids: Iterable<string> = layout.places.keys()): { x0: number, x1: number, y0: number, y1: number } {
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
+  for (const id of ids) {
+    const p = layout.places.get(id)
+    if (!p) continue
     const { w, h } = blockOf(p)
-    minX = Math.min(minX, p.x - w / 2); maxX = Math.max(maxX, p.x + w / 2)
-    minY = Math.min(minY, p.y - h / 2); maxY = Math.max(maxY, p.y + h / 2)
+    x0 = Math.min(x0, p.x - w / 2); x1 = Math.max(x1, p.x + w / 2)
+    y0 = Math.min(y0, p.y - h / 2); y1 = Math.max(y1, p.y + h / 2)
   }
-  return { minX, maxX, minY, maxY }
+  return { x0, x1, y0, y1 }
+}
+
+/** How far from level with the seed held open its children sit (radians): at least, and at most beside another. */
+const OFF_LEVEL = (40 * Math.PI) / 180
+const OFF_LEVEL_MAX = (65 * Math.PI) / 180
+
+/**
+ * Where the seed held open puts its n children (radians, in their order around it). Held open,
+ * the seed spans most of a phone's width, so a child level with it would sit beside it, off the
+ * sheet, and every ring would grow to hold it there. Half its children (the fewer) sit above it
+ * and the rest below. One or three in a half take its middle and its two ends; more stand in two
+ * columns, right and left, each between OFF_LEVEL and OFF_LEVEL_MAX from level, so that the two
+ * columns stay apart on a ring narrow enough for both to be on the sheet. Above, the past keeps
+ * its sector when there is one. Pure.
+ */
+export function aroundOpenSeed(n: number, pastSector: number): number[] {
+  // A half's columns, right and left, as angles from level, nearest level first.
+  const half = (k: number, middle: boolean, max = OFF_LEVEL_MAX) => {
+    const column = (m: number) => Array.from({ length: m }, (_, j) => OFF_LEVEL + (m > 1 ? (max - OFF_LEVEL) * j / (m - 1) : 0))
+    middle &&= k % 2 === 1 && k <= 3
+    return { right: column(middle ? (k - 1) / 2 : Math.ceil(k / 2)).concat(middle ? [Math.PI / 2] : []), left: column(Math.floor(k / 2)) }
+  }
+  const top = half(Math.floor(n / 2), pastSector === 0, Math.min(OFF_LEVEL_MAX, Math.PI / 2 - pastSector / 2))
+  const bottom = half(n - Math.floor(n / 2), true)
+  // Clockwise (y down) from the top: the top right, the bottom from right to left, the top left.
+  return [...top.right.reverse().map(a => -a), ...bottom.right, ...bottom.left.reverse().map(a => Math.PI - a), ...top.left.map(a => Math.PI + a)]
 }
 
 /** One ring shape: places every voice, seed at the origin. */
@@ -164,7 +202,14 @@ function placeOnRings(tree: LoomTree, boxes: ReadonlyMap<string, RingBox>, ax: n
   const box = (id: string): RingBox => boxes.get(id) ?? { w: 40, h: 30 }
   const seed = tree.nodes.get(tree.seed)
   const seedBox = box(tree.seed)
-  const radii: number[] = [Math.hypot(seedBox.w / 2 / ax, seedBox.h / 2 / ay) + 6]
+  // The seed held open (a lineage read by focus, on entry): see the rings around it.
+  const entry = !!seedBox.open
+  // Ring 0's radius says where the first ring starts growing. It encloses the seed's text, so no
+  // ring is drawn across it; but held open, the seed's text spans the sheet, a tall narrow ring
+  // would need a radius of three sheets to enclose it, and every ring outside follows. Its pool,
+  // grown to hold the text, takes the rings' place around it instead (the rings stop at its rim),
+  // so the first ring starts just over its text and grows only until its voices clear it.
+  const radii: number[] = [entry ? seedBox.open!.h / 2 / ay + 6 : Math.hypot(seedBox.w / 2 / ax, seedBox.h / 2 / ay) + 6]
   const pool = { rx: seedBox.w / 2 + 14, ry: seedBox.h / 2 + 14 }
   places.set(tree.seed, { ring: 0, side: 0, angle: UP, a0: -Math.PI, a1: Math.PI, x: 0, y: 0, w: seedBox.w, h: seedBox.h, wordless: seedBox.wordless, open: seedBox.open })
   if (!seed) return { cx: 0, cy: 0, ax, ay, radii, pool, places }
@@ -185,12 +230,15 @@ function placeOnRings(tree: LoomTree, boxes: ReadonlyMap<string, RingBox>, ax: n
   }
   countLeaves(tree.seed)
   const byRing: string[][] = []
+  // The seed held open, its children print words around it and the rest print none: they share
+  // the seed's arc equally, so its words are spread around it rather than crowded on one side.
+  const share = (id: string, c: string) => entry && id === tree.seed ? 1 : leaves.get(c)!
   const assign = (id: string, a0: number, a1: number) => {
     const kids = kidsOf(id)
-    const total = kids.reduce((s, c) => s + leaves.get(c)!, 0)
+    const total = kids.reduce((s, c) => s + share(id, c), 0)
     let a = a0
     for (const c of kids) {
-      const span = (a1 - a0) * leaves.get(c)! / total
+      const span = (a1 - a0) * share(id, c) / total
       const ring = tree.nodes.get(c)!.generationDepth
       const b = box(c)
       places.set(c, { ring, side: 1, angle: a + span / 2, a0: a, a1: a + span, x: 0, y: 0, w: b.w, h: b.h, wordless: b.wordless, open: b.open })
@@ -199,7 +247,18 @@ function placeOnRings(tree: LoomTree, boxes: ReadonlyMap<string, RingBox>, ax: n
       a += span
     }
   }
-  assign(tree.seed, UP + RING_PAST_SECTOR / 2, UP + 2 * Math.PI - RING_PAST_SECTOR / 2)
+  // The past keeps a sector at the top; held open, a seed with no past gives it to its children.
+  let past = false
+  for (const node of tree.nodes.values()) if (node.generationDepth < 0) past = true
+  const pastSector = entry && !past ? 0 : RING_PAST_SECTOR
+  assign(tree.seed, UP + pastSector / 2, UP + 2 * Math.PI - pastSector / 2)
+  if (entry) {
+    // Its arcs stay where they are (each child's own lineage keeps to its arc); the children's
+    // words move off level.
+    const kids = kidsOf(tree.seed)
+    const angles = aroundOpenSeed(kids.length, pastSector)
+    kids.forEach((c, i) => { places.get(c)!.angle = angles[i]! })
+  }
 
   // Ancestors: one per ring, at the top.
   for (const node of tree.nodes.values()) {
@@ -220,8 +279,8 @@ function placeOnRings(tree: LoomTree, boxes: ReadonlyMap<string, RingBox>, ax: n
       for (const p of ring) { p.x = Math.cos(p.angle) * r * ax; p.y = Math.sin(p.angle) * r * ay }
       let clear = true
       for (let i = 0; i < ring.length && clear; i++) {
-        for (let j = i + 1; j < ring.length && clear; j++) if (overlaps(ring[i]!, ring[j]!)) clear = false
-        for (const q of placed) if (clear && overlaps(ring[i]!, q)) clear = false
+        for (let j = i + 1; j < ring.length && clear; j++) if (overlaps(ring[i]!, ring[j]!, entry)) clear = false
+        for (const q of placed) if (clear && overlaps(ring[i]!, q, entry)) clear = false
       }
       if (clear) break
     }
@@ -250,15 +309,10 @@ function placeOnRings(tree: LoomTree, boxes: ReadonlyMap<string, RingBox>, ax: n
  * where it does not, just far enough to bring its farthest text in. Pure.
  */
 export function ringPanRange(layout: RingLayout, vw: number, vh: number, margin: number): { x0: number, x1: number, y0: number, y1: number } {
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-  for (const p of layout.places.values()) {
-    const { w, h } = blockOf(p)
-    minX = Math.min(minX, p.x - w / 2); maxX = Math.max(maxX, p.x + w / 2)
-    minY = Math.min(minY, p.y - h / 2); maxY = Math.max(maxY, p.y + h / 2)
-  }
+  const b = bounds(layout)
   return {
-    x0: Math.min(0, minX - margin), x1: Math.max(0, maxX + margin - vw),
-    y0: Math.min(0, minY - margin), y1: Math.max(0, maxY + margin - vh),
+    x0: Math.min(0, b.x0 - margin), x1: Math.max(0, b.x1 + margin - vw),
+    y0: Math.min(0, b.y0 - margin), y1: Math.max(0, b.y1 + margin - vh),
   }
 }
 
