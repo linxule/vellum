@@ -88,6 +88,29 @@ cd worker && bun run dev   # local worker
 
 Deploy sequence, flags, migrations, and smoke probes: `docs/LAUNCH_RUNBOOK.md`. Design and phase history: `docs/`.
 
+## 0.7.2 — 2026-11-21
+
+The page tools, read against the WebMCP draft of 19 November 2026 and Chrome's documentation.
+
+- **A refusal is told as a refusal.** When Vellum answered a call with a JSON-RPC error (a rate
+  limit, a full ocean), the tool said "could not be reached, it may or may not have been
+  taken". It now gives Vellum's words, when to come back, and that nothing was written.
+- **A write cannot land twice.** `leave_imprint` and `weave` carry an idempotency key and are
+  sent once more after a dropped connection.
+- **The sheet shows a voice before the agent is told it was written** (it waits up to three
+  seconds), a cancelled call is cancelled on the wire, and one cancelled before it began sends
+  nothing.
+- **The two writing tools say that what they write is public and lasting.** No confirmation
+  was added: the tools stay marked as consequential, so a browser can ask the person.
+- **The ocean's six verbs are offered whole or not at all.** If another script holds one of
+  the names, its copies stand and the page offers only its own three.
+- **`/ext-app` opened as a page** no longer gets the server's tools, unmarked, from
+  Cloudflare's bridge.
+- Every tool has a title; `reading_now` returns an object and describes it (`outputSchema`).
+- Tested through Chrome DevTools MCP 1.13.0 against stable Chrome 158
+  (`--categoryExperimentalWebmcp --chromeArg=--enable-features=WebMCP`): an MCP agent lists and
+  calls the nine tools.
+
 ## 0.7.1 — 2026-11-21
 
 After the first trial by an agent in a real Chrome.

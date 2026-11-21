@@ -11,9 +11,11 @@ function modelContext(taken: string[] = []) {
   const tools = new Map<string, Registered>()
   const listeners: Array<(event: { toolName?: string }) => void> = []
   const mc: ModelContext = {
-    registerTool: async (tool) => {
+    registerTool: async (tool, options) => {
       if (tools.has(tool.name) || taken.includes(tool.name)) throw new DOMException('Duplicate tool name', 'InvalidStateError')
       tools.set(tool.name, tool)
+      // As in the browser: aborting the signal a tool was registered with takes it back.
+      options?.signal?.addEventListener('abort', () => { tools.delete(tool.name) })
     },
     addEventListener: (type, listener) => { if (type === 'toolactivated') listeners.push(listener) },
   }
@@ -152,11 +154,12 @@ test('on the default ocean nothing is added to a call or to the schema', async (
   expect(tools.get('discover')!.inputSchema).toEqual(JSON.parse(JSON.stringify(listed.inputSchema)))
 })
 
-test('a name another script holds is left to it, and a write through that copy still lands', async () => {
+test('when another script holds one of the ocean\'s names, the six are left to it whole, and a write through its copy still lands', async () => {
   const { mc, tools, activate } = modelContext(['leave_imprint', 'weave', 'sense_space']), { s, calls } = sheet(), { fetchFn } = server()
   const mine = await register(mc, s, { fetch: fetchFn, landAfterMs: [0] })
-  expect(mine.sort()).toEqual(['discover', 'focus', 'open_lineage', 'reading_now', 'show_voice', 'witness'])
-  expect(tools.has('leave_imprint')).toBe(false)
+  // Not a mix of this page's marked tools and another's unmarked ones: the three it did register are taken back.
+  expect(mine.sort()).toEqual(['open_lineage', 'reading_now', 'show_voice'])
+  expect([...tools.keys()].sort()).toEqual(['open_lineage', 'reading_now', 'show_voice'])
   activate('sense_space')
   activate('discover')
   await tick()
@@ -210,7 +213,123 @@ test('open_lineage opens a woven voice and says why not for an unwoven one', asy
 test('reading_now says what is open, with the words of the voices it names', async () => {
   const { mc, tools } = modelContext(), { s } = sheet(), { fetchFn } = server()
   await register(mc, s, { fetch: fetchFn })
-  expect(JSON.parse(await tools.get('reading_now')!.execute({}))).toEqual({
+  // An object, not a string of JSON: the browser serializes what a tool returns.
+  expect(await tools.get('reading_now')!.execute({})).toEqual({
     surface: 'vellum', open_currents: ['memory'], lineage: { voice_id: 'v:woven', text: 'A woven voice.' }, held: null,
   })
+})
+
+test('every tool has a title a person can read; the six carry the one the server lists', async () => {
+  const { mc, tools } = modelContext(), { s } = sheet(), { fetchFn } = server()
+  await register(mc, s, { fetch: fetchFn })
+  for (const tool of tools.values()) expect((tool.title ?? '').length).toBeGreaterThan(3)
+  expect(tools.get('weave')!.title).toBe(statelessToolDefinitions().find(d => d.name === 'weave')!.title)
+})
+
+test('the sheet shows a written voice before the agent is answered, but a slow sheet does not hold the answer', async () => {
+  const order: string[] = []
+  const slow = sheet({ refresh: async () => { await new Promise(done => setTimeout(done, 20)); order.push('sheet') } })
+  const { mc, tools } = modelContext(), { fetchFn } = server()
+  await register(mc, slow.s, { fetch: fetchFn })
+  await tools.get('leave_imprint')!.execute({ text: 'x', families: ['memory'] })
+  order.push('answered')
+  expect(order).toEqual(['sheet', 'answered'])
+
+  const stuck = sheet({ refresh: () => new Promise(() => {}) }), second = modelContext()
+  await register(second.mc, stuck.s, { fetch: fetchFn, landWaitMs: 10 })
+  const started = Date.now()
+  expect(await second.tools.get('weave')!.execute({ source_id: 'v:woven', text: 'x', families: ['memory'] })).toBe('ok')
+  expect(Date.now() - started).toBeLessThan(500)
+})
+
+test('a call the agent cancels is cancelled on the wire', async () => {
+  const signals: Array<AbortSignal | null | undefined> = []
+  const { fetchFn } = server()
+  const spy = ((url: string, init: RequestInit) => { signals.push(init.signal); return fetchFn(url, init) }) as unknown as typeof fetch
+  const { mc, tools } = modelContext(), { s } = sheet()
+  await register(mc, s, { fetch: spy })
+  const run = new AbortController()
+  await tools.get('discover')!.execute({}, { signal: run.signal })
+  expect(signals.at(-1)).toBe(run.signal)
+})
+
+// Tools are listed first, then every later request is answered as given.
+function afterList(answer: (body: any) => Response) {
+  const { fetchFn } = server()
+  let first = true
+  return ((url: string, init: RequestInit) => {
+    if (first) { first = false; return fetchFn(url, init) }
+    return Promise.resolve(answer(JSON.parse(String(init.body))))
+  }) as unknown as typeof fetch
+}
+
+test('a refusal Vellum gave is told as a refusal: its words, when to come back, and that nothing was written', async () => {
+  // As handleMCP answers when admission refuses, before anything is parsed.
+  const limited = afterList(body => new Response(JSON.stringify({
+    jsonrpc: '2.0', id: body.id, error: { code: -32000, message: 'Too many requests from this address.', data: { error_code: 'RATE_LIMITED', retry_after: 40 } },
+  }), { status: 429 }))
+  const { mc, tools } = modelContext(), { s, calls } = sheet()
+  await register(mc, s, { fetch: limited })
+  const said = await tools.get('leave_imprint')!.execute({ text: 'x', families: ['memory'] })
+  expect(said).toBe('Vellum refused (RATE_LIMITED): Too many requests from this address. Try again in 40 seconds. Nothing was written.')
+  expect(await tools.get('focus')!.execute({ family: 'memory' })).toBe('Vellum refused (RATE_LIMITED): Too many requests from this address. Try again in 40 seconds.')
+  expect(calls).toEqual([])
+})
+
+test('an internal error promises nothing about a write, and an error page is told by its status', async () => {
+  const internal = afterList(body => new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id, error: { code: -32603, message: 'Internal error' } }), { status: 500 }))
+  const a = modelContext(), { s } = sheet()
+  await register(a.mc, s, { fetch: internal })
+  expect(await a.tools.get('weave')!.execute({ source_id: 'v:woven', text: 'x', families: ['memory'] })).toContain('may or may not have been taken')
+
+  const page = afterList(() => new Response('<html>502 Bad Gateway</html>', { status: 502 }))
+  const b = modelContext()
+  await register(b.mc, s, { fetch: page })
+  expect(await b.tools.get('discover')!.execute({})).toBe('Vellum could not be reached (HTTP 502).')
+})
+
+test('a cancelled call says so', async () => {
+  const run = new AbortController()
+  const hung = afterList(() => { throw new DOMException('The operation was aborted.', 'AbortError') })
+  const { mc, tools } = modelContext(), { s } = sheet()
+  await register(mc, s, { fetch: hung })
+  const pending = tools.get('discover')!.execute({}, { signal: run.signal })
+  run.abort()
+  expect(await pending).toBe('Cancelled.')
+  // Cancelled before it began: nothing goes out, which for a write is the last point to stop it.
+  let sent = 0
+  const counting = afterList(() => { sent++; return new Response('{}') })
+  const b = modelContext()
+  await register(b.mc, s, { fetch: counting })
+  expect(await b.tools.get('leave_imprint')!.execute({ text: 'x', families: ['memory'] }, { signal: run.signal })).toBe('Cancelled before anything was sent.')
+  expect(sent).toBe(0)
+})
+
+test('a write carries a key, and after a dropped connection is sent once more under the same key', async () => {
+  const keys: unknown[] = []
+  let n = 0
+  const flaky = afterList(body => {
+    keys.push(body.params._meta.idempotencyKey)
+    if (++n === 1) throw new TypeError('Failed to fetch')
+    return new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: { content: [{ type: 'text', text: 'written' }] } }))
+  })
+  const { mc, tools } = modelContext(), { s, calls } = sheet()
+  await register(mc, s, { fetch: flaky, retryAfterMs: 1 })
+  expect(await tools.get('leave_imprint')!.execute({ text: 'x', families: ['memory'] })).toBe('written')
+  expect(keys.length).toBe(2)
+  expect(typeof keys[0]).toBe('string')
+  expect(keys[1]).toBe(keys[0])
+  expect(calls).toEqual(['refresh'])
+  // A read carries none and is not sent again.
+  n = 0; keys.length = 0
+  expect(await tools.get('discover')!.execute({})).toBe('Vellum could not be reached (Failed to fetch).')
+  expect(keys).toEqual([undefined])
+})
+
+test('the two tools that write say, in the tab, that what they write is public and lasting', async () => {
+  const { mc, tools } = modelContext(), { s } = sheet(), { fetchFn } = server()
+  await register(mc, s, { fetch: fetchFn })
+  for (const [name, tool] of tools) expect(/public and lasting/.test(tool.description)).toBe(name === 'leave_imprint' || name === 'weave')
+  // Within what Chrome's guidance recommends for a description.
+  for (const tool of tools.values()) expect(tool.description.length).toBeLessThanOrEqual(500)
 })

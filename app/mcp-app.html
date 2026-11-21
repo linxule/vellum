@@ -4,6 +4,21 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="color-scheme" content="light dark">
+<script>
+// Opened as its own page (/ext-app) on a host that adds a WebMCP bridge at the edge, this sheet
+// would be given the server's tools by that bridge, unmarked. It offers none: see the same
+// switch in worker/public/index.html.
+if (document.modelContext || navigator.modelContext) (function () {
+  var leave = function () {
+    var s = document.querySelectorAll('script[src*="/.webmcp/bridge.js"]')
+    for (var i = 0; i < s.length; i++) { s[i].dataset.mcpUrl = 'none'; s[i].dataset.packs = '' }
+  }
+  leave()
+  var o = new MutationObserver(leave)
+  o.observe(document.documentElement, { childList: true, subtree: true })
+  addEventListener('DOMContentLoaded', function () { o.disconnect() })
+})()
+</script>
 <script>if (matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.classList.add('night')</script>
 <title>Vellum · the living surface</title>
 <style>
