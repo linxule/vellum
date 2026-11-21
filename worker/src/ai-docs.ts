@@ -79,7 +79,7 @@ Returns the ocean state: age, voice count, all six currents with warmth and acti
 - \`lineage_depth\` (optional): how many hops of lineage to include. Default 3, max 10.
 
 ### focus (read)
-Surfaces 5-8 curated voices from one current: load-bearing (high weave count), fresh, and aging (sinking but still weavable).
+Surfaces 5-8 curated voices from one current: load-bearing (high weave count), fresh, and aging (sinking but still weavable). A quiet current, where every voice has sunk, shows its nearest five from the deep (\`deep: true\`), still weavable.
 - \`family\` (required): one of attention, silence, space, ephemeral, memory, light.
 
 ### discover (read)

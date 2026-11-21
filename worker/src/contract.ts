@@ -257,7 +257,7 @@ export const ARCHIPELAGO = {
  * until it shows `floorPerFamily`; the renderer paints those dimmer (SUNKEN_DEPTH in
  * src/loom/types.ts must equal `sunkenDepth`; tests/scripts/ocean-constants.test.ts pins it).
  */
-export const OCEAN = { floorPerFamily: 40, surfaceCap: 60, sunkenDepth: 0.7 } as const
+export const OCEAN = { floorPerFamily: 40, surfaceCap: 60, sunkenDepth: 0.7, focusFloor: 5 } as const
 
 /**
  * Phase 16 "The Levee" — infrastructure ceilings and thresholds, single source of truth.

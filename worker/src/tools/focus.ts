@@ -3,6 +3,7 @@ import { getWarmth } from '../warmth'
 import { yamlEscape } from '../helpers'
 import { computeDepth } from '../sedimentation'
 import { modeOf } from '../levee-admission'
+import { OCEAN } from '../contract'
 
 export async function handleFocus(
   env: Env, _ctx: ExecutionContext, _traceId: string | null,
@@ -77,6 +78,31 @@ export async function handleFocus(
   // Aging: filter by depth first, then cap at 2
   addVoices((agingRes.results ?? []) as VoiceRow[], 'aging', 2)
 
+  // A quiet current: every voice has sunk past the three cuts above, and a current of 84 voices
+  // answered "empty. No voices yet." (attention, 2026-11-21). As the projection keeps a floor
+  // (cache.ts, selectProjectedVoices), fill up to OCEAN.focusFloor with the nearest of what the
+  // queries found (the current's most woven and its most recent) and say how deep each lies.
+  if (voices.length < OCEAN.focusFloor) {
+    const rest = [loadBearingRes, freshRes, agingRes]
+      .flatMap(res => (res.results ?? []) as VoiceRow[])
+      .filter(v => !seen.has(v.id))
+      .map(v => ({ v, depth: computeDepth(v, warmth, now, permanenceMode) }))
+      .sort((a, b) => a.depth - b.depth)
+    for (const { v, depth } of rest) {
+      if (voices.length >= OCEAN.focusFloor) break
+      if (seen.has(v.id)) continue
+      seen.add(v.id)
+      voices.push({
+        id: v.id,
+        text: v.text,
+        lang: v.language ?? 'en',
+        age_h: Math.round((now - v.created_at) / 3_600_000),
+        weave_count: v.weave_count,
+        ...(depth >= OCEAN.sunkenDepth ? { deep: true } : depth >= 0.4 ? { aging: true } : {}),
+      })
+    }
+  }
+
   // Shuffle (Fisher-Yates)
   for (let i = voices.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))
@@ -100,7 +126,7 @@ export async function handleFocus(
     const weaveStr = v.weave_count === 0 ? 'unwoven'
       : v.weave_count === 1 ? 'woven once'
       : `woven ${v.weave_count} times`
-    const agingStr = v.aging ? ', aging' : ''
+    const agingStr = v.deep ? ', from the deep' : v.aging ? ', aging' : ''
     return `"${v.text}" (${v.lang})\n  — ${ageStr}, ${weaveStr}${agingStr}`
   }).join('\n\n')
 
@@ -108,6 +134,7 @@ export async function handleFocus(
   const voicesYaml = capped.map(v => {
     let yaml = `  - id: "${v.id}"\n    text: "${yamlEscape(v.text)}"\n    lang: ${v.lang}\n    age_h: ${v.age_h}\n    weave_count: ${v.weave_count}`
     if (v.aging) yaml += '\n    aging: true'
+    if (v.deep) yaml += '\n    deep: true'
     return yaml
   }).join('\n')
 

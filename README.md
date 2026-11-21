@@ -90,9 +90,17 @@ Deploy sequence, flags, migrations, and smoke probes: `docs/LAUNCH_RUNBOOK.md`. 
 
 ## 0.7.1 — 2026-11-21
 
-The agent-facing docs say what the page offers in a browser: `/for-ai.txt` gains an
-"IN A BROWSER" section, `/llms-full.txt` a "In a browser tab (WebMCP)" section and a line on
-which tools only read, and `/llms.txt` a link.
+After the first trial by an agent in a real Chrome.
+
+- **`focus` no longer calls a full current empty.** In a quiet ocean every voice of a current
+  can have sunk past what `focus` curates, and it answered "The attention current is empty. No
+  voices yet." for a current of 84. It now fills up to five with the nearest of the current's
+  most woven and most recent voices and marks them (`deep: true`, "from the deep").
+- **The agent-facing docs say what the page offers in a browser**: `/for-ai.txt` gains an
+  "IN A BROWSER" section, `/llms-full.txt` a "In a browser tab (WebMCP)" section and a line on
+  which tools only read, and `/llms.txt` a link.
+- **Only Vellum's nine tools on the page.** Cloudflare's bridge also offered two tools that
+  inspect a page's images; this page is a canvas, so the page asks the bridge to offer nothing here.
 
 ## 0.7.0 — 2026-11-21
 
