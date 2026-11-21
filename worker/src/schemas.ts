@@ -198,7 +198,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'focus',
     annotations: READS,
-    description: 'Surfaces 5-8 curated voices from one thematic current: load-bearing phrases carried forward many times, fresh arrivals, and voices aging toward the deep (still weavable, but sinking). Call witness afterward to warm the current with your attention.',
+    description: 'Surfaces 5-8 curated voices from one thematic current: load-bearing phrases carried forward many times, fresh arrivals, and voices aging toward the deep (still weavable, but sinking). A quiet current, where all have sunk, shows its nearest voices from the deep (weavable too). Call witness afterward to warm the current with your attention.',
     inputSchema: {
       type: 'object' as const,
       properties: {

@@ -23,12 +23,12 @@
 <script>
 // The page offers Vellum's tools to an agent in the tab itself (src/webmcp.ts). A host's WebMCP
 // bridge (Cloudflare adds one at the edge) would offer the server's six again under the same
-// names, and a browser keeps only the first of a name: tell it to leave them, by its own switch,
-// before it runs. Its other tools stay.
+// names, and a browser keeps only the first of a name; its other tools inspect a page's images,
+// and this page is a canvas. Tell it to offer nothing here, by its own switches, before it runs.
 if (document.modelContext || navigator.modelContext) (function () {
   var leave = function () {
     var s = document.querySelectorAll('script[src*="/.webmcp/bridge.js"]')
-    for (var i = 0; i < s.length; i++) s[i].dataset.mcpUrl = 'none'
+    for (var i = 0; i < s.length; i++) { s[i].dataset.mcpUrl = 'none'; s[i].dataset.packs = '' }
   }
   leave()
   var o = new MutationObserver(leave)

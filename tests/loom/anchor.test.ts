@@ -323,10 +323,17 @@ describe('on paper, the words under the lens stay put', () => {
     const memory = loomState.threads.find(t => t.familyNames.includes('memory'))!
     const readX = pathXAtY(attention._path, y)
     const restX = pathXAtY(memory._path, y)
-    let readMoved = 0
-    frames(1000, () => { hold(y); readMoved = Math.max(readMoved, Math.abs(pathXAtY(attention._path, y) - readX)) })
+    // The farthest each strays over the 16 s, not where it is at the end: a current sways, and at
+    // one instant it can be back near where it started (measured at the end only, this failed now and
+    // then in full runs: 0.44 px where more than 1 was expected).
+    let readMoved = 0, restMoved = 0
+    frames(1000, () => {
+      hold(y)
+      readMoved = Math.max(readMoved, Math.abs(pathXAtY(attention._path, y) - readX))
+      restMoved = Math.max(restMoved, Math.abs(pathXAtY(memory._path, y) - restX))
+    })
     expect(readMoved).toBeLessThan(0.5)
-    expect(Math.abs(pathXAtY(memory._path, y) - restX)).toBeGreaterThan(1)
+    expect(restMoved).toBeGreaterThan(1)
   })
 
   test('a new state arriving while a current is read keeps its words where they are', () => {

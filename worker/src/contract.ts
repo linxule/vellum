@@ -2,7 +2,7 @@ import { FAMILIES } from './types'
 import { RATE_LIMITS } from './rate-limits'
 import type { VoiceSound } from './sound'
 
-export const SERVER_VERSION = '0.7.0'
+export const SERVER_VERSION = '0.7.1'
 // Legacy revisions open with `initialize` and carry a signed Mcp-Session-Id. Modern revisions
 // (2026-07-28 onward) are stateless: version and capabilities travel in each request's `_meta`.
 export const LEGACY_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'] as const
@@ -257,7 +257,7 @@ export const ARCHIPELAGO = {
  * until it shows `floorPerFamily`; the renderer paints those dimmer (SUNKEN_DEPTH in
  * src/loom/types.ts must equal `sunkenDepth`; tests/scripts/ocean-constants.test.ts pins it).
  */
-export const OCEAN = { floorPerFamily: 40, surfaceCap: 60, sunkenDepth: 0.7 } as const
+export const OCEAN = { floorPerFamily: 40, surfaceCap: 60, sunkenDepth: 0.7, focusFloor: 5 } as const
 
 /**
  * Phase 16 "The Levee" — infrastructure ceilings and thresholds, single source of truth.

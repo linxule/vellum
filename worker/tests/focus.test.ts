@@ -175,13 +175,42 @@ describe('handleFocus', () => {
 
     // Two months old and woven 5 times: depth ~0.51 by the sinking curve, past the load-bearing
     // cutoff (0.3) — unless permanence floors it at 0.1.
+    // (Both are listed either way since 2026-11-21: a quiet current fills up from what has sunk.
+    // The one past the cutoff says so.)
+    const sinking = (text: string, id: string) => /aging: true|deep: true/.test(text.slice(text.indexOf(`id: "${id}"`)).split('  - id:')[0]!)
     const on = await focus({ LEVEE_PERMANENCE: 'on' })
     expect(on).toContain('voice-rooted')
-    expect(on).not.toContain('voice-sunk')
+    expect(sinking(on, 'voice-rooted')).toBe(false)
+    expect(sinking(on, 'voice-sunk')).toBe(true)
 
     // Flag off: the weighted columns are ignored and neither voice has enough unique_weavers.
     const off = await focus({})
-    expect(off).not.toContain('voice-rooted')
-    expect(off).not.toContain('voice-sunk')
+    expect(sinking(off, 'voice-rooted')).toBe(true)
+    expect(sinking(off, 'voice-sunk')).toBe(true)
+  })
+
+  test('a quiet current, where every voice has sunk, still shows its nearest five, marked', async () => {
+    const now = Date.now(), day = 24 * 3_600_000
+    // As attention stood on 2026-11-21: months old, nothing recent, and focus said "empty. No voices yet."
+    const voices = Array.from({ length: 9 }, (_, i) => ({
+      id: `voice-${i}`, text: `An old thought, number ${i}`, language: 'en', created_at: now - (200 + i) * day,
+      weave_count: i < 4 ? 6 - i : 0, unique_weavers: 1, is_hidden: 0,
+    }))
+    const db = new FocusTestDb(voices, voices.map(v => ({ voice_id: v.id, family: 'attention', ordinal: 0 })))
+    const text = (await handleFocus({ DB: db as unknown as D1Database } as never, new MockExecutionContext() as never, null, { family: 'attention' })).content[0]?.text ?? ''
+    expect(text).not.toContain('empty')
+    expect(text).toContain('You focus on attention. 5 voices')
+    // Each says how far down it lies: the well woven are still aging, the unwoven lie deep.
+    expect(text.match(/(deep|aging): true/g)?.length).toBe(5)
+    expect(text.match(/, (from the deep|aging)$/gm)?.length).toBe(5)
+    expect(text).toContain('deep: true')
+    // The nearest: its most woven come first among what the queries found.
+    expect(text).toContain('voice-0')
+  })
+
+  test('a current with no voice at all is still said to be empty', async () => {
+    const db = new FocusTestDb([], [])
+    const text = (await handleFocus({ DB: db as unknown as D1Database } as never, new MockExecutionContext() as never, null, { family: 'light' })).content[0]?.text ?? ''
+    expect(text).toContain('The light current is empty. No voices yet.')
   })
 })

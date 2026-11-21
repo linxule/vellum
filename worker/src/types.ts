@@ -182,4 +182,6 @@ export interface FocusVoice {
   age_h: number
   weave_count: number
   aging?: boolean
+  /** Sunk past OCEAN.sunkenDepth: shown because the current is quiet (focus's floor). */
+  deep?: boolean
 }
