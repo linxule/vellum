@@ -2,7 +2,7 @@ import { FAMILIES } from './types'
 import { RATE_LIMITS } from './rate-limits'
 import type { VoiceSound } from './sound'
 
-export const SERVER_VERSION = '0.7.1'
+export const SERVER_VERSION = '0.7.2'
 // Legacy revisions open with `initialize` and carry a signed Mcp-Session-Id. Modern revisions
 // (2026-07-28 onward) are stateless: version and capabilities travel in each request's `_meta`.
 export const LEGACY_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'] as const
