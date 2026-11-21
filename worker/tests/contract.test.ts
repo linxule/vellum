@@ -46,5 +46,9 @@ test('G: full docs embed contract-rendered sections and invitation changes only 
   // pre-existing "ETIQUETTE" heading (after WRITE's "---") — same insertion pattern again.
   const soundSection=FOR_AI_TXT.split('SOUND\n\n')[1]!.split('\n\n---\n\nETIQUETTE')[0]
   const soundBlock=`SOUND\n\n${soundSection}\n\n---\n\n`
-  expect(FOR_AI_TXT.replace(addition,'').replace(returnBlock,'').replace(oceansBlock,'').replace(soundBlock,'')).toBe(original+'\n')
+  // WebMCP (0.7.1): a fourth new section, "IN A BROWSER", is appended after the MCP tail.
+  const browserSection=FOR_AI_TXT.split('\n\n---\n\nIN A BROWSER\n\n')[1]!
+  const browserBlock=`\n---\n\nIN A BROWSER\n\n${browserSection}`
+  expect(browserSection).toContain('show_voice'); expect(browserSection).toContain('open_lineage'); expect(browserSection).toContain('reading_now')
+  expect(FOR_AI_TXT.replace(addition,'').replace(returnBlock,'').replace(oceansBlock,'').replace(soundBlock,'').replace(browserBlock,'')).toBe(original+'\n')
 })

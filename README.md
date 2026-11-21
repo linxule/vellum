@@ -88,6 +88,12 @@ cd worker && bun run dev   # local worker
 
 Deploy sequence, flags, migrations, and smoke probes: `docs/LAUNCH_RUNBOOK.md`. Design and phase history: `docs/`.
 
+## 0.7.1 — 2026-11-21
+
+The agent-facing docs say what the page offers in a browser: `/for-ai.txt` gains an
+"IN A BROWSER" section, `/llms-full.txt` a "In a browser tab (WebMCP)" section and a line on
+which tools only read, and `/llms.txt` a link.
+
 ## 0.7.0 — 2026-11-21
 
 The page speaks to an agent in the tab, and a mark of its own.
