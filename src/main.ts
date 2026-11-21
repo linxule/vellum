@@ -482,6 +482,7 @@ if (modelContext) {
     show: (id: string) => {
       const found = findVoice(id), at = found ? findThreadIndexForFamily(found.family) : -1
       if (at < 0) return false
+      clearTimeout(highlightAutoLoomTimeout ?? undefined)
       if (isLoomViewActive()) exitLoomView()
       closeReading()
       scrollThreadToVoice(at, id)
@@ -491,13 +492,28 @@ if (modelContext) {
     },
     lineage: (id: string) => {
       if (!isWoven(id)) return false
+      clearTimeout(highlightAutoLoomTimeout ?? undefined)
       if (isLoomViewActive()) recenterLoomView(id)
       else enterLoomView(id)
-      if (getCurrentLoomSeed() !== id) return false
+      // Refused (the view is still closing, or the sheet holds too little of the lineage): the
+      // seed of a closing view is kept until it has closed, so ask whether the view is open too.
+      if (!isLoomViewActive() || getCurrentLoomSeed() !== id) return false
+      // A lens left on the ocean (an arrival, show_voice) would read as a pointer on the rings:
+      // let it go, as the reader moving does.
+      mouse.lastMove = performance.now()
+      parkMouse()
       showHighlight(id)
+      readSeed(id, coarsePointer())
       return true
     },
-    reading: () => ({ families: getLoomState().families, lineage: getCurrentLoomSeed(), held: loomHeldVoice() }),
-    refresh: () => poll({ refresh: true }),
+    // The lineage view covers the ocean: no current is open under it.
+    reading: () => isLoomViewActive()
+      ? { families: [], lineage: getCurrentLoomSeed(), held: loomHeldVoice() }
+      : { families: getLoomState().families, lineage: null, held: null },
+    // Until the ocean is in: a fetch already under way is followed by this one (poll), so wait both out.
+    refresh: async () => {
+      await poll({ refresh: true })
+      while (pollInFlight) await new Promise(done => setTimeout(done, 50))
+    },
   })).catch(() => { /* the sheet reads the same without them */ })
 }

@@ -117,7 +117,9 @@ test('an unreachable server is said in words, not thrown', async () => {
   await register(mc2, s, { fetch: ((url: string, init: RequestInit) => { if (first) { first = false; return fetchFn(url, init) } return down(url, init) }) as unknown as typeof fetch })
   const said = await tools2.get('leave_imprint')!.execute({ text: 'x', families: ['memory'] })
   expect(said).toContain('could not be reached')
-  expect(said).toContain('Nothing was written')
+  // The request may have arrived: a write is not said to have failed, a read has nothing to say.
+  expect(said).toContain('may or may not have been taken')
+  expect(await tools2.get('discover')!.execute({})).toBe('Vellum could not be reached (Failed to fetch).')
   expect(calls).toEqual([])
   expect(tools.size).toBe(9)
 })

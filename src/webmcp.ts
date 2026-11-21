@@ -97,14 +97,16 @@ export async function register(mc: ModelContext, sheet: Sheet, options: Register
 
   // A tool that throws tells the agent only that it failed (Chrome: "Tool execution failed"), so
   // every outcome, a refusal and its hint included, goes back as the tool's text.
-  const call = async (name: string, args: Record<string, unknown> | undefined): Promise<string> => {
+  const call = async (name: string, args: Record<string, unknown> | undefined, reads: boolean): Promise<string> => {
     const sent: Record<string, unknown> = { ...args }
     if (sheet.surface !== DEFAULT_SURFACE && sent.surface === undefined) sent.surface = sheet.surface
     let result: ToolResult
     try {
       result = await rpc('tools/call', { name, arguments: sent }, name)
     } catch (error) {
-      return `Vellum could not be reached (${error instanceof Error ? error.message : String(error)}). Nothing was written.`
+      // The request may have arrived all the same: a write is not said to have failed.
+      const why = error instanceof Error ? error.message : String(error)
+      return `Vellum could not be reached (${why}).` + (reads ? '' : ' It may or may not have been taken: look for it with discover before sending it again.')
     }
     const text = (result.content ?? []).flatMap(block => block.type === 'text' && block.text ? [block.text] : []).join('\n')
     if (result.isError) {
@@ -180,7 +182,7 @@ export async function register(mc: ModelContext, sheet: Sheet, options: Register
       inputSchema: { type: 'object', ...tool.inputSchema, properties: properties ?? {} },
       // What comes back quotes other writers. A voice, once written, is public and stays.
       annotations: { readOnlyHint: tool.annotations?.readOnlyHint === true, untrustedContentHint: true, consequentialHint: LANDS.has(tool.name) },
-      execute: (args) => call(tool.name, args),
+      execute: (args) => call(tool.name, args, tool.annotations?.readOnlyHint === true),
     })
   }
 
