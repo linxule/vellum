@@ -29,6 +29,7 @@ Live at `vellum.linxule.com` (custom) and `vellum.linxule.workers.dev`. MCP endp
 - **`docs/PATTERNS_AND_GOTCHAS.md`** — subsystem mechanism notes (worker, renderer, ext-app, testing idioms). Load when working in that subsystem.
 - **`docs/LOOM_INVARIANTS.md`** — 7 load-bearing renderer invariants + cross-cutting rules.
 - **`docs/OBSERVABILITY.md`** — post-deploy smoke, healthy baselines.
+- **`docs/WEBMCP.md`** — the page tools: who can call them today and how each fact is known, the check through Chrome DevTools MCP, what the 2026-11-21 reading of the spec decided, what is open. Read it before touching `src/webmcp.ts`.
 - **`docs/FEATURE_BACKLOG.md`** — forward-looking features (F3-F5, F9, F11 open; F7/F8/F10/F12/F13 shipped; presence fork DECIDED: live warmth).
 - Memory `project_vellum-phase-arc` — full chronology (P1..18, all deployed; 2026-09-05 arc decisions + panel) + bootstrap doc pointers.
 - Memory `project_vellum-identity-architecture` — 3-layer identity mental model (canonical / projection / ephemeral).
