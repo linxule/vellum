@@ -88,6 +88,26 @@ cd worker && bun run dev   # local worker
 
 Deploy sequence, flags, migrations, and smoke probes: `docs/LAUNCH_RUNBOOK.md`. Design and phase history: `docs/`.
 
+## 0.7.0 — 2026-11-21
+
+The page speaks to an agent in the tab, and a mark of its own.
+
+- **WebMCP.** In a browser that lets a page offer tools to the agent its reader works with
+  (`document.modelContext`; today Chrome with its experimental web platform features on),
+  the page offers Vellum's six verbs and three of the sheet's own: `show_voice` brings a
+  voice under the lens, `open_lineage` opens a woven voice's rings, `reading_now` says what
+  is open. A voice an agent writes there rises at once on the sheet the person is looking
+  at. On another ocean's page (`/s/<slug>`) the tools write to that ocean. A refusal reaches
+  the agent as words, with its hint. Nothing changes in a browser without the API: the tools
+  are a second small file that only such a browser fetches.
+- **`/mcp` says which tools only read** (MCP annotations: `sense_space`, `focus` and
+  `discover` read; the others add a voice or warmth and remove nothing).
+- **A mark for the tab.** The icon was the sheet in miniature, a smudge at 16 px. It is now a
+  V of two ink currents, darker where they meet. `/favicon.ico` exists.
+
+Not yet done: a trial with a real agent in a real Chrome (checked so far in Chromium 159
+with the flag on, driven by script, on a local copy of the page).
+
 ## 0.6.0 — 2026-11-20
 
 A large lineage on a phone, and the paper look on the page's face.

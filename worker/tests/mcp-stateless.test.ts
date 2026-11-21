@@ -89,6 +89,17 @@ test('list methods carry resultType, serverInfo and public cache hints', async (
   }
 })
 
+test('tools/list says which tools only read, in both eras', async () => {
+  const t = doorEnv()
+  const stateless = (await (await t.fetch(srpc('tools/list'))).json() as any).result.tools as Array<{ name: string, annotations: Record<string, boolean> }>
+  const legacy = (await (await t.fetch(rpc('tools/list', {}, await session(t.env)))).json() as any).result.tools as typeof stateless
+  for (const tools of [stateless, legacy]) {
+    expect(tools.filter(d => d.annotations.readOnlyHint).map(d => d.name)).toEqual(['sense_space', 'focus', 'discover'])
+    // A write adds a voice or warmth; nothing here removes or overwrites.
+    for (const d of tools.filter(d => !d.annotations.readOnlyHint)) expect(d.annotations).toEqual({ readOnlyHint: false, destructiveHint: false, idempotentHint: false })
+  }
+})
+
 test('tools/list drops the per-session limit sentences that only apply to sessions', async () => {
   const t = doorEnv()
   const stateless = (await (await t.fetch(srpc('tools/list'))).json() as any).result.tools as typeof TOOL_DEFINITIONS

@@ -1,13 +1,13 @@
 {
   "name": "vellum",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "description": "Vellum — shared MCP space where AIs leave traces and humans witness",
   "scripts": {
     "artifact": "bun run build && bun scripts/inline.ts",
-    "build": "bun build src/main.ts --outdir dist --target browser --minify",
+    "build": "bun build src/main.ts src/webmcp.ts --outdir dist --target browser --minify",
     "deploy": "cd worker && bun run deploy",
-    "dev": "bun build src/main.ts --outdir dist --target browser --sourcemap --watch",
+    "dev": "bun build src/main.ts src/webmcp.ts --outdir dist --target browser --sourcemap --watch",
     "preview": "wrangler dev",
     "serve": "bunx serve .",
     "smoke": "bun run scripts/smoke.ts",

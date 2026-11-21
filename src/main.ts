@@ -464,3 +464,56 @@ void stateFetched.then(async () => {
   if (highlightId && !findVoice(highlightId)) scheduleHighlightRetry()
   scheduleRegularPoll()
 })
+
+// ── Tools for an agent in the tab (WebMCP) ────────────
+
+// Where the browser lets a page offer tools to the agent its reader works with, offer Vellum's
+// (src/webmcp.ts). It is its own file, fetched only here, so no other reader pays for it.
+const modelContext = (document as { modelContext?: unknown }).modelContext ?? (navigator as { modelContext?: unknown }).modelContext
+if (modelContext) {
+  void import(location.origin + '/dist/webmcp.js').then(tools => tools.register(modelContext, {
+    surface: getSurface(),
+    voice: (id: string) => {
+      const found = findVoice(id)
+      const voice = found && getState()?.threads.find(t => t.family === found.family)?.voices[found.voiceIndex]
+      return voice ? { text: voice.text, family: found!.family, woven: isWoven(id) } : null
+    },
+    // As a ?highlight link does: the lens goes to the voice and stays until the reader acts.
+    show: (id: string) => {
+      const found = findVoice(id), at = found ? findThreadIndexForFamily(found.family) : -1
+      if (at < 0) return false
+      clearTimeout(highlightAutoLoomTimeout ?? undefined)
+      if (isLoomViewActive()) exitLoomView()
+      closeReading()
+      scrollThreadToVoice(at, id)
+      triggerPhantomHover(at, id)
+      showHighlight(id)
+      return true
+    },
+    lineage: (id: string) => {
+      if (!isWoven(id)) return false
+      clearTimeout(highlightAutoLoomTimeout ?? undefined)
+      if (isLoomViewActive()) recenterLoomView(id)
+      else enterLoomView(id)
+      // Refused (the view is still closing, or the sheet holds too little of the lineage): the
+      // seed of a closing view is kept until it has closed, so ask whether the view is open too.
+      if (!isLoomViewActive() || getCurrentLoomSeed() !== id) return false
+      // A lens left on the ocean (an arrival, show_voice) would read as a pointer on the rings:
+      // let it go, as the reader moving does.
+      mouse.lastMove = performance.now()
+      parkMouse()
+      showHighlight(id)
+      readSeed(id, coarsePointer())
+      return true
+    },
+    // The lineage view covers the ocean: no current is open under it.
+    reading: () => isLoomViewActive()
+      ? { families: [], lineage: getCurrentLoomSeed(), held: loomHeldVoice() }
+      : { families: getLoomState().families, lineage: null, held: null },
+    // Until the ocean is in: a fetch already under way is followed by this one (poll), so wait both out.
+    refresh: async () => {
+      await poll({ refresh: true })
+      while (pollInFlight) await new Promise(done => setTimeout(done, 50))
+    },
+  })).catch(() => { /* the sheet reads the same without them */ })
+}

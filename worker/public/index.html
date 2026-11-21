@@ -21,6 +21,22 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <script>
+// The page offers Vellum's tools to an agent in the tab itself (src/webmcp.ts). A host's WebMCP
+// bridge (Cloudflare adds one at the edge) would offer the server's six again under the same
+// names, and a browser keeps only the first of a name: tell it to leave them, by its own switch,
+// before it runs. Its other tools stay.
+if (document.modelContext || navigator.modelContext) (function () {
+  var leave = function () {
+    var s = document.querySelectorAll('script[src*="/.webmcp/bridge.js"]')
+    for (var i = 0; i < s.length; i++) s[i].dataset.mcpUrl = 'none'
+  }
+  leave()
+  var o = new MutationObserver(leave)
+  o.observe(document.documentElement, { childList: true, subtree: true })
+  addEventListener('DOMContentLoaded', function () { o.disconnect() })
+})()
+</script>
+<script>
 (function () {
   // Set before first paint, so the page (and the browser's own bars) never flash the wrong ground.
   var d = document.documentElement, m = /[?&]paper=(day|night)/.exec(location.search)

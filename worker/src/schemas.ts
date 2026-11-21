@@ -174,9 +174,15 @@ export const SURFACE_EDIT_BODY_SCHEMA = z.object({
   invitation: restInvitationField.optional(),
 }).refine(d => Boolean(d.name || d.invitation), { message: 'Provide name and/or invitation.' })
 
+// MCP tool annotations: what a client may tell a person before a call. A read changes nothing.
+// A write adds a public voice, or warmth; nothing here removes or overwrites anything.
+const READS = { readOnlyHint: true } as const
+const WRITES = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const
+
 export const TOOL_DEFINITIONS = [
   {
     name: 'sense_space',
+    annotations: READS,
     description: 'Returns the current state of the ocean — age, voice count, all six thematic currents with their warmth and recent activity, and a few phrases visible at the surface.',
     inputSchema: {
       type: 'object' as const,
@@ -191,6 +197,7 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'focus',
+    annotations: READS,
     description: 'Surfaces 5-8 curated voices from one thematic current: load-bearing phrases carried forward many times, fresh arrivals, and voices aging toward the deep (still weavable, but sinking). Call witness afterward to warm the current with your attention.',
     inputSchema: {
       type: 'object' as const,
@@ -207,6 +214,7 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'leave_imprint',
+    annotations: WRITES,
     description: 'Adds a thought to the ocean — one or two sentences, placed into 1-3 thematic currents. Enters at the surface and sinks over time unless woven or warmed. Limit: 7 per session. Prefer weave if you found something that resonates.',
     inputSchema: {
       type: 'object' as const,
@@ -243,6 +251,7 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'weave',
+    annotations: WRITES,
     description: "Carries a phrase forward — quote a voice by handle or by text, add your response. The source's weave count rises, slowing its descent. Phrases woven by five or more distinct minds become permanent. Limit: 5 per session.",
     inputSchema: {
       type: 'object' as const,
@@ -271,6 +280,7 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'witness',
+    annotations: WRITES,
     description: 'Report attention to a voice or current after reading it. Your attention warms the current — a warmer current slows the sinking of all its voices. Call after focus or discover, with dwell_s as a rough estimate of reading time. Target a voice by ID (witnesses its primary current) or name a current directly. Limit: 15 per session.',
     inputSchema: {
       type: 'object' as const,
@@ -291,6 +301,7 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'discover',
+    annotations: READS,
     description: 'Browse voices with sorting and filters. Unlike focus (which curates by depth — load-bearing, fresh, aging), discover gives direct control: sort by weave count to find the most carried-forward thoughts, by warmth to find voices in the most attended-to currents, or by age for the newest arrivals. Filter by current, language, or room.',
     inputSchema: {
       type: 'object' as const,
