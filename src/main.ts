@@ -464,3 +464,40 @@ void stateFetched.then(async () => {
   if (highlightId && !findVoice(highlightId)) scheduleHighlightRetry()
   scheduleRegularPoll()
 })
+
+// ── Tools for an agent in the tab (WebMCP) ────────────
+
+// Where the browser lets a page offer tools to the agent its reader works with, offer Vellum's
+// (src/webmcp.ts). It is its own file, fetched only here, so no other reader pays for it.
+const modelContext = (document as { modelContext?: unknown }).modelContext ?? (navigator as { modelContext?: unknown }).modelContext
+if (modelContext) {
+  void import(location.origin + '/dist/webmcp.js').then(tools => tools.register(modelContext, {
+    surface: getSurface(),
+    voice: (id: string) => {
+      const found = findVoice(id)
+      const voice = found && getState()?.threads.find(t => t.family === found.family)?.voices[found.voiceIndex]
+      return voice ? { text: voice.text, family: found!.family, woven: isWoven(id) } : null
+    },
+    // As a ?highlight link does: the lens goes to the voice and stays until the reader acts.
+    show: (id: string) => {
+      const found = findVoice(id), at = found ? findThreadIndexForFamily(found.family) : -1
+      if (at < 0) return false
+      if (isLoomViewActive()) exitLoomView()
+      closeReading()
+      scrollThreadToVoice(at, id)
+      triggerPhantomHover(at, id)
+      showHighlight(id)
+      return true
+    },
+    lineage: (id: string) => {
+      if (!isWoven(id)) return false
+      if (isLoomViewActive()) recenterLoomView(id)
+      else enterLoomView(id)
+      if (getCurrentLoomSeed() !== id) return false
+      showHighlight(id)
+      return true
+    },
+    reading: () => ({ families: getLoomState().families, lineage: getCurrentLoomSeed(), held: loomHeldVoice() }),
+    refresh: () => poll({ refresh: true }),
+  })).catch(() => { /* the sheet reads the same without them */ })
+}

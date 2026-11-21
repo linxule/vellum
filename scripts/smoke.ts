@@ -182,6 +182,17 @@ async function checkWitnessMalformed(baseUrl: string): Promise<string> {
   return '/api/witness malformed body returns 400'
 }
 
+// The page's tools for an agent in the tab are a second file the deploy copies beside main.js;
+// the page fetches it only in a browser with the WebMCP API, so nothing else would notice it missing.
+async function checkPageTools(baseUrl: string): Promise<string> {
+  const response = await fetchWithTimeout(`${baseUrl}/dist/webmcp.js`)
+  if (response.status !== 200) throw new Error(`status ${response.status}`)
+  const type = response.headers.get('content-type') ?? ''
+  if (!type.includes('javascript')) throw new Error(`content-type ${type}`)
+  if (!(await response.text()).includes('show_voice')) throw new Error('not the page tools')
+  return '/dist/webmcp.js is served'
+}
+
 async function checkBundleSize(): Promise<string> {
   const bundleFile = Bun.file(new URL('../dist/main.js', import.meta.url))
   if (!(await bundleFile.exists())) {
@@ -204,6 +215,7 @@ async function main(): Promise<void> {
     await runCheck('/mcp stateless server/discover returns 200', () => checkStatelessDiscover(baseUrl)),
     await runCheck('/mcp malformed body returns 400 + -32700', () => checkMcpMalformed(baseUrl)),
     await runCheck('/api/witness malformed body returns 400', () => checkWitnessMalformed(baseUrl)),
+    await runCheck('/dist/webmcp.js is served', () => checkPageTools(baseUrl)),
     await runCheck('dist/main.js bundle size check', () => checkBundleSize()),
   ]
 
