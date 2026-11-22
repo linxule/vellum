@@ -1,11 +1,22 @@
 import agentsText from '../../AGENTS.md'
 import { CONTRACT, LEGACY_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS, PROTOCOL_VERSIONS, SERVER_VERSION, type EndpointName } from './contract'
 import { envelope, errorResponse } from './errors'
+import { TOOL_DEFINITIONS } from './schemas'
 import { instrumentList } from './sound'
 
 export function renderMcpCard(origin: string) {
   return {
-    name: CONTRACT.name, description: CONTRACT.description, version: SERVER_VERSION,
+    $schema: 'https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json',
+    name: CONTRACT.name,
+    title: 'Vellum',
+    description: CONTRACT.description,
+    version: SERVER_VERSION,
+    websiteUrl: origin,
+    remotes: [{ type: 'streamable-http', url: `${origin}/mcp`, supportedProtocolVersions: [...PROTOCOL_VERSIONS] }],
+    authentication: { required: false },
+    capabilities: { tools: {}, resources: {}, extensions: { 'io.modelcontextprotocol/ui': {} } },
+    serverInfo: { name: CONTRACT.name, title: 'Vellum', version: SERVER_VERSION, websiteUrl: origin },
+    tools: TOOL_DEFINITIONS.map(t => t.name),
     transports: [{ type: 'streamable-http', url: `${origin}/mcp` }],
     protocolVersions: PROTOCOL_VERSIONS,
     documentation: { llms: CONTRACT.docs.llms, full: CONTRACT.docs.full, for_ai: CONTRACT.docs.for_ai },
@@ -215,7 +226,10 @@ export function discoveryResponse(request: Request): Response | null {
   let type = 'application/json'
   const endpoint = (Object.keys(CONTRACT.endpoints) as EndpointName[]).find(name => CONTRACT.endpoints[name].path === pathname)
   if (endpoint) body = JSON.stringify(renderEndpoint(endpoint))
-  else if (pathname === CONTRACT.docs.mcp_card || pathname === CONTRACT.docs.server_card) body = JSON.stringify(renderMcpCard(origin))
+  else if (pathname === CONTRACT.docs.mcp_card || pathname === CONTRACT.docs.server_card || pathname === '/mcp/server-card') {
+    if (pathname === CONTRACT.docs.server_card || pathname === '/mcp/server-card') type = 'application/mcp-server-card+json'
+    body = JSON.stringify(renderMcpCard(origin))
+  }
   else if (pathname === CONTRACT.docs.robots) { body = ROBOTS; type = 'text/plain' }
   else if (pathname === CONTRACT.docs.agents) { body = agentsText; type = 'text/markdown' }
   else if (pathname === CONTRACT.docs.skill) { body = renderSkill(); type = 'text/markdown' }
@@ -243,6 +257,7 @@ const READ_METHODS = ['GET', 'HEAD', 'OPTIONS']
 const ROUTES = [
   ...Object.values(CONTRACT.endpoints).map(e => ({ path: e.path as string, methods: ['GET', 'HEAD', 'POST', 'OPTIONS'] })),
   ...Object.values(CONTRACT.docs).map(path => ({ path: path as string, methods: READ_METHODS })),
+  { path: '/mcp/server-card', methods: READ_METHODS },
   ...['/api/state', '/api/voices', '/api/lineages'].map(path => ({ path, methods: ['GET', 'OPTIONS'] })),
   ...['/ext-app', '/ext-app/'].map(path => ({ path, methods: READ_METHODS })),
   // These three are unreachable from THIS module's own methodNotAllowed() call as invoked from

@@ -16,8 +16,16 @@ test('C2 C7: MCP mirrors are byte-identical and use the request origin', async (
   const t = doorEnv()
   for (const origin of ['https://vellum.linxule.com', 'https://vellum.linxule.workers.dev']) {
     const r = await t.fetch(new Request(origin + CONTRACT.docs.mcp_card)); const mirror = await t.fetch(new Request(origin + CONTRACT.docs.server_card))
-    expect(r.status).toBe(200); const text = await r.text(); expect(await mirror.text()).toBe(text)
-    expect(JSON.parse(text).transports).toEqual([{ type: 'streamable-http', url: origin + '/mcp' }])
+    const workerCard = await t.fetch(new Request(origin + '/mcp/server-card'))
+    expect(r.status).toBe(200); expect(workerCard.status).toBe(200)
+    expect(mirror.headers.get('content-type')).toContain('application/mcp-server-card+json')
+    expect(workerCard.headers.get('content-type')).toContain('application/mcp-server-card+json')
+    const text = await r.text(); expect(await mirror.text()).toBe(text); expect(await workerCard.text()).toBe(text)
+    const parsed = JSON.parse(text)
+    expect(parsed.transports).toEqual([{ type: 'streamable-http', url: origin + '/mcp' }])
+    expect(parsed.remotes?.[0]).toMatchObject({ type: 'streamable-http', url: origin + '/mcp' })
+    expect(parsed.tools).toHaveLength(6)
+    expect(parsed.authentication).toEqual({ required: false })
   }
 })
 test('C3: served AGENTS is the compact generated repo document', async () => {
